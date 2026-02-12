@@ -27,7 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.center()
         window.title = "Canopy"
         window.titlebarAppearsTransparent = true
-        window.backgroundColor = NSColor(red: 0.059, green: 0.059, blue: 0.078, alpha: 1)
+        window.backgroundColor = NSColor(red: 0.055, green: 0.065, blue: 0.06, alpha: 1)
         window.contentView = NSHostingView(rootView: contentView)
         window.makeKeyAndOrderFront(nil)
         window.setFrameAutosaveName("CanopyMainWindow")

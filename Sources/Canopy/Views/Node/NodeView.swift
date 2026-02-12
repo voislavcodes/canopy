@@ -4,34 +4,34 @@ struct NodeView: View {
     let node: Node
     let isSelected: Bool
 
-    private let nodeRadius: CGFloat = 40
+    private let nodeRadius: CGFloat = 22
 
     var body: some View {
-        ZStack {
-            if isSelected {
-                NodeGlowEffect(radius: nodeRadius)
+        VStack(spacing: 6) {
+            ZStack {
+                if isSelected {
+                    NodeGlowEffect(radius: nodeRadius)
+                }
+
+                // Node fill — bright green circle
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                CanopyColors.nodeFill,
+                                CanopyColors.nodeFill.opacity(0.8),
+                            ],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: nodeRadius
+                        )
+                    )
+                    .frame(width: nodeRadius * 2, height: nodeRadius * 2)
             }
 
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            CanopyColors.nodeFill.opacity(0.9),
-                            CanopyColors.nodeFill,
-                        ],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: nodeRadius
-                    )
-                )
-                .frame(width: nodeRadius * 2, height: nodeRadius * 2)
-
-            Circle()
-                .stroke(CanopyColors.nodeStroke, lineWidth: 2)
-                .frame(width: nodeRadius * 2, height: nodeRadius * 2)
-
-            Text(node.name)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+            // Label below node
+            Text(node.name.lowercased())
+                .font(.system(size: 13, weight: .regular, design: .monospaced))
                 .foregroundColor(CanopyColors.nodeLabel)
         }
         .position(x: node.position.x, y: node.position.y)

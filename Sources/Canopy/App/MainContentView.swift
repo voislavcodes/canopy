@@ -5,36 +5,16 @@ struct MainContentView: View {
     @ObservedObject var transportState: TransportState
     @StateObject private var canvasState = CanvasState()
 
-    @State private var keyboardOctave: Int = 3
-
-    private var hasSelection: Bool {
-        projectState.selectedNodeID != nil
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             ToolbarView(projectState: projectState, transportState: transportState)
 
-            HStack(spacing: 0) {
-                // Left bloom panel: synth controls
-                if hasSelection {
-                    SynthControlsPanel(projectState: projectState)
-                        .transition(.move(edge: .leading))
-                }
-
-                // Center: canvas
-                CanopyCanvasView(projectState: projectState, canvasState: canvasState)
-
-                // Right bloom panel: step sequencer
-                if hasSelection {
-                    StepSequencerPanel(projectState: projectState, transportState: transportState)
-                        .transition(.move(edge: .trailing))
-                }
-            }
-            .animation(.easeInOut(duration: 0.2), value: hasSelection)
-
-            // Bottom: keyboard (always visible)
-            KeyboardBarView(baseOctave: $keyboardOctave)
+            // Canvas fills all remaining space — bloom UI (including keyboard) lives inside it
+            CanopyCanvasView(
+                projectState: projectState,
+                canvasState: canvasState,
+                transportState: transportState
+            )
         }
         .background(CanopyColors.canvasBackground)
         .onAppear {
@@ -48,13 +28,11 @@ struct MainContentView: View {
     // MARK: - Node Selection Change
 
     private func handleNodeSelectionChange() {
-        // Stop sequencer and silence all notes when switching nodes
         if transportState.isPlaying {
             transportState.stopPlayback()
         }
         AudioEngine.shared.allNotesOff()
 
-        // Configure audio engine with selected node's patch
         if let node = projectState.selectedNode {
             pushPatchToEngine(node.patch)
             loadSequenceToEngine(node)
@@ -99,17 +77,15 @@ struct MainContentView: View {
 
     private func setupSpacebarHandler() {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Space bar — toggle playback (only when not editing text fields)
             if event.keyCode == 49 && !isEditingTextField() {
                 transportState.togglePlayback()
-                return nil // consume the event
+                return nil
             }
             return event
         }
     }
 
     private func isEditingTextField() -> Bool {
-        // Check if first responder is a text field
         guard let firstResponder = NSApp.keyWindow?.firstResponder else { return false }
         return firstResponder is NSTextView || firstResponder is NSTextField
     }

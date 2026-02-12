@@ -1,33 +1,32 @@
 import SwiftUI
 
+/// Concentric ring glow around a selected node.
+/// Two thin rings at increasing radii + subtle soft glow.
 struct NodeGlowEffect: View {
-    var color: Color = CanopyColors.glowColor
-    var radius: CGFloat = 40
+    var radius: CGFloat = 22
 
-    @State private var pulse: CGFloat = 0.8
+    @State private var pulse: CGFloat = 0.85
 
     var body: some View {
         ZStack {
-            // Outer soft glow
+            // Soft outer glow
             Circle()
-                .fill(color.opacity(0.15 * Double(pulse)))
-                .frame(width: radius * 3, height: radius * 3)
-                .blur(radius: 20)
+                .fill(CanopyColors.glowColor.opacity(0.06 * Double(pulse)))
+                .frame(width: radius * 4.5, height: radius * 4.5)
+                .blur(radius: 15)
 
-            // Mid glow
+            // Outer ring
             Circle()
-                .fill(color.opacity(0.25 * Double(pulse)))
-                .frame(width: radius * 2.2, height: radius * 2.2)
-                .blur(radius: 10)
+                .stroke(CanopyColors.nodeStroke.opacity(0.4 * Double(pulse)), lineWidth: 1)
+                .frame(width: radius * 3.6, height: radius * 3.6)
 
-            // Inner crisp ring
+            // Inner ring
             Circle()
-                .stroke(color.opacity(0.6 * Double(pulse)), lineWidth: 2.5)
-                .frame(width: radius * 2 + 6, height: radius * 2 + 6)
-                .blur(radius: 2)
+                .stroke(CanopyColors.nodeStroke.opacity(0.7 * Double(pulse)), lineWidth: 1.5)
+                .frame(width: radius * 2.8, height: radius * 2.8)
         }
         .onAppear {
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+            withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
                 pulse = 1.0
             }
         }

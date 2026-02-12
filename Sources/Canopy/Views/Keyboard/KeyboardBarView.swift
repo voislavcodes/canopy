@@ -1,75 +1,54 @@
 import SwiftUI
 
-/// Persistent bottom bar with a 3-octave piano keyboard (C3–B5).
-/// Octave shift buttons allow transposition. Sends noteOn/noteOff
-/// to AudioEngine when keys are pressed/released.
+/// Persistent bottom bar with a compact piano keyboard.
+/// Matches the mockup: gray/white keys with "play into focused node" label.
 struct KeyboardBarView: View {
-    @Binding var baseOctave: Int // default 3 (C3)
+    @Binding var baseOctave: Int
 
-    // Track currently pressed keys for visual feedback
     @State private var pressedNotes: Set<Int> = []
 
-    private let whiteKeyWidth: CGFloat = 28
-    private let whiteKeyHeight: CGFloat = 80
-    private let blackKeyWidth: CGFloat = 18
-    private let blackKeyHeight: CGFloat = 50
+    private let whiteKeyWidth: CGFloat = 24
+    private let whiteKeyHeight: CGFloat = 56
+    private let blackKeyWidth: CGFloat = 15
+    private let blackKeyHeight: CGFloat = 34
+    private let octaveCount = 2
 
-    // 3 octaves of white keys
-    private let octaveCount = 3
-
-    // Which semitone offsets within an octave are white keys
     private static let whiteKeyOffsets = [0, 2, 4, 5, 7, 9, 11]
-    // Which semitone offsets have a black key to their right
-    private static let blackKeyAfterWhite = [0, 2, 5, 7, 9] // C, D, F, G, A have sharps
+    private static let blackKeyAfterWhite = [0, 2, 5, 7, 9]
 
-    /// MIDI note number for a given semitone offset in a given octave
     private func midiNote(octave: Int, semitone: Int) -> Int {
-        (octave + 1) * 12 + semitone // C4 = 60 when octave=4
+        (octave + 1) * 12 + semitone
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .frame(height: 1)
-                .foregroundColor(CanopyColors.chromeBorder)
-
+        VStack(spacing: 4) {
             HStack(spacing: 0) {
                 // Octave down
                 Button(action: { if baseOctave > 0 { baseOctave -= 1 } }) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(CanopyColors.chromeText)
-                        .frame(width: 30, height: whiteKeyHeight)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                        .frame(width: 24, height: whiteKeyHeight)
                 }
                 .buttonStyle(.plain)
 
-                Text("C\(baseOctave)")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText)
-                    .frame(width: 28)
-
                 // Piano keys
                 keyboardView
-
-                Text("B\(baseOctave + octaveCount - 1)")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText)
-                    .frame(width: 28)
+                    .padding(.horizontal, 2)
 
                 // Octave up
                 Button(action: { if baseOctave < 7 { baseOctave += 1 } }) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(CanopyColors.chromeText)
-                        .frame(width: 30, height: whiteKeyHeight)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                        .frame(width: 24, height: whiteKeyHeight)
                 }
                 .buttonStyle(.plain)
-
-                Spacer()
             }
-            .padding(.horizontal, 4)
-            .frame(height: whiteKeyHeight + 8)
-            .background(CanopyColors.chromeBackground)
+
+            Text("play into focused node")
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.35))
         }
     }
 
@@ -82,12 +61,11 @@ struct KeyboardBarView: View {
                     let whiteIndex = index % 7
                     let semitone = Self.whiteKeyOffsets[whiteIndex]
                     let note = midiNote(octave: octave, semitone: semitone)
-
                     whiteKey(note: note)
                 }
             }
 
-            // Black keys overlaid
+            // Black keys
             HStack(spacing: 1) {
                 ForEach(0..<(octaveCount * 7), id: \.self) { index in
                     let octave = baseOctave + (index / 7)
@@ -116,10 +94,11 @@ struct KeyboardBarView: View {
 
     private func whiteKey(note: Int) -> some View {
         let isPressed = pressedNotes.contains(note)
-        return Rectangle()
-            .fill(isPressed ? Color(red: 0.7, green: 0.9, blue: 0.75) : Color(red: 0.9, green: 0.9, blue: 0.88))
+        return RoundedRectangle(cornerRadius: 2)
+            .fill(isPressed
+                  ? Color(red: 0.4, green: 0.6, blue: 0.45)
+                  : Color(red: 0.55, green: 0.58, blue: 0.55))
             .frame(width: whiteKeyWidth, height: whiteKeyHeight)
-            .border(Color(red: 0.5, green: 0.5, blue: 0.48), width: 0.5)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
@@ -137,10 +116,11 @@ struct KeyboardBarView: View {
 
     private func blackKey(note: Int) -> some View {
         let isPressed = pressedNotes.contains(note)
-        return Rectangle()
-            .fill(isPressed ? Color(red: 0.3, green: 0.5, blue: 0.35) : Color(red: 0.12, green: 0.12, blue: 0.14))
+        return RoundedRectangle(cornerRadius: 2)
+            .fill(isPressed
+                  ? Color(red: 0.25, green: 0.4, blue: 0.3)
+                  : Color(red: 0.25, green: 0.28, blue: 0.26))
             .frame(width: blackKeyWidth, height: blackKeyHeight)
-            .cornerRadius(0, antialiased: false)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in

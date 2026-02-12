@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Left bloom panel: waveform picker, detune slider, ADSR envelope, volume.
-/// Reads from the selected node's SoundPatch and writes changes back to both
-/// the data model (via ProjectState) and the audio engine (via AudioEngine).
+/// Bloom panel: synth controls with waveform picker, sliders.
+/// Positioned in canvas space around the selected node.
 struct SynthControlsPanel: View {
     @ObservedObject var projectState: ProjectState
 
@@ -23,78 +22,75 @@ struct SynthControlsPanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("SYNTH")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText)
 
             if let osc = oscillatorConfig, let patch {
-                // Waveform picker
-                waveformPicker(current: osc.waveform)
-
-                Divider().background(CanopyColors.chromeBorder)
-
-                // Detune
-                labeledSlider(label: "DETUNE", value: osc.detune, range: -100...100, suffix: "ct") { val in
-                    updateOscillator { $0.detune = val }
-                }
-
-                Divider().background(CanopyColors.chromeBorder)
-
-                // ADSR Envelope
-                Text("ENVELOPE")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText)
-
-                labeledSlider(label: "ATK", value: patch.envelope.attack, range: 0.001...2.0, suffix: "s") { val in
-                    updateEnvelope { $0.attack = val }
-                }
-                labeledSlider(label: "DEC", value: patch.envelope.decay, range: 0.001...2.0, suffix: "s") { val in
-                    updateEnvelope { $0.decay = val }
-                }
-                labeledSlider(label: "SUS", value: patch.envelope.sustain, range: 0...1.0, suffix: "") { val in
-                    updateEnvelope { $0.sustain = val }
-                }
-                labeledSlider(label: "REL", value: patch.envelope.release, range: 0.01...5.0, suffix: "s") { val in
-                    updateEnvelope { $0.release = val }
-                }
-
-                Divider().background(CanopyColors.chromeBorder)
-
-                // Volume
-                labeledSlider(label: "VOL", value: patch.volume, range: 0...1.0, suffix: "") { val in
+                // Volume / level slider
+                bloomSlider(value: patch.volume, range: 0...1) { val in
                     updatePatch { $0.volume = val }
                 }
-            } else {
-                Text("Select a node")
-                    .font(.system(size: 12))
-                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-            }
 
-            Spacer()
+                // ADSR compact
+                HStack(spacing: 6) {
+                    miniSlider(label: "A", value: patch.envelope.attack, range: 0.001...2.0) { val in
+                        updateEnvelope { $0.attack = val }
+                    }
+                    miniSlider(label: "D", value: patch.envelope.decay, range: 0.001...2.0) { val in
+                        updateEnvelope { $0.decay = val }
+                    }
+                    miniSlider(label: "S", value: patch.envelope.sustain, range: 0...1.0) { val in
+                        updateEnvelope { $0.sustain = val }
+                    }
+                    miniSlider(label: "R", value: patch.envelope.release, range: 0.01...5.0) { val in
+                        updateEnvelope { $0.release = val }
+                    }
+                }
+
+                // Waveform label
+                Text("waveform")
+                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.6))
+
+                // Waveform text buttons
+                waveformPicker(current: osc.waveform)
+            }
         }
-        .padding(12)
-        .frame(width: 180)
-        .background(CanopyColors.chromeBackground)
+        .padding(14)
+        .frame(width: 220)
+        .background(CanopyColors.bloomPanelBackground.opacity(0.9))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
+        )
     }
 
     // MARK: - Waveform Picker
 
     private func waveformPicker(current: Waveform) -> some View {
-        HStack(spacing: 8) {
-            ForEach(Waveform.allCases, id: \.self) { wf in
+        HStack(spacing: 6) {
+            ForEach(waveformOptions, id: \.0) { (label, wf) in
                 Button(action: {
                     updateOscillator { $0.waveform = wf }
                 }) {
-                    waveformIcon(wf)
-                        .frame(width: 24, height: 24)
+                    Text(label)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundColor(current == wf ? CanopyColors.glowColor : CanopyColors.chromeText)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
                         .background(
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(current == wf ? CanopyColors.glowColor.opacity(0.2) : Color.clear)
+                                .fill(current == wf ? CanopyColors.glowColor.opacity(0.1) : Color.clear)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 4)
-                                .stroke(current == wf ? CanopyColors.glowColor : Color.clear, lineWidth: 1)
+                                .stroke(
+                                    current == wf ? CanopyColors.glowColor.opacity(0.5) : CanopyColors.bloomPanelBorder.opacity(0.3),
+                                    lineWidth: 1
+                                )
                         )
                 }
                 .buttonStyle(.plain)
@@ -102,51 +98,70 @@ struct SynthControlsPanel: View {
         }
     }
 
-    @ViewBuilder
-    private func waveformIcon(_ waveform: Waveform) -> some View {
-        let color = CanopyColors.chromeTextBright
-        switch waveform {
-        case .sine:
-            Image(systemName: "waveform.path")
-                .font(.system(size: 12))
-                .foregroundColor(color)
-        case .triangle:
-            Image(systemName: "triangle")
-                .font(.system(size: 12))
-                .foregroundColor(color)
-        case .sawtooth:
-            Image(systemName: "waveform")
-                .font(.system(size: 12))
-                .foregroundColor(color)
-        case .square:
-            Image(systemName: "square")
-                .font(.system(size: 12))
-                .foregroundColor(color)
-        case .noise:
-            Image(systemName: "waveform.badge.magnifyingglass")
-                .font(.system(size: 10))
-                .foregroundColor(color)
-        }
+    private var waveformOptions: [(String, Waveform)] {
+        [("saw", .sawtooth), ("sq", .square), ("tri", .triangle), ("sin", .sine)]
     }
 
-    // MARK: - Slider Component
+    // MARK: - Sliders
 
-    private func labeledSlider(label: String, value: Double, range: ClosedRange<Double>, suffix: String, onChange: @escaping (Double) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(label)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText)
-                Spacer()
-                Text(suffix.isEmpty ? String(format: "%.2f", value) : String(format: "%.2f%@", value, suffix))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText.opacity(0.7))
+    private func bloomSlider(value: Double, range: ClosedRange<Double>, onChange: @escaping (Double) -> Void) -> some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let fraction = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
+            let filledWidth = max(0, min(width, width * fraction))
+
+            ZStack(alignment: .leading) {
+                // Track
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
+                    .frame(height: 8)
+
+                // Filled portion
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(CanopyColors.glowColor.opacity(0.6))
+                    .frame(width: filledWidth, height: 8)
             }
-            Slider(value: Binding(
-                get: { value },
-                set: { onChange($0) }
-            ), in: range)
-            .tint(CanopyColors.glowColor)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        let fraction = max(0, min(1, drag.location.x / width))
+                        let newValue = range.lowerBound + Double(fraction) * (range.upperBound - range.lowerBound)
+                        onChange(newValue)
+                    }
+            )
+        }
+        .frame(height: 8)
+    }
+
+    private func miniSlider(label: String, value: Double, range: ClosedRange<Double>, onChange: @escaping (Double) -> Void) -> some View {
+        VStack(spacing: 2) {
+            Text(label)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+            GeometryReader { geo in
+                let height = geo.size.height
+                let fraction = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
+                let filledHeight = max(0, min(height, height * fraction))
+
+                ZStack(alignment: .bottom) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
+
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(CanopyColors.glowColor.opacity(0.4))
+                        .frame(height: filledHeight)
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { drag in
+                            let fraction = max(0, min(1, 1 - drag.location.y / height))
+                            let newValue = range.lowerBound + Double(fraction) * (range.upperBound - range.lowerBound)
+                            onChange(newValue)
+                        }
+                )
+            }
+            .frame(width: 16, height: 32)
         }
     }
 
@@ -181,11 +196,9 @@ struct SynthControlsPanel: View {
 
     private func pushPatchToEngine() {
         guard let patch = projectState.selectedNode?.patch else { return }
-        let waveformIndex: Int
         if case .oscillator(let config) = patch.soundType {
-            waveformIndex = waveformToIndex(config.waveform)
             AudioEngine.shared.configurePatch(
-                waveform: waveformIndex,
+                waveform: waveformToIndex(config.waveform),
                 detune: config.detune,
                 attack: patch.envelope.attack,
                 decay: patch.envelope.decay,
@@ -207,7 +220,6 @@ struct SynthControlsPanel: View {
     }
 }
 
-// Make Waveform CaseIterable for the picker
 extension Waveform: CaseIterable {
     static var allCases: [Waveform] {
         [.sine, .triangle, .sawtooth, .square, .noise]
