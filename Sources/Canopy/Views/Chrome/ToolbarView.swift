@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ToolbarView: View {
     @ObservedObject var projectState: ProjectState
+    @ObservedObject var transportState: TransportState
 
     @State private var isEditingName = false
     @State private var editedName = ""
@@ -31,14 +32,16 @@ struct ToolbarView: View {
 
             Spacer()
 
-            TransportPlaceholder()
+            TransportView(transportState: transportState)
 
             Spacer()
 
-            // BPM display
-            Text("\(Int(projectState.project.bpm)) BPM")
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText)
+            // Dirty indicator
+            if projectState.isDirty {
+                Circle()
+                    .fill(CanopyColors.chromeText.opacity(0.4))
+                    .frame(width: 6, height: 6)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

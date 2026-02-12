@@ -4,9 +4,19 @@ import SwiftUI
 class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     let projectState = ProjectState()
+    let transportState = TransportState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let contentView = MainContentView(projectState: projectState)
+        // Start audio engine
+        AudioEngine.shared.start()
+
+        // Sync transport BPM with project
+        transportState.bpm = projectState.project.bpm
+
+        let contentView = MainContentView(
+            projectState: projectState,
+            transportState: transportState
+        )
 
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
@@ -29,6 +39,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        transportState.stopPolling()
+        AudioEngine.shared.stop()
     }
 
     // MARK: - Menu Bar
@@ -76,10 +91,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - File Actions
 
     @objc private func newProject() {
+        transportState.stopPlayback()
+        AudioEngine.shared.allNotesOff()
         projectState.project = ProjectFactory.newProject()
         projectState.selectedNodeID = nil
         projectState.currentFilePath = nil
         projectState.isDirty = false
+        transportState.bpm = projectState.project.bpm
     }
 
     @objc private func openProject() {
@@ -91,11 +109,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
             do {
+                self.transportState.stopPlayback()
+                AudioEngine.shared.allNotesOff()
                 let project = try ProjectFileService.load(from: url)
                 self.projectState.project = project
                 self.projectState.selectedNodeID = nil
                 self.projectState.currentFilePath = url
                 self.projectState.isDirty = false
+                self.transportState.bpm = project.bpm
             } catch {
                 let alert = NSAlert(error: error)
                 alert.runModal()

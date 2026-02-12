@@ -11,6 +11,12 @@ class ProjectState: ObservableObject {
         self.project = project
     }
 
+    /// The currently selected node, if any.
+    var selectedNode: Node? {
+        guard let id = selectedNodeID else { return nil }
+        return findNode(id: id)
+    }
+
     func selectNode(_ id: UUID?) {
         selectedNodeID = id
     }
@@ -22,6 +28,16 @@ class ProjectState: ObservableObject {
             }
         }
         return nil
+    }
+
+    /// Update a node in-place using a transform closure. Marks project as dirty.
+    func updateNode(id: UUID, transform: (inout Node) -> Void) {
+        for i in 0..<project.trees.count {
+            if updateNodeRecursive(id: id, in: &project.trees[i].rootNode, transform: transform) {
+                isDirty = true
+                return
+            }
+        }
     }
 
     func allNodes() -> [Node] {
@@ -40,6 +56,20 @@ class ProjectState: ObservableObject {
             }
         }
         return nil
+    }
+
+    @discardableResult
+    private func updateNodeRecursive(id: UUID, in node: inout Node, transform: (inout Node) -> Void) -> Bool {
+        if node.id == id {
+            transform(&node)
+            return true
+        }
+        for i in 0..<node.children.count {
+            if updateNodeRecursive(id: id, in: &node.children[i], transform: transform) {
+                return true
+            }
+        }
+        return false
     }
 
     private func collectNodes(from node: Node, into result: inout [Node]) {
