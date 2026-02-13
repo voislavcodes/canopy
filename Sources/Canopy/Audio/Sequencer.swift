@@ -55,7 +55,6 @@ struct Sequencer {
         guard isPlaying else { return }
 
         let beatsPerSample = bpm / (60.0 * sampleRate)
-        let previousBeat = currentBeat
 
         currentBeat += beatsPerSample
 
@@ -72,12 +71,12 @@ struct Sequencer {
             resetFlags()
         }
 
-        // Check note-on events
+        // Check note events — flags prevent double-triggering within a cycle
         for i in 0..<events.count {
             let event = events[i]
 
-            // Note on: trigger when we cross the start beat
-            if !triggeredOnFlags[i] && currentBeat >= event.startBeat && previousBeat < event.startBeat {
+            // Note on: trigger once we've reached the start beat
+            if !triggeredOnFlags[i] && currentBeat >= event.startBeat {
                 let freq = MIDIUtilities.detunedFrequency(
                     base: MIDIUtilities.frequency(forNote: event.pitch),
                     cents: detune
@@ -86,8 +85,8 @@ struct Sequencer {
                 triggeredOnFlags[i] = true
             }
 
-            // Note off: trigger when we cross the end beat
-            if triggeredOnFlags[i] && !triggeredOffFlags[i] && currentBeat >= event.endBeat && previousBeat < event.endBeat {
+            // Note off: trigger once we've reached the end beat
+            if triggeredOnFlags[i] && !triggeredOffFlags[i] && currentBeat >= event.endBeat {
                 voices.noteOff(pitch: event.pitch)
                 triggeredOffFlags[i] = true
             }
