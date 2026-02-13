@@ -98,15 +98,29 @@ struct MainContentView: View {
     }
 
     private func loadSequenceToEngine(_ node: Node) {
-        let events = node.sequence.notes.map { event in
+        let seq = node.sequence
+        let events = seq.notes.map { event in
             SequencerEvent(
                 pitch: event.pitch,
                 velocity: event.velocity,
                 startBeat: event.startBeat,
-                endBeat: event.startBeat + event.duration
+                endBeat: event.startBeat + event.duration,
+                probability: event.probability,
+                ratchetCount: event.ratchetCount
             )
         }
-        AudioEngine.shared.loadSequence(events, lengthInBeats: node.sequence.lengthInBeats, nodeID: node.id)
+        let key = node.scaleOverride ?? node.key
+        let mutation = seq.mutation
+        AudioEngine.shared.loadSequence(
+            events, lengthInBeats: seq.lengthInBeats, nodeID: node.id,
+            direction: seq.playbackDirection ?? .forward,
+            mutationAmount: mutation?.amount ?? 0,
+            mutationRange: mutation?.range ?? 0,
+            scaleRootSemitone: key.root.semitone,
+            scaleIntervals: key.mode.intervals,
+            accumulatorConfig: seq.accumulator
+        )
+        AudioEngine.shared.setGlobalProbability(seq.globalProbability, nodeID: node.id)
     }
 
     // MARK: - Keyboard Shortcut

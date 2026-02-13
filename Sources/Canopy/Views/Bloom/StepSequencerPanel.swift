@@ -10,10 +10,14 @@ struct StepSequencerPanel: View {
     private static let lengthOptions: [Int] = [3, 4, 6, 8, 16, 32]
 
     private let rows = 8
-    private let baseNote = 55  // G3 — centered range for a single octave+
     /// Target max grid width — cells scale down to fit.
     private let maxGridWidth: CGFloat = 210
 
+    /// MIDI range for the touch strip (C1 to C7)
+    private let midiLow = 24
+    private let midiHigh = 96
+
+    @State private var baseNote: Int = 55  // G3 — scrollable via touch strip
     @State private var showAdvanced = false
 
     private var node: Node? {
@@ -21,7 +25,8 @@ struct StepSequencerPanel: View {
     }
 
     private var columns: Int {
-        Int(node?.sequence.lengthInBeats ?? 8)
+        let beats = node?.sequence.lengthInBeats ?? 2.0
+        return max(1, Int(round(beats / NoteSequence.stepDuration)))
     }
 
     private var cellSpacing: CGFloat {
@@ -54,11 +59,20 @@ struct StepSequencerPanel: View {
             }
 
             if let node {
-                ZStack(alignment: .topLeading) {
-                    gridView(sequence: node.sequence)
+                HStack(spacing: 4) {
+                    // Touch strip (left of grid)
+                    pitchTouchStrip
 
-                    if transportState.isPlaying {
-                        playheadOverlay(lengthInBeats: node.sequence.lengthInBeats)
+                    // Note labels
+                    noteLabels
+
+                    // Grid + playhead
+                    ZStack(alignment: .topLeading) {
+                        gridView(sequence: node.sequence)
+
+                        if transportState.isPlaying {
+                            playheadOverlay(lengthInBeats: node.sequence.lengthInBeats)
+                        }
                     }
                 }
             }
@@ -158,6 +172,66 @@ struct StepSequencerPanel: View {
 
             Spacer()
         }
+    }
+
+    // MARK: - Touch Strip
+
+    /// Ableton Push-style vertical touch strip for scrolling the visible pitch range.
+    private var pitchTouchStrip: some View {
+        let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
+        let totalRange = midiHigh - midiLow - rows
+        let normalizedPos = totalRange > 0
+            ? CGFloat(baseNote - midiLow) / CGFloat(totalRange)
+            : 0.5
+
+        return ZStack(alignment: .bottom) {
+            // Track
+            RoundedRectangle(cornerRadius: 3)
+                .fill(CanopyColors.chromeBackground.opacity(0.6))
+            RoundedRectangle(cornerRadius: 3)
+                .stroke(CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
+
+            // Thumb indicator
+            let thumbHeight: CGFloat = max(12, gridHeight * CGFloat(rows) / CGFloat(midiHigh - midiLow))
+            let travel = gridHeight - thumbHeight
+            RoundedRectangle(cornerRadius: 2)
+                .fill(CanopyColors.glowColor.opacity(0.4))
+                .frame(width: 8, height: thumbHeight)
+                .offset(y: -normalizedPos * travel)
+        }
+        .frame(width: 12, height: gridHeight)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
+                    // Invert: top = high notes, bottom = low notes
+                    let fraction = 1.0 - (value.location.y / gridHeight)
+                    let clamped = max(0, min(1, fraction))
+                    let totalRange = midiHigh - midiLow - rows
+                    baseNote = midiLow + Int(round(clamped * CGFloat(totalRange)))
+                    baseNote = max(midiLow, min(midiHigh - rows, baseNote))
+                }
+        )
+    }
+
+    // MARK: - Note Labels
+
+    /// Shows pitch names for each visible row, to the left of the grid.
+    private var noteLabels: some View {
+        let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
+        return VStack(spacing: cellSpacing) {
+            ForEach((0..<rows).reversed(), id: \.self) { row in
+                let pitch = baseNote + row
+                let name = MIDIUtilities.noteName(forNote: pitch)
+                let isC = pitch % 12 == 0
+                Text(name)
+                    .font(.system(size: 7, weight: isC ? .bold : .regular, design: .monospaced))
+                    .foregroundColor(isC ? CanopyColors.glowColor.opacity(0.7) : CanopyColors.chromeText.opacity(0.35))
+                    .frame(width: 22, height: cellSize, alignment: .trailing)
+            }
+        }
+        .frame(height: gridHeight)
     }
 
     // MARK: - Grid
@@ -481,11 +555,13 @@ struct StepSequencerPanel: View {
 
     // MARK: - Length Change
 
-    private func changeLength(to newLength: Int) {
+    private func changeLength(to newStepCount: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
+        let sd = NoteSequence.stepDuration
+        let newLengthBeats = Double(newStepCount) * sd
         projectState.updateNode(id: nodeID) { node in
-            node.sequence.notes.removeAll { $0.startBeat >= Double(newLength) }
-            node.sequence.lengthInBeats = Double(newLength)
+            node.sequence.notes.removeAll { $0.startBeat >= newLengthBeats }
+            node.sequence.lengthInBeats = newLengthBeats
         }
         reloadSequence()
     }
@@ -646,7 +722,7 @@ struct StepSequencerPanel: View {
     // MARK: - Note Logic
 
     private func findNote(in sequence: NoteSequence, pitch: Int, step: Int) -> NoteEvent? {
-        let stepBeat = Double(step)
+        let stepBeat = Double(step) * NoteSequence.stepDuration
         return sequence.notes.first { event in
             event.pitch == pitch && abs(event.startBeat - stepBeat) < 0.01
         }
@@ -658,7 +734,7 @@ struct StepSequencerPanel: View {
 
     private func toggleNote(pitch: Int, step: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let stepBeat = Double(step)
+        let stepBeat = Double(step) * NoteSequence.stepDuration
 
         projectState.updateNode(id: nodeID) { node in
             if let existingIndex = node.sequence.notes.firstIndex(where: {
@@ -670,7 +746,7 @@ struct StepSequencerPanel: View {
                     pitch: pitch,
                     velocity: 0.8,
                     startBeat: stepBeat,
-                    duration: 1.0
+                    duration: NoteSequence.stepDuration
                 )
                 node.sequence.notes.append(event)
             }

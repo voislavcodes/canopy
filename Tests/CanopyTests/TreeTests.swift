@@ -7,22 +7,19 @@ final class TreeTests: XCTestCase {
 
     func testCycleLengthSingleNode() {
         let state = ProjectState()
-        // Default seed node has 16-beat sequence
-        XCTAssertEqual(state.cycleLengthInBeats(), 16)
+        // Default seed node has 4-beat sequence (16 steps × 0.25)
+        XCTAssertEqual(state.cycleLengthInBeats(), 4)
     }
 
     func testCycleLengthTwoNodes() {
         let state = ProjectState()
         let rootID = state.project.trees[0].rootNode.id
 
-        // Add a child with 8-beat length
-        let child = state.addChildNode(to: rootID)
-        state.updateNode(id: child.id) { node in
-            node.sequence.lengthInBeats = 8
-        }
+        // Add a child — default 2-beat length (8 steps × 0.25)
+        _ = state.addChildNode(to: rootID)
 
-        // LCM(16, 8) = 16
-        XCTAssertEqual(state.cycleLengthInBeats(), 16)
+        // LCM(4, 2) in beats = LCM(16, 8) in steps * 0.25 = 4 beats
+        XCTAssertEqual(state.cycleLengthInBeats(), 4)
     }
 
     func testCycleLengthPolyrhythm3and4() {
@@ -251,8 +248,8 @@ final class TreeTests: XCTestCase {
         let rootID = state.project.trees[0].rootNode.id
         let child = state.addChildNode(to: rootID)
 
-        // Default child sequence length should be 8
-        XCTAssertEqual(child.sequence.lengthInBeats, 8)
+        // Default child sequence length should be 2 beats (8 steps × 0.25)
+        XCTAssertEqual(child.sequence.lengthInBeats, 2)
     }
 
     // MARK: - Upward Growth

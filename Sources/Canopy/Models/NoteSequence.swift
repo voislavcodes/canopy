@@ -121,6 +121,9 @@ struct AccumulatorConfig: Codable, Equatable {
 // MARK: - Note Sequence
 
 struct NoteSequence: Codable, Equatable {
+    /// Duration of one grid step in beats. 0.25 = 16th note.
+    static let stepDuration: Double = 0.25
+
     var notes: [NoteEvent]
     var lengthInBeats: Double
     /// Global probability multiplier for all notes in this sequence (0.0-1.0).
@@ -138,7 +141,7 @@ struct NoteSequence: Codable, Equatable {
 
     init(
         notes: [NoteEvent] = [],
-        lengthInBeats: Double = 16,
+        lengthInBeats: Double = 4,
         globalProbability: Double = 1.0,
         euclidean: EuclideanConfig? = nil,
         pitchRange: PitchRange? = nil,

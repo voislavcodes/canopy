@@ -134,7 +134,7 @@ struct CanopyCanvasView: View {
 
         return VStack(alignment: .trailing, spacing: 4) {
             if nodeCount > 1 {
-                Text("cycle: \(cycle) beats")
+                Text("cycle: \(cycle.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", cycle) : String(format: "%.1f", cycle)) beats")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText)
                     .padding(.horizontal, 10)

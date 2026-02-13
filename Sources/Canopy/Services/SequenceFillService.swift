@@ -20,7 +20,8 @@ enum SequenceFillService {
         key: MusicalKey,
         pitchRange: PitchRange?
     ) {
-        let steps = Int(sequence.lengthInBeats)
+        let sd = NoteSequence.stepDuration
+        let steps = max(1, Int(round(sequence.lengthInBeats / sd)))
         let pattern = EuclideanRhythm.generate(steps: steps, pulses: config.pulses, rotation: config.rotation)
 
         let range = pitchRange ?? PitchRange()
@@ -34,8 +35,8 @@ enum SequenceFillService {
             sequence.notes.append(NoteEvent(
                 pitch: pitch,
                 velocity: 0.8,
-                startBeat: Double(step),
-                duration: 1.0
+                startBeat: Double(step) * sd,
+                duration: sd
             ))
         }
 
@@ -49,13 +50,14 @@ enum SequenceFillService {
         pitchRange: PitchRange?,
         density: Double = 0.5
     ) {
-        let steps = Int(sequence.lengthInBeats)
+        let sd = NoteSequence.stepDuration
+        let steps = max(1, Int(round(sequence.lengthInBeats / sd)))
         let range = pitchRange ?? PitchRange()
         let scaleNotes = key.notesInRange(low: range.low, high: range.high)
         guard !scaleNotes.isEmpty else { return }
 
         // Find steps that already have notes
-        let occupiedSteps = Set(sequence.notes.map { Int(round($0.startBeat)) })
+        let occupiedSteps = Set(sequence.notes.map { Int(round($0.startBeat / sd)) })
 
         for step in 0..<steps {
             guard !occupiedSteps.contains(step) else { continue }
@@ -63,8 +65,8 @@ enum SequenceFillService {
                 sequence.notes.append(NoteEvent(
                     pitch: scaleNotes[Int.random(in: 0..<scaleNotes.count)],
                     velocity: 0.8,
-                    startBeat: Double(step),
-                    duration: 1.0
+                    startBeat: Double(step) * sd,
+                    duration: sd
                 ))
             }
         }

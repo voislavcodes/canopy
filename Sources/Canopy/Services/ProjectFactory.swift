@@ -6,7 +6,7 @@ enum ProjectFactory {
             name: "Seed",
             type: .seed,
             key: MusicalKey(root: .C, mode: .minor),
-            sequence: NoteSequence(lengthInBeats: 16),
+            sequence: NoteSequence(lengthInBeats: 4),
             patch: SoundPatch(
                 name: "Sine Seed",
                 soundType: .oscillator(OscillatorConfig(waveform: .sine))

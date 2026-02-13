@@ -72,7 +72,7 @@ class ProjectState: ObservableObject {
         let newNode = Node(
             name: name,
             type: type,
-            sequence: NoteSequence(lengthInBeats: 8),
+            sequence: NoteSequence(lengthInBeats: 2),
             patch: SoundPatch(
                 name: "Default",
                 soundType: .oscillator(OscillatorConfig(waveform: .sine))
@@ -105,11 +105,14 @@ class ProjectState: ObservableObject {
     }
 
     /// Compute the LCM of all nodes' sequence lengths (the natural polyrhythmic cycle).
-    func cycleLengthInBeats() -> Int {
+    /// Works in step counts to handle fractional beat lengths correctly.
+    func cycleLengthInBeats() -> Double {
         let nodes = allNodes()
         guard !nodes.isEmpty else { return 1 }
-        let lengths = nodes.map { max(1, Int(round($0.sequence.lengthInBeats))) }
-        return lengths.reduce(1) { lcm($0, $1) }
+        let sd = NoteSequence.stepDuration
+        let stepCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats / sd))) }
+        let lcmSteps = stepCounts.reduce(1) { lcm($0, $1) }
+        return Double(lcmSteps) * sd
     }
 
     // MARK: - Layout
