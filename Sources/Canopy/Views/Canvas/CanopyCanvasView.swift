@@ -4,7 +4,7 @@ import AppKit
 struct CanopyCanvasView: View {
     @ObservedObject var projectState: ProjectState
     @ObservedObject var canvasState: CanvasState
-    @ObservedObject var transportState: TransportState
+    var transportState: TransportState
 
     @State private var keyboardOctave: Int = 3
     @State private var scrollMonitor: Any?

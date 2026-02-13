@@ -5,7 +5,7 @@ import SwiftUI
 /// Derives boolean state from NoteSequence.notes.
 struct StepSequencerPanel: View {
     @ObservedObject var projectState: ProjectState
-    @ObservedObject var transportState: TransportState
+    var transportState: TransportState
     @Environment(\.canvasScale) var cs
 
     private let rows = 8
@@ -80,10 +80,18 @@ struct StepSequencerPanel: View {
                             gridView(sequence: node.sequence)
                             velocityBars(sequence: node.sequence)
                         }
+                        .drawingGroup()
 
-                        if transportState.isPlaying {
-                            playheadOverlay(lengthInBeats: node.sequence.lengthInBeats)
-                        }
+                        SequencerPlayhead(
+                            transportState: transportState,
+                            lengthInBeats: node.sequence.lengthInBeats,
+                            columns: columns,
+                            rows: rows,
+                            cellSize: cellSize,
+                            cellSpacing: cellSpacing,
+                            cellCornerRadius: cellCornerRadius,
+                            cs: cs
+                        )
                     }
                 }
             }
@@ -248,14 +256,27 @@ struct StepSequencerPanel: View {
 
     // MARK: - Grid
 
+    /// Build a lookup for O(1) note access: key = (pitch, step) → NoteEvent
+    private func noteEventLookup(for sequence: NoteSequence) -> [Int: NoteEvent] {
+        var dict = [Int: NoteEvent]()
+        dict.reserveCapacity(sequence.notes.count)
+        for event in sequence.notes {
+            let step = Int(round(event.startBeat / NoteSequence.stepDuration))
+            let key = event.pitch &* 1000 &+ step  // unique key for pitch/step pair
+            dict[key] = event
+        }
+        return dict
+    }
+
     private func gridView(sequence: NoteSequence) -> some View {
-        VStack(spacing: cellSpacing) {
+        let lookup = noteEventLookup(for: sequence)
+        return VStack(spacing: cellSpacing) {
             ForEach((0..<rows).reversed(), id: \.self) { row in
                 HStack(spacing: cellSpacing) {
                     ForEach(0..<displayColumns, id: \.self) { col in
                         let pitch = baseNote + row
                         let enabled = col < columns
-                        let noteEvent = enabled ? findNote(in: sequence, pitch: pitch, step: col) : nil
+                        let noteEvent = enabled ? lookup[pitch &* 1000 &+ col] : nil
                         stepCell(pitch: pitch, step: col, noteEvent: noteEvent, sequence: sequence, enabled: enabled)
                     }
                 }
@@ -266,15 +287,22 @@ struct StepSequencerPanel: View {
     // MARK: - Velocity Bars
 
     private func velocityBars(sequence: NoteSequence) -> some View {
+        // Pre-compute max velocity per step
+        var stepVelocities = [Int: Double]()
+        for event in sequence.notes {
+            let step = Int(round(event.startBeat / NoteSequence.stepDuration))
+            if let existing = stepVelocities[step] {
+                if event.velocity > existing { stepVelocities[step] = event.velocity }
+            } else {
+                stepVelocities[step] = event.velocity
+            }
+        }
+
         let maxBarHeight: CGFloat = 5 * cs
         return HStack(spacing: cellSpacing) {
             ForEach(0..<displayColumns, id: \.self) { col in
                 let enabled = col < columns
-                let stepBeat = Double(col) * NoteSequence.stepDuration
-                let maxVel = enabled ? (sequence.notes
-                    .filter { abs($0.startBeat - stepBeat) < 0.01 }
-                    .map(\.velocity)
-                    .max() ?? 0) : 0.0
+                let maxVel = enabled ? (stepVelocities[col] ?? 0) : 0.0
                 let dimFactor: Double = enabled ? 1.0 : 0.25
 
                 RoundedRectangle(cornerRadius: 1 * cs)
@@ -558,22 +586,6 @@ struct StepSequencerPanel: View {
         }
     }
 
-    // MARK: - Playhead
-
-    private func playheadOverlay(lengthInBeats: Double) -> some View {
-        let beatFraction = transportState.currentBeat / max(lengthInBeats, 1)
-        let step = beatFraction * Double(columns)
-        let xOffset = CGFloat(step) * (cellSize + cellSpacing)
-        let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
-        let totalHeight = gridHeight + 2 * cs + 5 * cs  // grid + gap + velocity bars
-
-        return RoundedRectangle(cornerRadius: cellCornerRadius)
-            .fill(CanopyColors.glowColor.opacity(0.2))
-            .frame(width: cellSize, height: totalHeight)
-            .offset(x: xOffset, y: 0)
-            .allowsHitTesting(false)
-    }
-
     // MARK: - Length Change
 
     private func changeLength(to newStepCount: Int) {
@@ -742,17 +754,6 @@ struct StepSequencerPanel: View {
 
     // MARK: - Note Logic
 
-    private func findNote(in sequence: NoteSequence, pitch: Int, step: Int) -> NoteEvent? {
-        let stepBeat = Double(step) * NoteSequence.stepDuration
-        return sequence.notes.first { event in
-            event.pitch == pitch && abs(event.startBeat - stepBeat) < 0.01
-        }
-    }
-
-    private func hasNote(in sequence: NoteSequence, pitch: Int, step: Int) -> Bool {
-        findNote(in: sequence, pitch: pitch, step: step) != nil
-    }
-
     private func toggleNote(pitch: Int, step: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
         let stepBeat = Double(step) * NoteSequence.stepDuration
@@ -816,5 +817,34 @@ struct StepSequencerPanel: View {
             return treeScale
         }
         return projectState.project.globalKey
+    }
+}
+
+// MARK: - Playhead (isolated ObservableObject to avoid re-rendering grid at 30Hz)
+
+private struct SequencerPlayhead: View {
+    @ObservedObject var transportState: TransportState
+    let lengthInBeats: Double
+    let columns: Int
+    let rows: Int
+    let cellSize: CGFloat
+    let cellSpacing: CGFloat
+    let cellCornerRadius: CGFloat
+    let cs: CGFloat
+
+    var body: some View {
+        if transportState.isPlaying {
+            let beatFraction = transportState.currentBeat / max(lengthInBeats, 1)
+            let step = beatFraction * Double(columns)
+            let xOffset = CGFloat(step) * (cellSize + cellSpacing)
+            let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
+            let totalHeight = gridHeight + 2 * cs + 5 * cs
+
+            RoundedRectangle(cornerRadius: cellCornerRadius)
+                .fill(CanopyColors.glowColor.opacity(0.2))
+                .frame(width: cellSize, height: totalHeight)
+                .offset(x: xOffset, y: 0)
+                .allowsHitTesting(false)
+        }
     }
 }

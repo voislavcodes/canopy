@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ToolbarView: View {
     @ObservedObject var projectState: ProjectState
-    @ObservedObject var transportState: TransportState
+    var transportState: TransportState
 
     @State private var isEditingName = false
     @State private var editedName = ""

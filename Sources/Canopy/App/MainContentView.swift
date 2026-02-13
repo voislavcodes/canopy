@@ -2,7 +2,7 @@ import SwiftUI
 
 struct MainContentView: View {
     @ObservedObject var projectState: ProjectState
-    @ObservedObject var transportState: TransportState
+    var transportState: TransportState
     @StateObject private var canvasState = CanvasState()
 
     /// Tracks the previously selected node so we can send allNotesOff on deselect.
