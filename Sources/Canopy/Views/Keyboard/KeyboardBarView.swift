@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Persistent bottom bar with a compact piano keyboard.
-/// Matches the mockup: gray/white keys with "play into focused node" label.
+/// Bloom-positioned piano keyboard.
+/// Wrapped in the same panel styling as other bloom elements.
 struct KeyboardBarView: View {
     @Binding var baseOctave: Int
 
@@ -16,14 +16,18 @@ struct KeyboardBarView: View {
     private static let whiteKeyOffsets = [0, 2, 4, 5, 7, 9, 11]
     private static let blackKeyAfterWhite = [0, 2, 5, 7, 9]
 
+    // Total width: 14 white keys * (24 + 1 spacing) - 1 + padding
+    private var totalKeysWidth: CGFloat {
+        CGFloat(octaveCount * 7) * (whiteKeyWidth + 1) - 1
+    }
+
     private func midiNote(octave: Int, semitone: Int) -> Int {
         (octave + 1) * 12 + semitone
     }
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
             HStack(spacing: 0) {
-                // Octave down
                 Button(action: { if baseOctave > 0 { baseOctave -= 1 } }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 10, weight: .bold))
@@ -32,11 +36,11 @@ struct KeyboardBarView: View {
                 }
                 .buttonStyle(.plain)
 
-                // Piano keys
+                // Piano — fixed-size container so ZStack layers stay together
                 keyboardView
-                    .padding(.horizontal, 2)
+                    .frame(width: totalKeysWidth, height: whiteKeyHeight)
+                    .clipped()
 
-                // Octave up
                 Button(action: { if baseOctave < 7 { baseOctave += 1 } }) {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 10, weight: .bold))
@@ -50,6 +54,15 @@ struct KeyboardBarView: View {
                 .font(.system(size: 11, weight: .regular, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.35))
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(CanopyColors.bloomPanelBackground.opacity(0.9))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
+        )
+        .fixedSize()
     }
 
     private var keyboardView: some View {
@@ -65,7 +78,7 @@ struct KeyboardBarView: View {
                 }
             }
 
-            // Black keys
+            // Black keys overlaid
             HStack(spacing: 1) {
                 ForEach(0..<(octaveCount * 7), id: \.self) { index in
                     let octave = baseOctave + (index / 7)
@@ -75,14 +88,11 @@ struct KeyboardBarView: View {
                     if Self.blackKeyAfterWhite.contains(semitone) {
                         ZStack {
                             Color.clear
-                                .frame(width: whiteKeyWidth)
-                            HStack(spacing: 0) {
-                                Spacer()
-                                blackKey(note: midiNote(octave: octave, semitone: semitone + 1))
-                                    .offset(x: (whiteKeyWidth - blackKeyWidth) / 2 + 1)
-                            }
+                                .frame(width: whiteKeyWidth, height: blackKeyHeight)
+                            blackKey(note: midiNote(octave: octave, semitone: semitone + 1))
+                                .offset(x: (whiteKeyWidth + 1) / 2)
                         }
-                        .frame(width: whiteKeyWidth + 1)
+                        .frame(width: whiteKeyWidth + 1, height: blackKeyHeight)
                     } else {
                         Color.clear
                             .frame(width: whiteKeyWidth + 1, height: blackKeyHeight)

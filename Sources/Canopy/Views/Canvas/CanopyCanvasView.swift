@@ -127,9 +127,9 @@ struct CanopyCanvasView: View {
 
         // Panel offsets from node center
         let synthOffset = CGPoint(x: -290, y: -20)
-        let sequenceOffset = CGPoint(x: 100, y: -40)
-        let promptOffset = CGPoint(x: 0, y: 160)
-        let keyboardOffset = CGPoint(x: 0, y: 260)
+        let sequenceOffset = CGPoint(x: 270, y: -40)
+        let promptOffset = CGPoint(x: 0, y: 190)
+        let keyboardOffset = CGPoint(x: 0, y: 300)
 
         let synthCenter = CGPoint(x: screenPos.x + synthOffset.x, y: screenPos.y + synthOffset.y)
         let seqCenter = CGPoint(x: screenPos.x + sequenceOffset.x, y: screenPos.y + sequenceOffset.y)
@@ -141,7 +141,7 @@ struct CanopyCanvasView: View {
             BloomConnectors(
                 nodeCenter: screenPos,
                 synthCenter: CGPoint(x: synthCenter.x + 150, y: synthCenter.y + 50),
-                seqCenter: CGPoint(x: seqCenter.x - 10, y: seqCenter.y + 50),
+                seqCenter: CGPoint(x: seqCenter.x - 120, y: seqCenter.y + 50),
                 promptCenter: CGPoint(x: promptCenter.x, y: promptCenter.y - 20)
             )
 
