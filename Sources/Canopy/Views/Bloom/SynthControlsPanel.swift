@@ -33,6 +33,26 @@ struct SynthControlsPanel: View {
                     updatePatch { $0.volume = val }
                 }
 
+                // Pan slider
+                VStack(spacing: 2) {
+                    HStack {
+                        Text("L")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.4))
+                        Spacer()
+                        Text("pan")
+                            .font(.system(size: 10, weight: .regular, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                        Spacer()
+                        Text("R")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.4))
+                    }
+                    panSlider(value: patch.pan) { val in
+                        updatePatch { $0.pan = val }
+                    }
+                }
+
                 // ADSR compact
                 HStack(spacing: 6) {
                     miniSlider(label: "A", value: patch.envelope.attack, range: 0.001...2.0) { val in
@@ -165,6 +185,45 @@ struct SynthControlsPanel: View {
         }
     }
 
+    // MARK: - Pan Slider
+
+    private func panSlider(value: Double, onChange: @escaping (Double) -> Void) -> some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            // Map -1...1 to 0...1 fraction
+            let fraction = CGFloat((value + 1) / 2)
+            let indicatorX = max(0, min(width, width * fraction))
+
+            ZStack(alignment: .leading) {
+                // Track
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
+                    .frame(height: 8)
+
+                // Center line
+                Rectangle()
+                    .fill(CanopyColors.chromeText.opacity(0.2))
+                    .frame(width: 1, height: 8)
+                    .position(x: width / 2, y: 4)
+
+                // Indicator
+                Circle()
+                    .fill(CanopyColors.glowColor.opacity(0.8))
+                    .frame(width: 10, height: 10)
+                    .position(x: indicatorX, y: 4)
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        let frac = max(0, min(1, drag.location.x / width))
+                        let newValue = Double(frac) * 2 - 1 // Map 0...1 to -1...1
+                        onChange(newValue)
+                    }
+            )
+        }
+        .frame(height: 10)
+    }
+
     // MARK: - Update Helpers
 
     private func updateOscillator(_ transform: (inout OscillatorConfig) -> Void) {
@@ -195,7 +254,9 @@ struct SynthControlsPanel: View {
     }
 
     private func pushPatchToEngine() {
-        guard let patch = projectState.selectedNode?.patch else { return }
+        guard let node = projectState.selectedNode,
+              let nodeID = projectState.selectedNodeID else { return }
+        let patch = node.patch
         if case .oscillator(let config) = patch.soundType {
             AudioEngine.shared.configurePatch(
                 waveform: waveformToIndex(config.waveform),
@@ -204,9 +265,11 @@ struct SynthControlsPanel: View {
                 decay: patch.envelope.decay,
                 sustain: patch.envelope.sustain,
                 release: patch.envelope.release,
-                volume: patch.volume
+                volume: patch.volume,
+                nodeID: nodeID
             )
         }
+        AudioEngine.shared.setNodePan(Float(patch.pan), nodeID: nodeID)
     }
 
     private func waveformToIndex(_ wf: Waveform) -> Int {

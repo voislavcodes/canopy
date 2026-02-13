@@ -4,6 +4,8 @@ import SwiftUI
 /// Wrapped in the same panel styling as other bloom elements.
 struct KeyboardBarView: View {
     @Binding var baseOctave: Int
+    /// The currently selected node ID — keyboard plays into this node.
+    var selectedNodeID: UUID?
 
     @State private var pressedNotes: Set<Int> = []
 
@@ -114,12 +116,16 @@ struct KeyboardBarView: View {
                     .onChanged { _ in
                         if !pressedNotes.contains(note) {
                             pressedNotes.insert(note)
-                            AudioEngine.shared.noteOn(pitch: note, velocity: 0.8)
+                            if let nodeID = selectedNodeID {
+                                AudioEngine.shared.noteOn(pitch: note, velocity: 0.8, nodeID: nodeID)
+                            }
                         }
                     }
                     .onEnded { _ in
                         pressedNotes.remove(note)
-                        AudioEngine.shared.noteOff(pitch: note)
+                        if let nodeID = selectedNodeID {
+                            AudioEngine.shared.noteOff(pitch: note, nodeID: nodeID)
+                        }
                     }
             )
     }
@@ -136,12 +142,16 @@ struct KeyboardBarView: View {
                     .onChanged { _ in
                         if !pressedNotes.contains(note) {
                             pressedNotes.insert(note)
-                            AudioEngine.shared.noteOn(pitch: note, velocity: 0.8)
+                            if let nodeID = selectedNodeID {
+                                AudioEngine.shared.noteOn(pitch: note, velocity: 0.8, nodeID: nodeID)
+                            }
                         }
                     }
                     .onEnded { _ in
                         pressedNotes.remove(note)
-                        AudioEngine.shared.noteOff(pitch: note)
+                        if let nodeID = selectedNodeID {
+                            AudioEngine.shared.noteOff(pitch: note, nodeID: nodeID)
+                        }
                     }
             )
     }

@@ -29,4 +29,15 @@ enum CanopyColors {
     static let gridCellActive = Color(red: 0.25, green: 0.65, blue: 0.35)
     static let gridCellInactive = Color(red: 0.1, green: 0.13, blue: 0.11)
     static let gridCellBeat = Color(red: 0.12, green: 0.16, blue: 0.13)
+
+    // Branch lines
+    static let branchLine = Color(red: 0.25, green: 0.4, blue: 0.3)
+
+    // Node type colors
+    static let nodeSeed = Color(red: 0.35, green: 0.85, blue: 0.5)       // Green
+    static let nodeMelodic = Color(red: 0.35, green: 0.6, blue: 0.9)     // Blue
+    static let nodeHarmonic = Color(red: 0.6, green: 0.4, blue: 0.85)    // Purple
+    static let nodeRhythmic = Color(red: 0.9, green: 0.55, blue: 0.25)   // Orange
+    static let nodeEffect = Color(red: 0.7, green: 0.7, blue: 0.4)       // Yellow-olive
+    static let nodeGroup = Color(red: 0.5, green: 0.5, blue: 0.55)       // Gray
 }

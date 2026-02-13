@@ -26,7 +26,7 @@ struct CanopyProject: Codable, Equatable {
         self.globalKey = globalKey
         self.trees = trees
         self.arrangements = arrangements
-        self.createdAt = createdAt
-        self.modifiedAt = modifiedAt
+        self.createdAt = Date(timeIntervalSince1970: createdAt.timeIntervalSince1970.rounded(.down))
+        self.modifiedAt = Date(timeIntervalSince1970: modifiedAt.timeIntervalSince1970.rounded(.down))
     }
 }

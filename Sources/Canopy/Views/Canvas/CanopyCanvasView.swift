@@ -25,13 +25,16 @@ struct CanopyCanvasView: View {
                 // Layer 1: Canvas area with border + dot grid
                 canvasArea(viewSize: viewSize)
 
-                // Layer 2: Transformed content (bloom zone + nodes)
+                // Layer 2: Transformed content (branch lines + bloom zone + nodes + add button)
                 transformedContent(viewSize: viewSize)
 
                 // Layer 3: Bloom panels (screen-space, positioned from node)
                 if let selectedNode = projectState.selectedNode {
                     bloomOverlay(node: selectedNode, viewSize: viewSize)
                 }
+
+                // Layer 4: Cycle length badge (top-right)
+                cycleBadge
             }
             .contentShape(Rectangle())
             .gesture(
@@ -96,7 +99,12 @@ struct CanopyCanvasView: View {
     // MARK: - Transformed Content (canvas space)
 
     private func transformedContent(viewSize: CGSize) -> some View {
-        ZStack {
+        let allNodes = projectState.allNodes()
+
+        return ZStack {
+            // Branch lines (behind everything)
+            BranchLineView(nodes: allNodes)
+
             // Bloom zone circle behind selected node
             if let selectedNode = projectState.selectedNode {
                 Circle()
@@ -106,16 +114,51 @@ struct CanopyCanvasView: View {
             }
 
             // Nodes
-            ForEach(projectState.allNodes()) { node in
+            ForEach(allNodes) { node in
                 NodeView(
                     node: node,
                     isSelected: projectState.selectedNodeID == node.id
                 )
             }
+
+            // Add branch button below selected node
+            if let selectedNode = projectState.selectedNode {
+                AddBranchButton(
+                    position: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y)
+                ) {
+                    handleAddBranch(to: selectedNode.id)
+                }
+            }
         }
         .offset(centerOffset(viewSize: viewSize))
         .offset(canvasState.offset)
         .scaleEffect(canvasState.scale)
+    }
+
+    // MARK: - Cycle Badge
+
+    private var cycleBadge: some View {
+        let cycle = projectState.cycleLengthInBeats()
+        let nodeCount = projectState.allNodes().count
+
+        return VStack(alignment: .trailing, spacing: 4) {
+            if nodeCount > 1 {
+                Text("cycle: \(cycle) beats")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(CanopyColors.bloomPanelBackground.opacity(0.85))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .padding(28)
+        .allowsHitTesting(false)
     }
 
     // MARK: - Bloom Overlay (screen space)
@@ -158,10 +201,51 @@ struct CanopyCanvasView: View {
                 .position(x: promptCenter.x, y: promptCenter.y)
 
             // Keyboard (bottom of bloom)
-            KeyboardBarView(baseOctave: $keyboardOctave)
+            KeyboardBarView(baseOctave: $keyboardOctave, selectedNodeID: projectState.selectedNodeID)
                 .position(x: keyboardCenter.x, y: keyboardCenter.y)
         }
         .allowsHitTesting(true)
+    }
+
+    // MARK: - Branch Actions
+
+    private func handleAddBranch(to parentID: UUID) {
+        let newNode = projectState.addChildNode(to: parentID)
+
+        // Hot-patch: add single node to live audio graph
+        AudioEngine.shared.addNode(newNode)
+        if case .oscillator(let config) = newNode.patch.soundType {
+            let waveformIndex: Int
+            switch config.waveform {
+            case .sine: waveformIndex = 0
+            case .triangle: waveformIndex = 1
+            case .sawtooth: waveformIndex = 2
+            case .square: waveformIndex = 3
+            case .noise: waveformIndex = 4
+            }
+            AudioEngine.shared.configurePatch(
+                waveform: waveformIndex, detune: config.detune,
+                attack: newNode.patch.envelope.attack, decay: newNode.patch.envelope.decay,
+                sustain: newNode.patch.envelope.sustain, release: newNode.patch.envelope.release,
+                volume: newNode.patch.volume,
+                nodeID: newNode.id
+            )
+        }
+        let events = newNode.sequence.notes.map { event in
+            SequencerEvent(
+                pitch: event.pitch, velocity: event.velocity,
+                startBeat: event.startBeat, endBeat: event.startBeat + event.duration
+            )
+        }
+        AudioEngine.shared.loadSequence(events, lengthInBeats: newNode.sequence.lengthInBeats, nodeID: newNode.id)
+
+        // If transport is playing, start the new node's sequencer too
+        if transportState.isPlaying {
+            AudioEngine.shared.graph.unit(for: newNode.id)?.startSequencer(bpm: transportState.bpm)
+        }
+
+        // Auto-select the new node
+        projectState.selectNode(newNode.id)
     }
 
     // MARK: - Helpers

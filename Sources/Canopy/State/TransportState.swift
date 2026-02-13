@@ -8,6 +8,9 @@ class TransportState: ObservableObject {
     @Published var bpm: Double = 120
     @Published var currentBeat: Double = 0
 
+    /// The node whose beat position is displayed in the UI.
+    var focusedNodeID: UUID?
+
     private var pollTimer: Timer?
 
     init() {}
@@ -17,9 +20,8 @@ class TransportState: ObservableObject {
         stopPolling()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let beat = AudioEngine.shared.currentBeat
-            if self.isPlaying {
-                self.currentBeat = beat
+            if self.isPlaying, let nodeID = self.focusedNodeID {
+                self.currentBeat = AudioEngine.shared.currentBeat(for: nodeID)
             }
         }
     }
@@ -39,17 +41,17 @@ class TransportState: ObservableObject {
         }
     }
 
-    /// Start the sequencer.
+    /// Start all sequencers.
     func startPlayback() {
         isPlaying = true
-        AudioEngine.shared.startSequencer(bpm: bpm)
+        AudioEngine.shared.startAllSequencers(bpm: bpm)
         startPolling()
     }
 
-    /// Stop the sequencer and reset.
+    /// Stop all sequencers and reset.
     func stopPlayback() {
         isPlaying = false
-        AudioEngine.shared.stopSequencer()
+        AudioEngine.shared.stopAllSequencers()
         currentBeat = 0
         stopPolling()
     }
@@ -58,7 +60,7 @@ class TransportState: ObservableObject {
     func updateBPM(_ newBPM: Double) {
         bpm = max(20, min(300, newBPM))
         if isPlaying {
-            AudioEngine.shared.setSequencerBPM(bpm)
+            AudioEngine.shared.setAllSequencersBPM(bpm)
         }
     }
 }

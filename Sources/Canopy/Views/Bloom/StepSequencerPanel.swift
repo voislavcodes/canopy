@@ -1,27 +1,51 @@
 import SwiftUI
 
 /// Bloom panel: step sequencer grid.
-/// Compact grid matching mockup style — 8 columns x 8 rows.
+/// Dynamic column count based on node's sequence length.
 /// Derives boolean state from NoteSequence.notes.
 struct StepSequencerPanel: View {
     @ObservedObject var projectState: ProjectState
     @ObservedObject var transportState: TransportState
 
-    private let columns = 8
+    private static let lengthOptions: [Int] = [3, 4, 6, 8, 16, 32]
+
     private let rows = 8
     private let baseNote = 55  // G3 — centered range for a single octave+
-    private let cellSize: CGFloat = 20
-    private let cellSpacing: CGFloat = 3
+    /// Target max grid width — cells scale down to fit.
+    private let maxGridWidth: CGFloat = 210
 
     private var node: Node? {
         projectState.selectedNode
     }
 
+    private var columns: Int {
+        Int(node?.sequence.lengthInBeats ?? 8)
+    }
+
+    private var cellSpacing: CGFloat {
+        columns > 16 ? 1 : (columns > 8 ? 2 : 3)
+    }
+
+    /// Cell size scales down for higher column counts to keep grid compact.
+    private var cellSize: CGFloat {
+        let spacing = cellSpacing
+        // Solve: columns * (cell + spacing) - spacing = maxGridWidth
+        let ideal = (maxGridWidth + spacing) / CGFloat(columns) - spacing
+        return max(6, min(20, floor(ideal)))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("SEQUENCE")
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText)
+            // Header with title and length selector
+            HStack(spacing: 8) {
+                Text("SEQUENCE")
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText)
+
+                Spacer()
+
+                lengthPicker
+            }
 
             if let node {
                 ZStack(alignment: .topLeading) {
@@ -34,12 +58,38 @@ struct StepSequencerPanel: View {
             }
         }
         .padding(14)
+        .fixedSize()
         .background(CanopyColors.bloomPanelBackground.opacity(0.9))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
                 .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
         )
+    }
+
+    // MARK: - Length Picker
+
+    private var lengthPicker: some View {
+        HStack(spacing: 3) {
+            ForEach(Self.lengthOptions, id: \.self) { length in
+                let isActive = columns == length
+                Button(action: { changeLength(to: length) }) {
+                    Text("\(length)")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.5))
+                        .frame(width: 22, height: 18)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(isActive ? CanopyColors.glowColor.opacity(0.15) : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(isActive ? CanopyColors.glowColor.opacity(0.4) : CanopyColors.bloomPanelBorder.opacity(0.2), lineWidth: 0.5)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     // MARK: - Grid
@@ -82,6 +132,18 @@ struct StepSequencerPanel: View {
             .allowsHitTesting(false)
     }
 
+    // MARK: - Length Change
+
+    private func changeLength(to newLength: Int) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            // Remove notes that fall outside the new length
+            node.sequence.notes.removeAll { $0.startBeat >= Double(newLength) }
+            node.sequence.lengthInBeats = Double(newLength)
+        }
+        reloadSequence()
+    }
+
     // MARK: - Note Logic
 
     private func hasNote(in sequence: NoteSequence, pitch: Int, step: Int) -> Bool {
@@ -115,7 +177,8 @@ struct StepSequencerPanel: View {
     }
 
     private func reloadSequence() {
-        guard let node = projectState.selectedNode else { return }
+        guard let node = projectState.selectedNode,
+              let nodeID = projectState.selectedNodeID else { return }
         let events = node.sequence.notes.map { event in
             SequencerEvent(
                 pitch: event.pitch,
@@ -124,6 +187,6 @@ struct StepSequencerPanel: View {
                 endBeat: event.startBeat + event.duration
             )
         }
-        AudioEngine.shared.loadSequence(events, lengthInBeats: node.sequence.lengthInBeats)
+        AudioEngine.shared.loadSequence(events, lengthInBeats: node.sequence.lengthInBeats, nodeID: nodeID)
     }
 }

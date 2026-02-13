@@ -88,16 +88,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = mainMenu
     }
 
+    // MARK: - Audio Graph
+
+    private func rebuildAudioGraph() {
+        guard let tree = projectState.project.trees.first else { return }
+        AudioEngine.shared.buildGraph(from: tree)
+        AudioEngine.shared.configureAllPatches(from: tree)
+        AudioEngine.shared.loadAllSequences(from: tree)
+    }
+
     // MARK: - File Actions
 
     @objc private func newProject() {
         transportState.stopPlayback()
-        AudioEngine.shared.allNotesOff()
+        AudioEngine.shared.teardownGraph()
         projectState.project = ProjectFactory.newProject()
         projectState.selectedNodeID = nil
         projectState.currentFilePath = nil
         projectState.isDirty = false
         transportState.bpm = projectState.project.bpm
+        rebuildAudioGraph()
     }
 
     @objc private func openProject() {
@@ -110,13 +120,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, response == .OK, let url = panel.url else { return }
             do {
                 self.transportState.stopPlayback()
-                AudioEngine.shared.allNotesOff()
+                AudioEngine.shared.teardownGraph()
                 let project = try ProjectFileService.load(from: url)
                 self.projectState.project = project
                 self.projectState.selectedNodeID = nil
                 self.projectState.currentFilePath = url
                 self.projectState.isDirty = false
                 self.transportState.bpm = project.bpm
+                self.rebuildAudioGraph()
             } catch {
                 let alert = NSAlert(error: error)
                 alert.runModal()

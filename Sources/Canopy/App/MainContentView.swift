@@ -5,6 +5,9 @@ struct MainContentView: View {
     @ObservedObject var transportState: TransportState
     @StateObject private var canvasState = CanvasState()
 
+    /// Tracks the previously selected node so we can send allNotesOff on deselect.
+    @State private var previousSelectedNodeID: UUID?
+
     var body: some View {
         VStack(spacing: 0) {
             ToolbarView(projectState: projectState, transportState: transportState)
@@ -19,27 +22,58 @@ struct MainContentView: View {
         .background(CanopyColors.canvasBackground)
         .onAppear {
             setupSpacebarHandler()
+            syncTreeToEngine()
         }
         .onChange(of: projectState.selectedNodeID) { _ in
             handleNodeSelectionChange()
         }
     }
 
-    // MARK: - Node Selection Change
+    // MARK: - Audio Graph Sync
 
-    private func handleNodeSelectionChange() {
-        if transportState.isPlaying {
-            transportState.stopPlayback()
-        }
-        AudioEngine.shared.allNotesOff()
+    /// Build full audio graph from the first tree. Used on initial load / project switch.
+    func syncTreeToEngine() {
+        guard let tree = projectState.project.trees.first else { return }
+        AudioEngine.shared.buildGraph(from: tree)
+        AudioEngine.shared.configureAllPatches(from: tree)
+        AudioEngine.shared.loadAllSequences(from: tree)
 
-        if let node = projectState.selectedNode {
-            pushPatchToEngine(node.patch)
-            loadSequenceToEngine(node)
+        // Set focused node for beat polling — default to root if nothing selected
+        if transportState.focusedNodeID == nil {
+            transportState.focusedNodeID = tree.rootNode.id
         }
     }
 
-    private func pushPatchToEngine(_ patch: SoundPatch) {
+    /// Add a single node to the live audio graph (incremental, no teardown).
+    func addNodeToEngine(node: Node) {
+        AudioEngine.shared.addNode(node)
+        pushPatchToEngine(node.patch, nodeID: node.id)
+        loadSequenceToEngine(node)
+    }
+
+    /// Remove a single node from the live audio graph.
+    func removeNodeFromEngine(id: UUID) {
+        AudioEngine.shared.removeNode(id)
+    }
+
+    // MARK: - Node Selection Change
+
+    private func handleNodeSelectionChange() {
+        // Send allNotesOff only to the PREVIOUSLY selected node (keyboard cleanup)
+        if let prevID = previousSelectedNodeID {
+            AudioEngine.shared.allNotesOff(nodeID: prevID)
+        }
+
+        if let node = projectState.selectedNode {
+            // Push this node's patch for keyboard playing
+            pushPatchToEngine(node.patch, nodeID: node.id)
+            transportState.focusedNodeID = node.id
+        }
+
+        previousSelectedNodeID = projectState.selectedNodeID
+    }
+
+    private func pushPatchToEngine(_ patch: SoundPatch, nodeID: UUID) {
         if case .oscillator(let config) = patch.soundType {
             let waveformIndex: Int
             switch config.waveform {
@@ -56,9 +90,11 @@ struct MainContentView: View {
                 decay: patch.envelope.decay,
                 sustain: patch.envelope.sustain,
                 release: patch.envelope.release,
-                volume: patch.volume
+                volume: patch.volume,
+                nodeID: nodeID
             )
         }
+        AudioEngine.shared.setNodePan(Float(patch.pan), nodeID: nodeID)
     }
 
     private func loadSequenceToEngine(_ node: Node) {
@@ -70,7 +106,7 @@ struct MainContentView: View {
                 endBeat: event.startBeat + event.duration
             )
         }
-        AudioEngine.shared.loadSequence(events, lengthInBeats: node.sequence.lengthInBeats)
+        AudioEngine.shared.loadSequence(events, lengthInBeats: node.sequence.lengthInBeats, nodeID: node.id)
     }
 
     // MARK: - Keyboard Shortcut
