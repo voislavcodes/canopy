@@ -29,10 +29,15 @@ struct CanopyCanvasView: View {
                 // Layer 1: Canvas area with border + dot grid
                 canvasArea(viewSize: viewSize)
 
-                // Layer 2: Transformed content (branch lines + bloom zone + nodes + bloom panels + add button)
-                transformedContent(viewSize: viewSize)
+                // Layer 2: Scaled content (branch lines + bloom zone + nodes + add button)
+                scaledContent(viewSize: viewSize)
 
-                // Layer 3: Cycle length badge (top-right)
+                // Layer 3: Bloom panels — rendered outside scaleEffect for crisp text at any zoom
+                if let selectedNode = projectState.selectedNode {
+                    bloomContentScreen(node: selectedNode, viewSize: viewSize)
+                }
+
+                // Layer 4: Cycle length badge (top-right)
                 cycleBadge
             }
             .contentShape(Rectangle())
@@ -84,9 +89,9 @@ struct CanopyCanvasView: View {
         .padding(inset)
     }
 
-    // MARK: - Transformed Content (canvas space)
+    // MARK: - Scaled Content (canvas space — nodes, branches, bloom zone)
 
-    private func transformedContent(viewSize: CGSize) -> some View {
+    private func scaledContent(viewSize: CGSize) -> some View {
         let allNodes = projectState.allNodes()
 
         return ZStack {
@@ -109,10 +114,8 @@ struct CanopyCanvasView: View {
                 )
             }
 
-            // Bloom panels + add button for selected node
+            // Add branch button for selected node
             if let selectedNode = projectState.selectedNode {
-                bloomContent(node: selectedNode, viewSize: viewSize)
-
                 AddBranchButton(
                     parentPosition: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y),
                     children: selectedNode.children
@@ -152,10 +155,9 @@ struct CanopyCanvasView: View {
         .allowsHitTesting(false)
     }
 
-    // MARK: - Bloom Content (canvas space)
+    // MARK: - Bloom Content (screen space)
 
-    /// Single source of truth for bloom panel layout.
-    /// Both bloomContent() and hitsInteractiveContent() reference these.
+    /// Single source of truth for bloom panel layout offsets (canvas points).
     private enum BloomLayout {
         // Default offsets from node center (canvas points)
         static let synthOffset = CGPoint(x: -260, y: 20)
@@ -170,35 +172,60 @@ struct CanopyCanvasView: View {
         static let keyboardSize = CGSize(width: 400, height: 110)
     }
 
-    private func bloomContent(node: Node, viewSize: CGSize) -> some View {
-        // Fixed canvas-space offsets from node center
-        let synthPos = CGPoint(x: node.position.x + BloomLayout.synthOffset.x, y: node.position.y + BloomLayout.synthOffset.y)
-        let seqPos = CGPoint(x: node.position.x + BloomLayout.seqOffset.x, y: node.position.y + BloomLayout.seqOffset.y)
-        let promptPos = CGPoint(x: node.position.x + BloomLayout.promptOffset.x, y: node.position.y + BloomLayout.promptOffset.y)
-        let keyboardPos = CGPoint(x: node.position.x + BloomLayout.keyboardOffset.x, y: node.position.y + BloomLayout.keyboardOffset.y)
+    /// Convert a canvas point to screen coordinates (inverse of screenToCanvas).
+    private func canvasToScreen(_ point: CGPoint, viewSize: CGSize) -> CGPoint {
+        let center = centerOffset(viewSize: viewSize)
+        let scaleAnchor = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        return CGPoint(
+            x: (point.x + canvasState.offset.width + (center.width - scaleAnchor.x)) * canvasState.scale + scaleAnchor.x,
+            y: (point.y + canvasState.offset.height + (center.height - scaleAnchor.y)) * canvasState.scale + scaleAnchor.y
+        )
+    }
+
+    /// Bloom panels rendered outside the parent scaleEffect for crisp text at any zoom.
+    /// Each panel is positioned at screen coordinates and scaled individually.
+    private func bloomContentScreen(node: Node, viewSize: CGSize) -> some View {
+        // Canvas-space positions
+        let synthCanvas = CGPoint(x: node.position.x + BloomLayout.synthOffset.x, y: node.position.y + BloomLayout.synthOffset.y)
+        let seqCanvas = CGPoint(x: node.position.x + BloomLayout.seqOffset.x, y: node.position.y + BloomLayout.seqOffset.y)
+        let promptCanvas = CGPoint(x: node.position.x + BloomLayout.promptOffset.x, y: node.position.y + BloomLayout.promptOffset.y)
+        let keyboardCanvas = CGPoint(x: node.position.x + BloomLayout.keyboardOffset.x, y: node.position.y + BloomLayout.keyboardOffset.y)
+
+        // Convert to screen coordinates
+        let nodeScreen = canvasToScreen(CGPoint(x: node.position.x, y: node.position.y), viewSize: viewSize)
+        let synthScreen = canvasToScreen(synthCanvas, viewSize: viewSize)
+        let seqScreen = canvasToScreen(seqCanvas, viewSize: viewSize)
+        let promptScreen = canvasToScreen(promptCanvas, viewSize: viewSize)
+        let keyboardScreen = canvasToScreen(keyboardCanvas, viewSize: viewSize)
+
+        let scale = canvasState.scale
 
         return ZStack {
             BloomConnectors(
-                nodeCenter: CGPoint(x: node.position.x, y: node.position.y),
-                synthCenter: CGPoint(x: synthPos.x + 110, y: synthPos.y - 50),
-                seqCenter: CGPoint(x: seqPos.x - 120, y: seqPos.y - 50),
-                promptCenter: CGPoint(x: promptPos.x, y: promptPos.y - 20)
+                nodeCenter: nodeScreen,
+                synthCenter: canvasToScreen(CGPoint(x: synthCanvas.x + 110, y: synthCanvas.y - 50), viewSize: viewSize),
+                seqCenter: canvasToScreen(CGPoint(x: seqCanvas.x - 120, y: seqCanvas.y - 50), viewSize: viewSize),
+                promptCenter: canvasToScreen(CGPoint(x: promptCanvas.x, y: promptCanvas.y - 20), viewSize: viewSize)
             )
 
             SynthControlsPanel(projectState: projectState)
-                .position(x: synthPos.x, y: synthPos.y)
+                .environment(\.canvasScale, scale)
+                .position(x: synthScreen.x, y: synthScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
             StepSequencerPanel(projectState: projectState, transportState: transportState)
-                .position(x: seqPos.x, y: seqPos.y)
+                .environment(\.canvasScale, scale)
+                .position(x: seqScreen.x, y: seqScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
             ClaudePromptPanel()
-                .position(x: promptPos.x, y: promptPos.y)
+                .environment(\.canvasScale, scale)
+                .position(x: promptScreen.x, y: promptScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
             KeyboardBarView(baseOctave: $keyboardOctave, selectedNodeID: projectState.selectedNodeID)
-                .position(x: keyboardPos.x, y: keyboardPos.y)
+                .environment(\.canvasScale, scale)
+                .position(x: keyboardScreen.x, y: keyboardScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
         }
     }
@@ -365,25 +392,27 @@ struct BloomConnectors: View {
 // MARK: - Claude Prompt Placeholder
 
 struct ClaudePromptPanel: View {
+    @Environment(\.canvasScale) var cs
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 8 * cs) {
             Text("+")
-                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                .font(.system(size: 14 * cs, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText)
 
             Text("describe this sound...")
-                .font(.system(size: 14, weight: .regular, design: .monospaced))
+                .font(.system(size: 14 * cs, weight: .regular, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.5))
 
             Spacer()
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .frame(width: 340)
+        .padding(.horizontal, 20 * cs)
+        .padding(.vertical, 14 * cs)
+        .frame(width: 340 * cs)
         .background(CanopyColors.bloomPanelBackground.opacity(0.9))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: 10 * cs))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 10 * cs)
                 .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
         )
         .contentShape(Rectangle())

@@ -3,6 +3,7 @@ import SwiftUI
 /// Bloom panel: synth controls with waveform picker, sliders.
 /// Positioned in canvas space around the selected node.
 struct SynthControlsPanel: View {
+    @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
 
     private var node: Node? {
@@ -22,9 +23,9 @@ struct SynthControlsPanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10 * cs) {
             Text("SYNTH")
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText)
 
             if let osc = oscillatorConfig, let patch {
@@ -34,18 +35,18 @@ struct SynthControlsPanel: View {
                 }
 
                 // Pan slider
-                VStack(spacing: 2) {
+                VStack(spacing: 2 * cs) {
                     HStack {
                         Text("L")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
                             .foregroundColor(CanopyColors.chromeText.opacity(0.4))
                         Spacer()
                         Text("pan")
-                            .font(.system(size: 10, weight: .regular, design: .monospaced))
+                            .font(.system(size: 10 * cs, weight: .regular, design: .monospaced))
                             .foregroundColor(CanopyColors.chromeText.opacity(0.5))
                         Spacer()
                         Text("R")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
                             .foregroundColor(CanopyColors.chromeText.opacity(0.4))
                     }
                     panSlider(value: patch.pan) { val in
@@ -54,7 +55,7 @@ struct SynthControlsPanel: View {
                 }
 
                 // ADSR compact
-                HStack(spacing: 6) {
+                HStack(spacing: 6 * cs) {
                     miniSlider(label: "A", value: patch.envelope.attack, range: 0.001...2.0) { val in
                         updateEnvelope { $0.attack = val }
                     }
@@ -71,19 +72,19 @@ struct SynthControlsPanel: View {
 
                 // Waveform label
                 Text("waveform")
-                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                    .font(.system(size: 12 * cs, weight: .regular, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText.opacity(0.6))
 
                 // Waveform text buttons
                 waveformPicker(current: osc.waveform)
             }
         }
-        .padding(14)
-        .frame(width: 220)
+        .padding(14 * cs)
+        .frame(width: 220 * cs)
         .background(CanopyColors.bloomPanelBackground.opacity(0.9))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: 10 * cs))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 10 * cs)
                 .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
         )
         .contentShape(Rectangle())
@@ -93,22 +94,22 @@ struct SynthControlsPanel: View {
     // MARK: - Waveform Picker
 
     private func waveformPicker(current: Waveform) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 6 * cs) {
             ForEach(waveformOptions, id: \.0) { (label, wf) in
                 Button(action: {
                     updateOscillator { $0.waveform = wf }
                 }) {
                     Text(label)
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .font(.system(size: 12 * cs, weight: .medium, design: .monospaced))
                         .foregroundColor(current == wf ? CanopyColors.glowColor : CanopyColors.chromeText)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8 * cs)
+                        .padding(.vertical, 4 * cs)
                         .background(
-                            RoundedRectangle(cornerRadius: 4)
+                            RoundedRectangle(cornerRadius: 4 * cs)
                                 .fill(current == wf ? CanopyColors.glowColor.opacity(0.1) : Color.clear)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 4)
+                            RoundedRectangle(cornerRadius: 4 * cs)
                                 .stroke(
                                     current == wf ? CanopyColors.glowColor.opacity(0.5) : CanopyColors.bloomPanelBorder.opacity(0.3),
                                     lineWidth: 1
@@ -134,14 +135,14 @@ struct SynthControlsPanel: View {
 
             ZStack(alignment: .leading) {
                 // Track
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: 3 * cs)
                     .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
-                    .frame(height: 8)
+                    .frame(height: 8 * cs)
 
                 // Filled portion
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: 3 * cs)
                     .fill(CanopyColors.glowColor.opacity(0.6))
-                    .frame(width: filledWidth, height: 8)
+                    .frame(width: filledWidth, height: 8 * cs)
             }
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -152,13 +153,13 @@ struct SynthControlsPanel: View {
                     }
             )
         }
-        .frame(height: 8)
+        .frame(height: 8 * cs)
     }
 
     private func miniSlider(label: String, value: Double, range: ClosedRange<Double>, onChange: @escaping (Double) -> Void) -> some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 2 * cs) {
             Text(label)
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.5))
 
             GeometryReader { geo in
@@ -167,10 +168,10 @@ struct SynthControlsPanel: View {
                 let filledHeight = max(0, min(height, height * fraction))
 
                 ZStack(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: 2 * cs)
                         .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
 
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: 2 * cs)
                         .fill(CanopyColors.glowColor.opacity(0.4))
                         .frame(height: filledHeight)
                 }
@@ -183,7 +184,7 @@ struct SynthControlsPanel: View {
                         }
                 )
             }
-            .frame(width: 16, height: 32)
+            .frame(width: 16 * cs, height: 32 * cs)
         }
     }
 
@@ -198,21 +199,21 @@ struct SynthControlsPanel: View {
 
             ZStack(alignment: .leading) {
                 // Track
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: 3 * cs)
                     .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
-                    .frame(height: 8)
+                    .frame(height: 8 * cs)
 
                 // Center line
                 Rectangle()
                     .fill(CanopyColors.chromeText.opacity(0.2))
-                    .frame(width: 1, height: 8)
-                    .position(x: width / 2, y: 4)
+                    .frame(width: 1, height: 8 * cs)
+                    .position(x: width / 2, y: 4 * cs)
 
                 // Indicator
                 Circle()
                     .fill(CanopyColors.glowColor.opacity(0.8))
-                    .frame(width: 10, height: 10)
-                    .position(x: indicatorX, y: 4)
+                    .frame(width: 10 * cs, height: 10 * cs)
+                    .position(x: indicatorX, y: 4 * cs)
             }
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -223,7 +224,7 @@ struct SynthControlsPanel: View {
                     }
             )
         }
-        .frame(height: 10)
+        .frame(height: 10 * cs)
     }
 
     // MARK: - Update Helpers

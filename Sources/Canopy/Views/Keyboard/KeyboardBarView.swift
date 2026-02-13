@@ -3,16 +3,17 @@ import SwiftUI
 /// Bloom-positioned piano keyboard.
 /// Wrapped in the same panel styling as other bloom elements.
 struct KeyboardBarView: View {
+    @Environment(\.canvasScale) var cs
     @Binding var baseOctave: Int
     /// The currently selected node ID — keyboard plays into this node.
     var selectedNodeID: UUID?
 
     @State private var pressedNotes: Set<Int> = []
 
-    private let whiteKeyWidth: CGFloat = 24
-    private let whiteKeyHeight: CGFloat = 56
-    private let blackKeyWidth: CGFloat = 15
-    private let blackKeyHeight: CGFloat = 34
+    private var whiteKeyWidth: CGFloat { 24 * cs }
+    private var whiteKeyHeight: CGFloat { 56 * cs }
+    private var blackKeyWidth: CGFloat { 15 * cs }
+    private var blackKeyHeight: CGFloat { 34 * cs }
     private let octaveCount = 2
 
     private static let whiteKeyOffsets = [0, 2, 4, 5, 7, 9, 11]
@@ -20,7 +21,7 @@ struct KeyboardBarView: View {
 
     // Total width: 14 white keys * (24 + 1 spacing) - 1 + padding
     private var totalKeysWidth: CGFloat {
-        CGFloat(octaveCount * 7) * (whiteKeyWidth + 1) - 1
+        CGFloat(octaveCount * 7) * (whiteKeyWidth + 1 * cs) - 1 * cs
     }
 
     private func midiNote(octave: Int, semitone: Int) -> Int {
@@ -28,13 +29,13 @@ struct KeyboardBarView: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 6 * cs) {
             HStack(spacing: 0) {
                 Button(action: { if baseOctave > 0 { baseOctave -= 1 } }) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 10 * cs, weight: .bold))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                        .frame(width: 24, height: whiteKeyHeight)
+                        .frame(width: 24 * cs, height: whiteKeyHeight)
                 }
                 .buttonStyle(.plain)
 
@@ -45,23 +46,23 @@ struct KeyboardBarView: View {
 
                 Button(action: { if baseOctave < 7 { baseOctave += 1 } }) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 10 * cs, weight: .bold))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                        .frame(width: 24, height: whiteKeyHeight)
+                        .frame(width: 24 * cs, height: whiteKeyHeight)
                 }
                 .buttonStyle(.plain)
             }
 
             Text("play into focused node")
-                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .font(.system(size: 11 * cs, weight: .regular, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.35))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12 * cs)
+        .padding(.vertical, 10 * cs)
         .background(CanopyColors.bloomPanelBackground.opacity(0.9))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: 10 * cs))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 10 * cs)
                 .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
         )
         .fixedSize()
@@ -72,7 +73,7 @@ struct KeyboardBarView: View {
     private var keyboardView: some View {
         ZStack(alignment: .topLeading) {
             // White keys
-            HStack(spacing: 1) {
+            HStack(spacing: 1 * cs) {
                 ForEach(0..<(octaveCount * 7), id: \.self) { index in
                     let octave = baseOctave + (index / 7)
                     let whiteIndex = index % 7
@@ -83,7 +84,7 @@ struct KeyboardBarView: View {
             }
 
             // Black keys overlaid
-            HStack(spacing: 1) {
+            HStack(spacing: 1 * cs) {
                 ForEach(0..<(octaveCount * 7), id: \.self) { index in
                     let octave = baseOctave + (index / 7)
                     let whiteIndex = index % 7
@@ -94,12 +95,12 @@ struct KeyboardBarView: View {
                             Color.clear
                                 .frame(width: whiteKeyWidth, height: blackKeyHeight)
                             blackKey(note: midiNote(octave: octave, semitone: semitone + 1))
-                                .offset(x: (whiteKeyWidth + 1) / 2)
+                                .offset(x: (whiteKeyWidth + 1 * cs) / 2)
                         }
-                        .frame(width: whiteKeyWidth + 1, height: blackKeyHeight)
+                        .frame(width: whiteKeyWidth + 1 * cs, height: blackKeyHeight)
                     } else {
                         Color.clear
-                            .frame(width: whiteKeyWidth + 1, height: blackKeyHeight)
+                            .frame(width: whiteKeyWidth + 1 * cs, height: blackKeyHeight)
                     }
                 }
             }
@@ -108,7 +109,7 @@ struct KeyboardBarView: View {
 
     private func whiteKey(note: Int) -> some View {
         let isPressed = pressedNotes.contains(note)
-        return RoundedRectangle(cornerRadius: 2)
+        return RoundedRectangle(cornerRadius: 2 * cs)
             .fill(isPressed
                   ? Color(red: 0.4, green: 0.6, blue: 0.45)
                   : Color(red: 0.55, green: 0.58, blue: 0.55))
@@ -134,7 +135,7 @@ struct KeyboardBarView: View {
 
     private func blackKey(note: Int) -> some View {
         let isPressed = pressedNotes.contains(note)
-        return RoundedRectangle(cornerRadius: 2)
+        return RoundedRectangle(cornerRadius: 2 * cs)
             .fill(isPressed
                   ? Color(red: 0.25, green: 0.4, blue: 0.3)
                   : Color(red: 0.25, green: 0.28, blue: 0.26))
