@@ -42,12 +42,16 @@ struct OscillatorRenderer {
     }
 
     /// Trigger a note on.
+    /// When retriggering an active voice, preserves phase and envelope level
+    /// to avoid discontinuities (pops/clicks).
     mutating func noteOn(frequency: Double, velocity: Double) {
         self.frequency = frequency
         self.velocity = velocity
-        self.phase = 0
+        if !isActive {
+            self.phase = 0
+            self.envelopeLevel = 0
+        }
         self.envelopeStage = .attack
-        self.envelopeLevel = 0
         self.isActive = true
     }
 

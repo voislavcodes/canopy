@@ -39,8 +39,11 @@ final class NodeAudioUnit {
         var voices = VoiceManager(voiceCount: 8)
         var seq = Sequencer()
         var volume: Double = 0.8
+        var volumeSmoothed: Double = 0.8 // smoothed to prevent clicks
         var detune: Double = 0
         let sr = sampleRate
+        // One-pole smoothing coefficient: ~5ms at 44.1kHz
+        let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
 
         voices.configurePatch(
             waveform: 0, detune: 0,
@@ -126,8 +129,9 @@ final class NodeAudioUnit {
                 // 2. Advance sequencer
                 seq.advanceOneSample(sampleRate: sr, voices: &voices, detune: detune)
 
-                // 3. Render all voices
-                let sample = voices.renderSample(sampleRate: sr) * Float(volume)
+                // 3. Render all voices (with smoothed volume to prevent clicks)
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let sample = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
                 // 4. Write to output channels with pan
                 if ablPointer.count >= 2 {
