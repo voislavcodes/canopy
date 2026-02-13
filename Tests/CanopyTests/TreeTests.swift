@@ -92,10 +92,10 @@ final class TreeTests: XCTestCase {
         XCTAssertEqual(rootPos.x, 0)
         XCTAssertEqual(rootPos.y, 0)
 
-        // Child should be below root
+        // Child should be above root
         let childNode = state.findNode(id: child.id)!
         XCTAssertEqual(childNode.position.x, 0)
-        XCTAssertEqual(childNode.position.y, 150)
+        XCTAssertEqual(childNode.position.y, -160)
     }
 
     func testTwoChildrenSymmetric() {
@@ -108,10 +108,10 @@ final class TreeTests: XCTestCase {
         let c2 = state.findNode(id: child2.id)!
 
         // Should be symmetric about x=0
-        XCTAssertEqual(c1.position.x, -60, accuracy: 0.01)
-        XCTAssertEqual(c2.position.x, 60, accuracy: 0.01)
-        XCTAssertEqual(c1.position.y, 150)
-        XCTAssertEqual(c2.position.y, 150)
+        XCTAssertEqual(c1.position.x, -70, accuracy: 0.01)
+        XCTAssertEqual(c2.position.x, 70, accuracy: 0.01)
+        XCTAssertEqual(c1.position.y, -160)
+        XCTAssertEqual(c2.position.y, -160)
     }
 
     func testThreeChildrenLayout() {
@@ -125,9 +125,9 @@ final class TreeTests: XCTestCase {
         let c2 = state.findNode(id: child2.id)!
         let c3 = state.findNode(id: child3.id)!
 
-        XCTAssertEqual(c1.position.x, -120, accuracy: 0.01)
+        XCTAssertEqual(c1.position.x, -140, accuracy: 0.01)
         XCTAssertEqual(c2.position.x, 0, accuracy: 0.01)
-        XCTAssertEqual(c3.position.x, 120, accuracy: 0.01)
+        XCTAssertEqual(c3.position.x, 140, accuracy: 0.01)
     }
 
     func testFiveChildrenLayout() {
@@ -141,11 +141,11 @@ final class TreeTests: XCTestCase {
         XCTAssertEqual(children.count, 5)
 
         // Should be symmetric
-        XCTAssertEqual(children[0].position.x, -240, accuracy: 0.01)
-        XCTAssertEqual(children[1].position.x, -120, accuracy: 0.01)
+        XCTAssertEqual(children[0].position.x, -280, accuracy: 0.01)
+        XCTAssertEqual(children[1].position.x, -140, accuracy: 0.01)
         XCTAssertEqual(children[2].position.x, 0, accuracy: 0.01)
-        XCTAssertEqual(children[3].position.x, 120, accuracy: 0.01)
-        XCTAssertEqual(children[4].position.x, 240, accuracy: 0.01)
+        XCTAssertEqual(children[3].position.x, 140, accuracy: 0.01)
+        XCTAssertEqual(children[4].position.x, 280, accuracy: 0.01)
     }
 
     // MARK: - Add / Remove Node
@@ -253,5 +253,73 @@ final class TreeTests: XCTestCase {
 
         // Default child sequence length should be 8
         XCTAssertEqual(child.sequence.lengthInBeats, 8)
+    }
+
+    // MARK: - Upward Growth
+
+    func testChildrenAboveParent() {
+        let state = ProjectState()
+        let rootID = state.project.trees[0].rootNode.id
+        let child = state.addChildNode(to: rootID)
+
+        let childNode = state.findNode(id: child.id)!
+        // Children should have negative Y (above parent)
+        XCTAssertTrue(childNode.position.y < 0, "Child should be above parent (negative Y)")
+    }
+
+    // MARK: - Subtree-Aware Spacing
+
+    func testSubtreeAwareSpacing() {
+        let state = ProjectState()
+        let rootID = state.project.trees[0].rootNode.id
+
+        // child1 will have 3 grandchildren, child2 is a leaf
+        let child1 = state.addChildNode(to: rootID)
+        let child2 = state.addChildNode(to: rootID)
+        state.addChildNode(to: child1.id)
+        state.addChildNode(to: child1.id)
+        state.addChildNode(to: child1.id)
+
+        let c1 = state.findNode(id: child1.id)!
+        let c2 = state.findNode(id: child2.id)!
+
+        // child1's subtree needs 3×140=420, child2 gets 140. Total=560.
+        // child1 at -560/2 + 420/2 = -70
+        // child2 at -560/2 + 420 + 140/2 = 210
+        XCTAssertEqual(c1.position.x, -70, accuracy: 0.01)
+        XCTAssertEqual(c2.position.x, 210, accuracy: 0.01)
+    }
+
+    // MARK: - Collision Avoidance
+
+    func testCollisionAvoidanceOnSelect() {
+        let state = ProjectState()
+        let rootID = state.project.trees[0].rootNode.id
+        let child1 = state.addChildNode(to: rootID)
+        let child2 = state.addChildNode(to: rootID)
+
+        // Before selection: each child gets 140px slot, total=280
+        // child1 at -70, child2 at +70
+        let c1Before = state.findNode(id: child1.id)!
+        let c2Before = state.findNode(id: child2.id)!
+        XCTAssertEqual(c1Before.position.x, -70, accuracy: 0.01)
+        XCTAssertEqual(c2Before.position.x, 70, accuracy: 0.01)
+
+        // Select child1 → its slot expands to 600px
+        state.selectNode(child1.id)
+
+        let c1After = state.findNode(id: child1.id)!
+        let c2After = state.findNode(id: child2.id)!
+
+        // child1 slot=600, child2 slot=140. Total=740.
+        // child1 at -740/2 + 600/2 = -70
+        // child2 at -740/2 + 600 + 140/2 = 300
+        XCTAssertEqual(c1After.position.x, -70, accuracy: 0.01)
+        XCTAssertEqual(c2After.position.x, 300, accuracy: 0.01)
+
+        // Deselect → siblings animate back
+        state.selectNode(nil)
+        let c2Reset = state.findNode(id: child2.id)!
+        XCTAssertEqual(c2Reset.position.x, 70, accuracy: 0.01)
     }
 }

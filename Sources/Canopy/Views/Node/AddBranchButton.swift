@@ -1,12 +1,23 @@
 import SwiftUI
 
-/// A "+" circle that appears below the selected node in canvas space.
-/// Tapping it adds a new child branch to the selected node.
+/// A "+" circle that appears near the selected node in canvas space.
+/// Positioned above node if no children, right of rightmost child if has children.
 struct AddBranchButton: View {
-    let position: CGPoint
+    let parentPosition: CGPoint
+    let children: [Node]
     let action: () -> Void
 
     private let size: CGFloat = 28
+
+    private var buttonPosition: CGPoint {
+        if children.isEmpty {
+            return CGPoint(x: parentPosition.x, y: parentPosition.y - 80)
+        } else {
+            let rightmostX = children.map(\.position.x).max() ?? parentPosition.x
+            let childY = children.first?.position.y ?? (parentPosition.y - 160)
+            return CGPoint(x: rightmostX + 140, y: childY)
+        }
+    }
 
     var body: some View {
         Button(action: action) {
@@ -25,6 +36,6 @@ struct AddBranchButton: View {
             }
         }
         .buttonStyle(.plain)
-        .position(x: position.x, y: position.y + 55)
+        .position(buttonPosition)
     }
 }

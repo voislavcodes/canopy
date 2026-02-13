@@ -1,16 +1,20 @@
 import SwiftUI
+import AppKit
 
 struct CanopyCanvasView: View {
     @ObservedObject var projectState: ProjectState
     @ObservedObject var canvasState: CanvasState
     @ObservedObject var transportState: TransportState
 
+    @State private var keyboardOctave: Int = 3
+    @State private var scrollMonitor: Any?
+
     private let dotSpacing: CGFloat = 40
     private let dotSize: CGFloat = 2
     private let canvasCornerRadius: CGFloat = 16
 
     private func centerOffset(viewSize: CGSize) -> CGSize {
-        CGSize(width: viewSize.width / 2, height: viewSize.height / 2)
+        CGSize(width: viewSize.width / 2, height: viewSize.height * 0.7)
     }
 
     var body: some View {
@@ -25,31 +29,13 @@ struct CanopyCanvasView: View {
                 // Layer 1: Canvas area with border + dot grid
                 canvasArea(viewSize: viewSize)
 
-                // Layer 2: Transformed content (branch lines + bloom zone + nodes + add button)
+                // Layer 2: Transformed content (branch lines + bloom zone + nodes + bloom panels + add button)
                 transformedContent(viewSize: viewSize)
 
-                // Layer 3: Bloom panels (screen-space, positioned from node)
-                if let selectedNode = projectState.selectedNode {
-                    bloomOverlay(node: selectedNode, viewSize: viewSize)
-                }
-
-                // Layer 4: Cycle length badge (top-right)
+                // Layer 3: Cycle length badge (top-right)
                 cycleBadge
             }
             .contentShape(Rectangle())
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        canvasState.offset = CGSize(
-                            width: canvasState.lastOffset.width + value.translation.width,
-                            height: canvasState.lastOffset.height + value.translation.height
-                        )
-                        canvasState.clampOffset(viewSize: viewSize)
-                    }
-                    .onEnded { _ in
-                        canvasState.lastOffset = canvasState.offset
-                    }
-            )
             .gesture(
                 MagnificationGesture()
                     .onChanged { value in
@@ -63,6 +49,8 @@ struct CanopyCanvasView: View {
             .onTapGesture { location in
                 handleTap(at: location, viewSize: viewSize)
             }
+            .onAppear { installScrollMonitor() }
+            .onDisappear { removeScrollMonitor() }
         }
     }
 
@@ -121,10 +109,13 @@ struct CanopyCanvasView: View {
                 )
             }
 
-            // Add branch button below selected node
+            // Bloom panels + add button for selected node
             if let selectedNode = projectState.selectedNode {
+                bloomContent(node: selectedNode, viewSize: viewSize)
+
                 AddBranchButton(
-                    position: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y)
+                    parentPosition: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y),
+                    children: selectedNode.children
                 ) {
                     handleAddBranch(to: selectedNode.id)
                 }
@@ -161,56 +152,99 @@ struct CanopyCanvasView: View {
         .allowsHitTesting(false)
     }
 
-    // MARK: - Bloom Overlay (screen space)
+    // MARK: - Bloom Content (canvas space)
 
-    @State private var keyboardOctave: Int = 3
+    /// Single source of truth for bloom panel layout.
+    /// Both bloomContent() and hitsInteractiveContent() reference these.
+    private enum BloomLayout {
+        // Default offsets from node center (canvas points)
+        static let synthOffset = CGPoint(x: -260, y: 20)
+        static let seqOffset = CGPoint(x: 260, y: 20)
+        static let promptOffset = CGPoint(x: 0, y: 130)
+        static let keyboardOffset = CGPoint(x: 0, y: 230)
 
-    private func bloomOverlay(node: Node, viewSize: CGSize) -> some View {
-        let screenPos = nodeScreenPosition(node: node, viewSize: viewSize)
+        // Approximate bounding box sizes for hit-testing
+        static let synthSize = CGSize(width: 230, height: 230)
+        static let seqSize = CGSize(width: 270, height: 210)
+        static let promptSize = CGSize(width: 350, height: 55)
+        static let keyboardSize = CGSize(width: 400, height: 110)
+    }
 
-        // Panel offsets from node center
-        let synthOffset = CGPoint(x: -290, y: -20)
-        let sequenceOffset = CGPoint(x: 270, y: -40)
-        let promptOffset = CGPoint(x: 0, y: 190)
-        let keyboardOffset = CGPoint(x: 0, y: 300)
+    private struct BloomOffsets {
+        var synth: CGPoint
+        var seq: CGPoint
+        var prompt: CGPoint
+        var keyboard: CGPoint
+    }
 
-        let synthCenter = CGPoint(x: screenPos.x + synthOffset.x, y: screenPos.y + synthOffset.y)
-        let seqCenter = CGPoint(x: screenPos.x + sequenceOffset.x, y: screenPos.y + sequenceOffset.y)
-        let promptCenter = CGPoint(x: screenPos.x + promptOffset.x, y: screenPos.y + promptOffset.y)
-        let keyboardCenter = CGPoint(x: screenPos.x + keyboardOffset.x, y: screenPos.y + keyboardOffset.y)
+    private func adjustedBloomOffsets(nodePosition: NodePosition, viewSize: CGSize) -> BloomOffsets {
+        var synth = BloomLayout.synthOffset
+        var seq = BloomLayout.seqOffset
+        let prompt = BloomLayout.promptOffset
+        let keyboard = BloomLayout.keyboardOffset
+
+        // Convert node position to screen to check edge proximity
+        let center = centerOffset(viewSize: viewSize)
+        let screenX = (nodePosition.x + center.width) * canvasState.scale + canvasState.offset.width
+
+        let synthHalfW = BloomLayout.synthSize.width / 2
+        let seqHalfW = BloomLayout.seqSize.width / 2
+
+        // If synth panel would go off left edge, flip to right
+        if screenX + synth.x * canvasState.scale - synthHalfW * canvasState.scale < 0 {
+            synth.x = abs(synth.x)
+        }
+        // If sequencer would go off right edge, flip to left
+        if screenX + seq.x * canvasState.scale + seqHalfW * canvasState.scale > viewSize.width {
+            seq.x = -abs(seq.x)
+        }
+
+        return BloomOffsets(synth: synth, seq: seq, prompt: prompt, keyboard: keyboard)
+    }
+
+    private func bloomContent(node: Node, viewSize: CGSize) -> some View {
+        // Canvas-space offsets from node center
+        let offsets = adjustedBloomOffsets(nodePosition: node.position, viewSize: viewSize)
+
+        let synthPos = CGPoint(x: node.position.x + offsets.synth.x, y: node.position.y + offsets.synth.y)
+        let seqPos = CGPoint(x: node.position.x + offsets.seq.x, y: node.position.y + offsets.seq.y)
+        let promptPos = CGPoint(x: node.position.x + offsets.prompt.x, y: node.position.y + offsets.prompt.y)
+        let keyboardPos = CGPoint(x: node.position.x + offsets.keyboard.x, y: node.position.y + offsets.keyboard.y)
 
         return ZStack {
-            // Dashed connector lines
             BloomConnectors(
-                nodeCenter: screenPos,
-                synthCenter: CGPoint(x: synthCenter.x + 150, y: synthCenter.y + 50),
-                seqCenter: CGPoint(x: seqCenter.x - 120, y: seqCenter.y + 50),
-                promptCenter: CGPoint(x: promptCenter.x, y: promptCenter.y - 20)
+                nodeCenter: CGPoint(x: node.position.x, y: node.position.y),
+                synthCenter: CGPoint(x: synthPos.x + 110, y: synthPos.y - 50),
+                seqCenter: CGPoint(x: seqPos.x - 120, y: seqPos.y - 50),
+                promptCenter: CGPoint(x: promptPos.x, y: promptPos.y - 20)
             )
 
-            // Synth panel (left)
             SynthControlsPanel(projectState: projectState)
-                .position(x: synthCenter.x, y: synthCenter.y)
+                .position(x: synthPos.x, y: synthPos.y)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
 
-            // Sequence panel (right)
             StepSequencerPanel(projectState: projectState, transportState: transportState)
-                .position(x: seqCenter.x, y: seqCenter.y)
+                .position(x: seqPos.x, y: seqPos.y)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
 
-            // Claude prompt (below)
             ClaudePromptPanel()
-                .position(x: promptCenter.x, y: promptCenter.y)
+                .position(x: promptPos.x, y: promptPos.y)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
 
-            // Keyboard (bottom of bloom)
             KeyboardBarView(baseOctave: $keyboardOctave, selectedNodeID: projectState.selectedNodeID)
-                .position(x: keyboardCenter.x, y: keyboardCenter.y)
+                .position(x: keyboardPos.x, y: keyboardPos.y)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
         }
-        .allowsHitTesting(true)
     }
 
     // MARK: - Branch Actions
 
     private func handleAddBranch(to parentID: UUID) {
-        let newNode = projectState.addChildNode(to: parentID)
+        var newNode: Node!
+        withAnimation(.spring(duration: 0.4, bounce: 0.15)) {
+            newNode = projectState.addChildNode(to: parentID)
+            projectState.selectNode(newNode.id)
+        }
 
         // Hot-patch: add single node to live audio graph
         AudioEngine.shared.addNode(newNode)
@@ -243,19 +277,33 @@ struct CanopyCanvasView: View {
         if transportState.isPlaying {
             AudioEngine.shared.graph.unit(for: newNode.id)?.startSequencer(bpm: transportState.bpm)
         }
-
-        // Auto-select the new node
-        projectState.selectNode(newNode.id)
     }
 
-    // MARK: - Helpers
+    // MARK: - Scroll Panning
 
-    private func nodeScreenPosition(node: Node, viewSize: CGSize) -> CGPoint {
-        let center = centerOffset(viewSize: viewSize)
-        let x = (node.position.x + center.width) * canvasState.scale + canvasState.offset.width
-        let y = (node.position.y + center.height) * canvasState.scale + canvasState.offset.height
-        return CGPoint(x: x, y: y)
+    private func installScrollMonitor() {
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak canvasState] event in
+            guard let canvasState = canvasState else { return event }
+            canvasState.offset = CGSize(
+                width: canvasState.offset.width + event.scrollingDeltaX,
+                height: canvasState.offset.height + event.scrollingDeltaY
+            )
+            canvasState.lastOffset = canvasState.offset
+            if let windowSize = event.window?.contentView?.frame.size {
+                canvasState.clampOffset(viewSize: windowSize)
+            }
+            return event
+        }
     }
+
+    private func removeScrollMonitor() {
+        if let monitor = scrollMonitor {
+            NSEvent.removeMonitor(monitor)
+            scrollMonitor = nil
+        }
+    }
+
+    // MARK: - Tap Handling
 
     private func handleTap(at location: CGPoint, viewSize: CGSize) {
         let center = centerOffset(viewSize: viewSize)
@@ -268,12 +316,16 @@ struct CanopyCanvasView: View {
             let dx = canvasX - node.position.x
             let dy = canvasY - node.position.y
             if dx * dx + dy * dy <= hitRadius * hitRadius {
-                projectState.selectNode(node.id)
+                withAnimation(.spring(duration: 0.3)) {
+                    projectState.selectNode(node.id)
+                }
                 return
             }
         }
 
-        projectState.selectNode(nil)
+        withAnimation(.spring(duration: 0.2)) {
+            projectState.selectNode(nil)
+        }
     }
 }
 
@@ -347,5 +399,7 @@ struct ClaudePromptPanel: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture { }
     }
 }

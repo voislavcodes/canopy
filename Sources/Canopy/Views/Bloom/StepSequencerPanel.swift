@@ -65,6 +65,8 @@ struct StepSequencerPanel: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture { }
     }
 
     // MARK: - Length Picker

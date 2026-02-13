@@ -19,6 +19,9 @@ class ProjectState: ObservableObject {
 
     func selectNode(_ id: UUID?) {
         selectedNodeID = id
+        if project.trees.count > 0 {
+            recomputeLayout(root: &project.trees[0].rootNode, x: 0, y: 0, depth: 0)
+        }
     }
 
     func findNode(id: UUID) -> Node? {
@@ -63,6 +66,9 @@ class ProjectState: ObservableObject {
         case .group: name = "Group"
         }
 
+        // Start at parent's position so SwiftUI can animate from parent → final
+        let parentPos = findNode(id: parentID)?.position ?? NodePosition()
+
         let newNode = Node(
             name: name,
             type: type,
@@ -71,7 +77,7 @@ class ProjectState: ObservableObject {
                 name: "Default",
                 soundType: .oscillator(OscillatorConfig(waveform: .sine))
             ),
-            position: NodePosition()
+            position: parentPos
         )
 
         updateNode(id: parentID) { parent in
@@ -109,24 +115,37 @@ class ProjectState: ObservableObject {
     // MARK: - Layout
 
     /// Spacing constants for tree layout.
-    private static let horizontalSpacing: Double = 120
-    private static let verticalSpacing: Double = 150
+    private static let verticalSpacing: Double = 160
+    private static let minHorizontalSpacing: Double = 140
+    private static let selectedNodeClearance: Double = 600
+
+    /// Compute the horizontal width needed to lay out a node's subtree.
+    private func subtreeWidth(of node: Node) -> Double {
+        if node.children.isEmpty {
+            return node.id == selectedNodeID ? Self.selectedNodeClearance : 0
+        }
+        let childSlots = node.children.map { max(Self.minHorizontalSpacing, subtreeWidth(of: $0)) }
+        let total = childSlots.reduce(0, +)
+        return node.id == selectedNodeID ? max(total, Self.selectedNodeClearance) : total
+    }
 
     /// Recursively position nodes in a fan layout.
-    /// Root is at (x, y). Children fan out below.
+    /// Root is at (x, y). Children fan out above (negative Y).
     private func recomputeLayout(root: inout Node, x: Double, y: Double, depth: Int) {
         root.position = NodePosition(x: x, y: y)
 
         let childCount = root.children.count
         guard childCount > 0 else { return }
 
-        let totalWidth = Double(childCount - 1) * Self.horizontalSpacing
-        let startX = x - totalWidth / 2
-        let childY = y + Self.verticalSpacing
+        let slotWidths = root.children.map { max(Self.minHorizontalSpacing, subtreeWidth(of: $0)) }
+        let totalWidth = slotWidths.reduce(0, +)
+        let childY = y - Self.verticalSpacing
 
+        var currentX = x - totalWidth / 2
         for i in 0..<childCount {
-            let childX = startX + Double(i) * Self.horizontalSpacing
-            recomputeLayout(root: &root.children[i], x: childX, y: childY, depth: depth + 1)
+            let childCenterX = currentX + slotWidths[i] / 2
+            recomputeLayout(root: &root.children[i], x: childCenterX, y: childY, depth: depth + 1)
+            currentX += slotWidths[i]
         }
     }
 

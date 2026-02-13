@@ -65,6 +65,8 @@ struct KeyboardBarView: View {
                 .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
         )
         .fixedSize()
+        .contentShape(Rectangle())
+        .onTapGesture { }
     }
 
     private var keyboardView: some View {
