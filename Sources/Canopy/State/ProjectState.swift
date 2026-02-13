@@ -2,10 +2,20 @@ import Foundation
 import Combine
 
 class ProjectState: ObservableObject {
-    @Published var project: CanopyProject
+    @Published var project: CanopyProject {
+        didSet {
+            _cachedAllNodes = nil
+            _cachedCycleLength = nil
+        }
+    }
     @Published var selectedNodeID: UUID?
     @Published var currentFilePath: URL?
     @Published var isDirty: Bool = false
+
+    // MARK: - Cached computations (invalidated on project mutation)
+
+    private var _cachedAllNodes: [Node]?
+    private var _cachedCycleLength: Double?
 
     init(project: CanopyProject = ProjectFactory.newProject()) {
         self.project = project
@@ -44,10 +54,14 @@ class ProjectState: ObservableObject {
     }
 
     func allNodes() -> [Node] {
+        if let cached = _cachedAllNodes {
+            return cached
+        }
         var result: [Node] = []
         for tree in project.trees {
             collectNodes(from: tree.rootNode, into: &result)
         }
+        _cachedAllNodes = result
         return result
     }
 
@@ -107,12 +121,17 @@ class ProjectState: ObservableObject {
     /// Compute the LCM of all nodes' sequence lengths (the natural polyrhythmic cycle).
     /// Works in step counts to handle fractional beat lengths correctly.
     func cycleLengthInBeats() -> Double {
+        if let cached = _cachedCycleLength {
+            return cached
+        }
         let nodes = allNodes()
         guard !nodes.isEmpty else { return 1 }
         let sd = NoteSequence.stepDuration
         let stepCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats / sd))) }
         let lcmSteps = stepCounts.reduce(1) { lcm($0, $1) }
-        return Double(lcmSteps) * sd
+        let result = Double(lcmSteps) * sd
+        _cachedCycleLength = result
+        return result
     }
 
     // MARK: - Layout

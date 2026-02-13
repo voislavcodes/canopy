@@ -21,6 +21,11 @@ struct CanopyCanvasView: View {
         GeometryReader { geometry in
             let viewSize = geometry.size
 
+            // Pre-compute values from projectState once per body evaluation
+            let allNodes = projectState.allNodes()
+            let selectedNode = projectState.selectedNode
+            let selectedNodeID = projectState.selectedNodeID
+
             ZStack {
                 // Layer 0: Outer background
                 CanopyColors.canvasBackground
@@ -29,16 +34,28 @@ struct CanopyCanvasView: View {
                 // Layer 1: Canvas area with border + dot grid
                 canvasArea(viewSize: viewSize)
 
-                // Layer 2: Scaled content (branch lines + bloom zone + nodes + add button)
-                scaledContent(viewSize: viewSize)
+                // Layer 2: Scaled content — TreeContentView has value-type inputs,
+                // so SwiftUI skips its body when only canvas transform changes.
+                TreeContentView(
+                    allNodes: allNodes,
+                    selectedNode: selectedNode,
+                    selectedNodeID: selectedNodeID,
+                    onAddBranch: { handleAddBranch(to: $0) }
+                )
+                .offset(centerOffset(viewSize: viewSize))
+                .offset(canvasState.offset)
+                .scaleEffect(canvasState.scale)
 
                 // Layer 3: Bloom panels — rendered outside scaleEffect for crisp text at any zoom
-                if let selectedNode = projectState.selectedNode {
+                if let selectedNode {
                     bloomContentScreen(node: selectedNode, viewSize: viewSize)
                 }
 
                 // Layer 4: Cycle length badge (top-right)
-                cycleBadge
+                CycleBadgeView(
+                    nodeCount: allNodes.count,
+                    cycle: projectState.cycleLengthInBeats()
+                )
             }
             .contentShape(Rectangle())
             .gesture(
@@ -87,72 +104,6 @@ struct CanopyCanvasView: View {
                 .stroke(CanopyColors.canvasBorder.opacity(0.5), lineWidth: 1)
         }
         .padding(inset)
-    }
-
-    // MARK: - Scaled Content (canvas space — nodes, branches, bloom zone)
-
-    private func scaledContent(viewSize: CGSize) -> some View {
-        let allNodes = projectState.allNodes()
-
-        return ZStack {
-            // Branch lines (behind everything)
-            BranchLineView(nodes: allNodes)
-
-            // Bloom zone circle behind selected node
-            if let selectedNode = projectState.selectedNode {
-                Circle()
-                    .fill(CanopyColors.bloomZone.opacity(0.85))
-                    .frame(width: 350, height: 350)
-                    .position(x: selectedNode.position.x, y: selectedNode.position.y)
-            }
-
-            // Nodes
-            ForEach(allNodes) { node in
-                NodeView(
-                    node: node,
-                    isSelected: projectState.selectedNodeID == node.id
-                )
-            }
-
-            // Add branch button for selected node
-            if let selectedNode = projectState.selectedNode {
-                AddBranchButton(
-                    parentPosition: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y),
-                    children: selectedNode.children
-                ) {
-                    handleAddBranch(to: selectedNode.id)
-                }
-            }
-        }
-        .offset(centerOffset(viewSize: viewSize))
-        .offset(canvasState.offset)
-        .scaleEffect(canvasState.scale)
-    }
-
-    // MARK: - Cycle Badge
-
-    private var cycleBadge: some View {
-        let cycle = projectState.cycleLengthInBeats()
-        let nodeCount = projectState.allNodes().count
-
-        return VStack(alignment: .trailing, spacing: 4) {
-            if nodeCount > 1 {
-                Text("cycle: \(cycle.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", cycle) : String(format: "%.1f", cycle)) beats")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(CanopyColors.bloomPanelBackground.opacity(0.85))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
-                    )
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .padding(28)
-        .allowsHitTesting(false)
     }
 
     // MARK: - Bloom Content (screen space)
@@ -340,6 +291,79 @@ struct CanopyCanvasView: View {
         withAnimation(.spring(duration: 0.2)) {
             projectState.selectNode(nil)
         }
+    }
+}
+
+// MARK: - TreeContentView (value-type inputs — body skipped when only canvas transform changes)
+
+/// Isolated view for tree content (branch lines, nodes, bloom zone, add button).
+/// Receives all data as value types so SwiftUI's structural diffing skips its body
+/// when only the canvas offset/scale changes in the parent.
+private struct TreeContentView: View {
+    let allNodes: [Node]
+    let selectedNode: Node?
+    let selectedNodeID: UUID?
+    let onAddBranch: (UUID) -> Void
+
+    var body: some View {
+        ZStack {
+            // Branch lines (behind everything)
+            BranchLineView(nodes: allNodes)
+
+            // Bloom zone circle behind selected node
+            if let selectedNode {
+                Circle()
+                    .fill(CanopyColors.bloomZone.opacity(0.85))
+                    .frame(width: 350, height: 350)
+                    .position(x: selectedNode.position.x, y: selectedNode.position.y)
+            }
+
+            // Nodes
+            ForEach(allNodes) { node in
+                NodeView(
+                    node: node,
+                    isSelected: selectedNodeID == node.id
+                )
+            }
+
+            // Add branch button for selected node
+            if let selectedNode {
+                AddBranchButton(
+                    parentPosition: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y),
+                    children: selectedNode.children
+                ) {
+                    onAddBranch(selectedNode.id)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - CycleBadgeView (value-type inputs)
+
+private struct CycleBadgeView: View {
+    let nodeCount: Int
+    let cycle: Double
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            if nodeCount > 1 {
+                Text("cycle: \(cycle.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", cycle) : String(format: "%.1f", cycle)) beats")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(CanopyColors.bloomPanelBackground.opacity(0.85))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .padding(28)
+        .allowsHitTesting(false)
     }
 }
 

@@ -3,6 +3,11 @@ import SwiftUI
 /// Bloom panel: step sequencer grid with algorithmic features.
 /// Dynamic column count based on node's sequence length.
 /// Derives boolean state from NoteSequence.notes.
+///
+/// Continuous sliders (probability, mutation amount, accumulator amount/limit)
+/// use local @State during drag to avoid cascading @Published updates.
+/// Discrete controls (S/E/R, direction, toggles) commit immediately since
+/// they trigger reloadSequence() which is necessary.
 struct StepSequencerPanel: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
@@ -18,6 +23,13 @@ struct StepSequencerPanel: View {
 
     @State private var baseNote: Int = 55  // G3 — scrollable via touch strip
     @State private var showAdvanced = false
+
+    // MARK: - Local drag state for continuous sliders
+
+    @State private var localProbability: Double = 1.0
+    @State private var localMutationAmount: Double = 0.0
+    @State private var localAccAmount: Double = 1.0
+    @State private var localAccLimit: Double = 12.0
 
     private var node: Node? {
         projectState.selectedNode
@@ -127,6 +139,18 @@ struct StepSequencerPanel: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { }
+        .onAppear { syncSeqFromModel() }
+        .onChange(of: projectState.selectedNodeID) { _ in syncSeqFromModel() }
+    }
+
+    // MARK: - Sync local state from model
+
+    private func syncSeqFromModel() {
+        guard let node else { return }
+        localProbability = node.sequence.globalProbability
+        localMutationAmount = node.sequence.mutation?.amount ?? 0
+        localAccAmount = node.sequence.accumulator?.amount ?? 1.0
+        localAccLimit = node.sequence.accumulator?.limit ?? 12.0
     }
 
     // MARK: - Header Controls (S / E / R / dice)
@@ -396,10 +420,11 @@ struct StepSequencerPanel: View {
     }
 
     /// Bloom-style horizontal slider matching SynthControlsPanel design.
-    private func seqSlider(value: Double, range: ClosedRange<Double>, onChange: @escaping (Double) -> Void) -> some View {
+    /// Accepts a Binding for local @State drag + onCommit/onDrag callbacks.
+    private func seqSlider(value: Binding<Double>, range: ClosedRange<Double>, onCommit: @escaping () -> Void, onDrag: @escaping () -> Void) -> some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let fraction = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
+            let fraction = CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
             let filledWidth = max(0, min(width, width * fraction))
 
             ZStack(alignment: .leading) {
@@ -415,8 +440,11 @@ struct StepSequencerPanel: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
                         let frac = max(0, min(1, drag.location.x / width))
-                        let newValue = range.lowerBound + Double(frac) * (range.upperBound - range.lowerBound)
-                        onChange(newValue)
+                        value.wrappedValue = range.lowerBound + Double(frac) * (range.upperBound - range.lowerBound)
+                        onDrag()
+                    }
+                    .onEnded { _ in
+                        onCommit()
                     }
             )
         }
@@ -426,16 +454,21 @@ struct StepSequencerPanel: View {
     // MARK: - Probability Slider
 
     private var probabilitySlider: some View {
-        let prob = node?.sequence.globalProbability ?? 1.0
         return HStack(spacing: 6 * cs) {
             Text("PROB")
                 .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.5))
 
-            seqSlider(value: prob, range: 0...1) { setGlobalProbability($0) }
+            seqSlider(value: $localProbability, range: 0...1, onCommit: {
+                commitGlobalProbability()
+            }, onDrag: {
+                // Push directly to audio engine during drag
+                guard let nodeID = projectState.selectedNodeID else { return }
+                AudioEngine.shared.setGlobalProbability(localProbability, nodeID: nodeID)
+            })
                 .frame(width: 100 * cs)
 
-            Text("\(Int(prob * 100))%")
+            Text("\(Int(localProbability * 100))%")
                 .font(.system(size: 9 * cs, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.6))
                 .frame(width: 30 * cs, alignment: .trailing)
@@ -446,7 +479,6 @@ struct StepSequencerPanel: View {
 
     private var mutationControls: some View {
         let mutation = node?.sequence.mutation
-        let amount = mutation?.amount ?? 0
         let range = mutation?.range ?? 1
 
         return VStack(alignment: .leading, spacing: 4 * cs) {
@@ -459,10 +491,23 @@ struct StepSequencerPanel: View {
                     .font(.system(size: 9 * cs, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText.opacity(0.4))
 
-                seqSlider(value: amount, range: 0...1) { setMutationAmount($0) }
+                seqSlider(value: $localMutationAmount, range: 0...1, onCommit: {
+                    commitMutationAmount()
+                }, onDrag: {
+                    // Push directly to audio engine during drag
+                    guard let nodeID = projectState.selectedNodeID else { return }
+                    let key = resolveKey()
+                    AudioEngine.shared.setMutation(
+                        amount: localMutationAmount,
+                        range: node?.sequence.mutation?.range ?? 1,
+                        rootSemitone: key.root.semitone,
+                        intervals: key.mode.intervals,
+                        nodeID: nodeID
+                    )
+                })
                     .frame(width: 80 * cs)
 
-                Text("\(Int(amount * 100))%")
+                Text("\(Int(localMutationAmount * 100))%")
                     .font(.system(size: 9 * cs, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText.opacity(0.6))
                     .frame(width: 28 * cs, alignment: .trailing)
@@ -499,8 +544,6 @@ struct StepSequencerPanel: View {
         let acc = node?.sequence.accumulator
         let enabled = acc != nil
         let target = acc?.target ?? .pitch
-        let amount = acc?.amount ?? 1.0
-        let limit = acc?.limit ?? 12.0
         let mode = acc?.mode ?? .clamp
 
         return VStack(alignment: .leading, spacing: 4 * cs) {
@@ -544,9 +587,13 @@ struct StepSequencerPanel: View {
                     Text("Amt")
                         .font(.system(size: 9 * cs, design: .monospaced))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                    seqSlider(value: amount, range: -12...12) { setAccumulatorAmount($0) }
+                    seqSlider(value: $localAccAmount, range: -12...12, onCommit: {
+                        commitAccumulatorAmount()
+                    }, onDrag: {
+                        // Accumulator amount updates need reloadSequence on commit, not during drag
+                    })
                         .frame(width: 80 * cs)
-                    Text(String(format: "%.1f", amount))
+                    Text(String(format: "%.1f", localAccAmount))
                         .font(.system(size: 9 * cs, design: .monospaced))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.6))
                         .frame(width: 28 * cs, alignment: .trailing)
@@ -556,9 +603,13 @@ struct StepSequencerPanel: View {
                     Text("Lim")
                         .font(.system(size: 9 * cs, design: .monospaced))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                    seqSlider(value: limit, range: 1...48) { setAccumulatorLimit($0) }
+                    seqSlider(value: $localAccLimit, range: 1...48, onCommit: {
+                        commitAccumulatorLimit()
+                    }, onDrag: {
+                        // Accumulator limit updates need reloadSequence on commit, not during drag
+                    })
                         .frame(width: 80 * cs)
-                    Text(String(format: "%.0f", limit))
+                    Text(String(format: "%.0f", localAccLimit))
                         .font(.system(size: 9 * cs, design: .monospaced))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.6))
                         .frame(width: 28 * cs, alignment: .trailing)
@@ -585,6 +636,51 @@ struct StepSequencerPanel: View {
                 }
             }
         }
+    }
+
+    // MARK: - Commit Helpers (write to ProjectState once on drag end)
+
+    private func commitGlobalProbability() {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.globalProbability = localProbability
+        }
+        AudioEngine.shared.setGlobalProbability(localProbability, nodeID: nodeID)
+    }
+
+    private func commitMutationAmount() {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            if node.sequence.mutation == nil {
+                node.sequence.mutation = MutationConfig(amount: localMutationAmount, range: 1)
+            } else {
+                node.sequence.mutation?.amount = localMutationAmount
+            }
+        }
+        let key = resolveKey()
+        AudioEngine.shared.setMutation(
+            amount: localMutationAmount,
+            range: node?.sequence.mutation?.range ?? 1,
+            rootSemitone: key.root.semitone,
+            intervals: key.mode.intervals,
+            nodeID: nodeID
+        )
+    }
+
+    private func commitAccumulatorAmount() {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.accumulator?.amount = localAccAmount
+        }
+        reloadSequence()
+    }
+
+    private func commitAccumulatorLimit() {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.accumulator?.limit = localAccLimit
+        }
+        reloadSequence()
     }
 
     // MARK: - Length Change
@@ -653,37 +749,7 @@ struct StepSequencerPanel: View {
         reloadSequence()
     }
 
-    // MARK: - Probability
-
-    private func setGlobalProbability(_ prob: Double) {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.globalProbability = prob
-        }
-        // Use dedicated command for responsive updates
-        AudioEngine.shared.setGlobalProbability(prob, nodeID: nodeID)
-    }
-
-    // MARK: - Mutation
-
-    private func setMutationAmount(_ amount: Double) {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            if node.sequence.mutation == nil {
-                node.sequence.mutation = MutationConfig(amount: amount, range: 1)
-            } else {
-                node.sequence.mutation?.amount = amount
-            }
-        }
-        let key = resolveKey()
-        AudioEngine.shared.setMutation(
-            amount: amount,
-            range: node?.sequence.mutation?.range ?? 1,
-            rootSemitone: key.root.semitone,
-            intervals: key.mode.intervals,
-            nodeID: nodeID
-        )
-    }
+    // MARK: - Mutation (discrete controls — commit immediately)
 
     private func setMutationRange(_ range: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
@@ -707,7 +773,7 @@ struct StepSequencerPanel: View {
         AudioEngine.shared.resetMutation(nodeID: nodeID)
     }
 
-    // MARK: - Accumulator
+    // MARK: - Accumulator (discrete controls — commit immediately)
 
     private func toggleAccumulator() {
         guard let nodeID = projectState.selectedNodeID else { return }
@@ -718,6 +784,7 @@ struct StepSequencerPanel: View {
                 node.sequence.accumulator = AccumulatorConfig()
             }
         }
+        syncSeqFromModel()
         reloadSequence()
     }
 
@@ -725,22 +792,6 @@ struct StepSequencerPanel: View {
         guard let nodeID = projectState.selectedNodeID else { return }
         projectState.updateNode(id: nodeID) { node in
             node.sequence.accumulator?.target = target
-        }
-        reloadSequence()
-    }
-
-    private func setAccumulatorAmount(_ amount: Double) {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.accumulator?.amount = amount
-        }
-        reloadSequence()
-    }
-
-    private func setAccumulatorLimit(_ limit: Double) {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.accumulator?.limit = limit
         }
         reloadSequence()
     }

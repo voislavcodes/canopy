@@ -2,6 +2,10 @@ import SwiftUI
 
 /// Transport controls: play/stop buttons and editable BPM field.
 /// BPM supports click-to-edit and vertical drag-to-adjust (Ableton-style).
+///
+/// During BPM drag, uses local @State to avoid broadcasting every pixel
+/// through @Published. Pushes tempo to AudioEngine directly during drag,
+/// commits to TransportState once on drag end.
 struct TransportView: View {
     @ObservedObject var transportState: TransportState
 
@@ -9,6 +13,7 @@ struct TransportView: View {
     @State private var bpmText = ""
     @State private var dragStartBPM: Double = 0
     @State private var isDragging = false
+    @State private var localBPM: Double = 120
 
     var body: some View {
         HStack(spacing: 12) {
@@ -30,6 +35,16 @@ struct TransportView: View {
             // BPM field
             bpmField
         }
+        .onAppear { localBPM = transportState.bpm }
+        .onChange(of: transportState.bpm) { newBPM in
+            if !isDragging {
+                localBPM = newBPM
+            }
+        }
+    }
+
+    private var displayBPM: Double {
+        isDragging ? localBPM : transportState.bpm
     }
 
     private var bpmField: some View {
@@ -49,7 +64,7 @@ struct TransportView: View {
                     }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
-                    Text("\(Int(transportState.bpm))")
+                    Text("\(Int(displayBPM))")
                         .font(.system(size: 16, weight: .bold, design: .monospaced))
                         .foregroundColor(isDragging ? CanopyColors.glowColor : CanopyColors.chromeTextBright)
                         .frame(minWidth: 40)
@@ -72,7 +87,7 @@ struct TransportView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if !isEditingBPM {
-                bpmText = "\(Int(transportState.bpm))"
+                bpmText = "\(Int(displayBPM))"
                 isEditingBPM = true
             }
         }
@@ -86,10 +101,14 @@ struct TransportView: View {
                     // Drag up = faster, drag down = slower
                     // 1 point = 0.5 BPM for fine control
                     let delta = -value.translation.height * 0.5
-                    transportState.updateBPM(dragStartBPM + delta)
+                    localBPM = max(20, min(300, dragStartBPM + delta))
+                    // Push directly to audio engine (no @Published mutation)
+                    AudioEngine.shared.setAllSequencersBPM(localBPM)
                 }
                 .onEnded { _ in
                     isDragging = false
+                    // Commit once to TransportState
+                    transportState.updateBPM(localBPM)
                 }
         )
     }
@@ -97,6 +116,7 @@ struct TransportView: View {
     private func commitBPM() {
         if let val = Double(bpmText) {
             transportState.updateBPM(val)
+            localBPM = max(20, min(300, val))
         }
         isEditingBPM = false
     }

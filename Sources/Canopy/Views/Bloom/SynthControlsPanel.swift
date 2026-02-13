@@ -2,9 +2,22 @@ import SwiftUI
 
 /// Bloom panel: synth controls with waveform picker, sliders.
 /// Positioned in canvas space around the selected node.
+///
+/// Sliders use local @State during drag to avoid broadcasting every pixel
+/// of movement through @Published → entire view tree. On drag end, the
+/// final value is committed once to ProjectState.
 struct SynthControlsPanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
+
+    // MARK: - Local drag state (view-local, zero cascade)
+
+    @State private var localVolume: Double = 0.8
+    @State private var localPan: Double = 0
+    @State private var localAttack: Double = 0.01
+    @State private var localDecay: Double = 0.1
+    @State private var localSustain: Double = 0.8
+    @State private var localRelease: Double = 0.3
 
     private var node: Node? {
         projectState.selectedNode
@@ -28,10 +41,12 @@ struct SynthControlsPanel: View {
                 .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText)
 
-            if let osc = oscillatorConfig, let patch {
+            if let osc = oscillatorConfig, let _ = patch {
                 // Volume / level slider
-                bloomSlider(value: patch.volume, range: 0...1) { val in
-                    updatePatch { $0.volume = val }
+                bloomSlider(value: $localVolume, range: 0...1) {
+                    commitPatch { $0.volume = localVolume }
+                } onDrag: {
+                    pushLocalPatchToEngine()
                 }
 
                 // Pan slider
@@ -49,24 +64,35 @@ struct SynthControlsPanel: View {
                             .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
                             .foregroundColor(CanopyColors.chromeText.opacity(0.4))
                     }
-                    panSlider(value: patch.pan) { val in
-                        updatePatch { $0.pan = val }
+                    panSlider(value: $localPan) {
+                        commitPatch { $0.pan = localPan }
+                    } onDrag: {
+                        guard let nodeID = projectState.selectedNodeID else { return }
+                        AudioEngine.shared.setNodePan(Float(localPan), nodeID: nodeID)
                     }
                 }
 
                 // ADSR compact
                 HStack(spacing: 6 * cs) {
-                    miniSlider(label: "A", value: patch.envelope.attack, range: 0.001...2.0) { val in
-                        updateEnvelope { $0.attack = val }
+                    miniSlider(label: "A", value: $localAttack, range: 0.001...2.0) {
+                        commitEnvelope { $0.attack = localAttack }
+                    } onDrag: {
+                        pushLocalPatchToEngine()
                     }
-                    miniSlider(label: "D", value: patch.envelope.decay, range: 0.001...2.0) { val in
-                        updateEnvelope { $0.decay = val }
+                    miniSlider(label: "D", value: $localDecay, range: 0.001...2.0) {
+                        commitEnvelope { $0.decay = localDecay }
+                    } onDrag: {
+                        pushLocalPatchToEngine()
                     }
-                    miniSlider(label: "S", value: patch.envelope.sustain, range: 0...1.0) { val in
-                        updateEnvelope { $0.sustain = val }
+                    miniSlider(label: "S", value: $localSustain, range: 0...1.0) {
+                        commitEnvelope { $0.sustain = localSustain }
+                    } onDrag: {
+                        pushLocalPatchToEngine()
                     }
-                    miniSlider(label: "R", value: patch.envelope.release, range: 0.01...5.0) { val in
-                        updateEnvelope { $0.release = val }
+                    miniSlider(label: "R", value: $localRelease, range: 0.01...5.0) {
+                        commitEnvelope { $0.release = localRelease }
+                    } onDrag: {
+                        pushLocalPatchToEngine()
                     }
                 }
 
@@ -89,6 +115,20 @@ struct SynthControlsPanel: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { }
+        .onAppear { syncFromModel() }
+        .onChange(of: projectState.selectedNodeID) { _ in syncFromModel() }
+    }
+
+    // MARK: - Sync local state from model
+
+    private func syncFromModel() {
+        guard let patch else { return }
+        localVolume = patch.volume
+        localPan = patch.pan
+        localAttack = patch.envelope.attack
+        localDecay = patch.envelope.decay
+        localSustain = patch.envelope.sustain
+        localRelease = patch.envelope.release
     }
 
     // MARK: - Waveform Picker
@@ -125,12 +165,12 @@ struct SynthControlsPanel: View {
         [("saw", .sawtooth), ("sq", .square), ("tri", .triangle), ("sin", .sine)]
     }
 
-    // MARK: - Sliders
+    // MARK: - Sliders (Binding-based, local @State during drag)
 
-    private func bloomSlider(value: Double, range: ClosedRange<Double>, onChange: @escaping (Double) -> Void) -> some View {
+    private func bloomSlider(value: Binding<Double>, range: ClosedRange<Double>, onCommit: @escaping () -> Void, onDrag: @escaping () -> Void) -> some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let fraction = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
+            let fraction = CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
             let filledWidth = max(0, min(width, width * fraction))
 
             ZStack(alignment: .leading) {
@@ -147,16 +187,19 @@ struct SynthControlsPanel: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
-                        let fraction = max(0, min(1, drag.location.x / width))
-                        let newValue = range.lowerBound + Double(fraction) * (range.upperBound - range.lowerBound)
-                        onChange(newValue)
+                        let frac = max(0, min(1, drag.location.x / width))
+                        value.wrappedValue = range.lowerBound + Double(frac) * (range.upperBound - range.lowerBound)
+                        onDrag()
+                    }
+                    .onEnded { _ in
+                        onCommit()
                     }
             )
         }
         .frame(height: 8 * cs)
     }
 
-    private func miniSlider(label: String, value: Double, range: ClosedRange<Double>, onChange: @escaping (Double) -> Void) -> some View {
+    private func miniSlider(label: String, value: Binding<Double>, range: ClosedRange<Double>, onCommit: @escaping () -> Void, onDrag: @escaping () -> Void) -> some View {
         VStack(spacing: 2 * cs) {
             Text(label)
                 .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
@@ -164,7 +207,7 @@ struct SynthControlsPanel: View {
 
             GeometryReader { geo in
                 let height = geo.size.height
-                let fraction = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
+                let fraction = CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
                 let filledHeight = max(0, min(height, height * fraction))
 
                 ZStack(alignment: .bottom) {
@@ -178,9 +221,12 @@ struct SynthControlsPanel: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { drag in
-                            let fraction = max(0, min(1, 1 - drag.location.y / height))
-                            let newValue = range.lowerBound + Double(fraction) * (range.upperBound - range.lowerBound)
-                            onChange(newValue)
+                            let frac = max(0, min(1, 1 - drag.location.y / height))
+                            value.wrappedValue = range.lowerBound + Double(frac) * (range.upperBound - range.lowerBound)
+                            onDrag()
+                        }
+                        .onEnded { _ in
+                            onCommit()
                         }
                 )
             }
@@ -190,11 +236,11 @@ struct SynthControlsPanel: View {
 
     // MARK: - Pan Slider
 
-    private func panSlider(value: Double, onChange: @escaping (Double) -> Void) -> some View {
+    private func panSlider(value: Binding<Double>, onCommit: @escaping () -> Void, onDrag: @escaping () -> Void) -> some View {
         GeometryReader { geo in
             let width = geo.size.width
             // Map -1...1 to 0...1 fraction
-            let fraction = CGFloat((value + 1) / 2)
+            let fraction = CGFloat((value.wrappedValue + 1) / 2)
             let indicatorX = max(0, min(width, width * fraction))
 
             ZStack(alignment: .leading) {
@@ -219,15 +265,36 @@ struct SynthControlsPanel: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
                         let frac = max(0, min(1, drag.location.x / width))
-                        let newValue = Double(frac) * 2 - 1 // Map 0...1 to -1...1
-                        onChange(newValue)
+                        value.wrappedValue = Double(frac) * 2 - 1 // Map 0...1 to -1...1
+                        onDrag()
+                    }
+                    .onEnded { _ in
+                        onCommit()
                     }
             )
         }
         .frame(height: 10 * cs)
     }
 
-    // MARK: - Update Helpers
+    // MARK: - Commit Helpers (write to ProjectState once on drag end)
+
+    private func commitPatch(_ transform: (inout SoundPatch) -> Void) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            transform(&node.patch)
+        }
+        pushPatchToEngine()
+    }
+
+    private func commitEnvelope(_ transform: (inout EnvelopeConfig) -> Void) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            transform(&node.patch.envelope)
+        }
+        pushPatchToEngine()
+    }
+
+    // MARK: - Waveform (discrete, not drag — still commits immediately)
 
     private func updateOscillator(_ transform: (inout OscillatorConfig) -> Void) {
         guard let nodeID = projectState.selectedNodeID else { return }
@@ -240,22 +307,25 @@ struct SynthControlsPanel: View {
         pushPatchToEngine()
     }
 
-    private func updateEnvelope(_ transform: (inout EnvelopeConfig) -> Void) {
+    // MARK: - Push to AudioEngine
+
+    /// Push local @State values directly to audio engine (no ProjectState mutation).
+    private func pushLocalPatchToEngine() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            transform(&node.patch.envelope)
-        }
-        pushPatchToEngine()
+        guard let osc = oscillatorConfig else { return }
+        AudioEngine.shared.configurePatch(
+            waveform: waveformToIndex(osc.waveform),
+            detune: osc.detune,
+            attack: localAttack,
+            decay: localDecay,
+            sustain: localSustain,
+            release: localRelease,
+            volume: localVolume,
+            nodeID: nodeID
+        )
     }
 
-    private func updatePatch(_ transform: (inout SoundPatch) -> Void) {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            transform(&node.patch)
-        }
-        pushPatchToEngine()
-    }
-
+    /// Push committed model state to engine (used after waveform change or final commit).
     private func pushPatchToEngine() {
         guard let node = projectState.selectedNode,
               let nodeID = projectState.selectedNodeID else { return }
