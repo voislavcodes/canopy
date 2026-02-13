@@ -284,13 +284,23 @@ struct CanopyCanvasView: View {
     private func installScrollMonitor() {
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak canvasState] event in
             guard let canvasState = canvasState else { return event }
-            canvasState.offset = CGSize(
-                width: canvasState.offset.width + event.scrollingDeltaX,
-                height: canvasState.offset.height + event.scrollingDeltaY
-            )
-            canvasState.lastOffset = canvasState.offset
-            if let windowSize = event.window?.contentView?.frame.size {
-                canvasState.clampOffset(viewSize: windowSize)
+
+            if event.modifierFlags.contains(.command) {
+                // CMD + scroll → zoom
+                let zoomDelta = event.scrollingDeltaY * 0.01
+                canvasState.scale += zoomDelta
+                canvasState.clampScale()
+                canvasState.lastScale = canvasState.scale
+            } else {
+                // Plain scroll → pan
+                canvasState.offset = CGSize(
+                    width: canvasState.offset.width + event.scrollingDeltaX,
+                    height: canvasState.offset.height + event.scrollingDeltaY
+                )
+                canvasState.lastOffset = canvasState.offset
+                if let windowSize = event.window?.contentView?.frame.size {
+                    canvasState.clampOffset(viewSize: windowSize)
+                }
             }
             return event
         }
@@ -305,10 +315,21 @@ struct CanopyCanvasView: View {
 
     // MARK: - Tap Handling
 
-    private func handleTap(at location: CGPoint, viewSize: CGSize) {
+    /// Convert a screen point to canvas coordinates, inverting the transform pipeline:
+    /// content → offset(center) → offset(canvasOffset) → scaleEffect(around view center)
+    private func screenToCanvas(_ point: CGPoint, viewSize: CGSize) -> CGPoint {
         let center = centerOffset(viewSize: viewSize)
-        let canvasX = (location.x - canvasState.offset.width) / canvasState.scale - center.width
-        let canvasY = (location.y - canvasState.offset.height) / canvasState.scale - center.height
+        let scaleAnchor = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        return CGPoint(
+            x: (point.x - scaleAnchor.x) / canvasState.scale - canvasState.offset.width - (center.width - scaleAnchor.x),
+            y: (point.y - scaleAnchor.y) / canvasState.scale - canvasState.offset.height - (center.height - scaleAnchor.y)
+        )
+    }
+
+    private func handleTap(at location: CGPoint, viewSize: CGSize) {
+        let canvas = screenToCanvas(location, viewSize: viewSize)
+        let canvasX = canvas.x
+        let canvasY = canvas.y
 
         let hitRadius: CGFloat = 40
 
