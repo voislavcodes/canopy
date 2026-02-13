@@ -8,11 +8,9 @@ struct StepSequencerPanel: View {
     @ObservedObject var transportState: TransportState
     @Environment(\.canvasScale) var cs
 
-    private static let lengthOptions: [Int] = [3, 4, 6, 8, 16, 32]
-
     private let rows = 8
-    /// Base max grid width — scaled by cs at point of use.
-    private let maxGridWidth: CGFloat = 210
+    /// Fixed panel width in base units (scaled by cs).
+    private let panelWidth: CGFloat = 440
 
     /// MIDI range for the touch strip (C1 to C7)
     private let midiLow = 24
@@ -25,52 +23,63 @@ struct StepSequencerPanel: View {
         projectState.selectedNode
     }
 
+    /// Active step count from the sequence length.
     private var columns: Int {
         let beats = node?.sequence.lengthInBeats ?? 2.0
         return max(1, Int(round(beats / NoteSequence.stepDuration)))
     }
 
-    private var cellSpacing: CGFloat {
-        (columns > 16 ? 1 : (columns > 8 ? 2 : 3)) * cs
+    /// Always render 32 columns so grid size never changes.
+    private var displayColumns: Int { 32 }
+
+    private var cellSpacing: CGFloat { 1.5 * cs }
+
+    private var cellCornerRadius: CGFloat { cellSize * 0.25 }
+
+    /// Available width for the grid cells (panel minus padding, touch strip, labels, spacings).
+    private var gridAreaWidth: CGFloat {
+        // panelWidth - 2*padding(14) - touchStrip(12) - labels(22) - 2*hstackSpacing(4)
+        (panelWidth - 28 - 12 - 22 - 8) * cs
     }
 
-    /// Cell size scales down for higher column counts to keep grid compact.
+    /// Cell size derived from available grid width so cells fill the panel.
     private var cellSize: CGFloat {
         let spacing = cellSpacing
-        let scaledMaxWidth = maxGridWidth * cs
-        let ideal = (scaledMaxWidth + spacing) / CGFloat(columns) - spacing
-        return max(6 * cs, min(20 * cs, floor(ideal)))
+        let ideal = (gridAreaWidth + spacing) / CGFloat(displayColumns) - spacing
+        return max(6 * cs, floor(ideal))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {
-            // Header with title and length selector
-            HStack(spacing: 8 * cs) {
+            // Header: title, direction, S/E/R controls
+            HStack(spacing: 6 * cs) {
                 Text("SEQUENCE")
                     .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText)
 
+                if node != nil {
+                    directionPicker
+                }
+
                 Spacer()
 
-                lengthPicker
-            }
-
-            // Direction picker
-            if let _ = node {
-                directionPicker
+                headerControls
             }
 
             if let node {
-                HStack(spacing: 4 * cs) {
+                HStack(alignment: .top, spacing: 4 * cs) {
                     // Touch strip (left of grid)
                     pitchTouchStrip
 
                     // Note labels
                     noteLabels
 
-                    // Grid + playhead
+                    // Grid + velocity bars + playhead
                     ZStack(alignment: .topLeading) {
-                        gridView(sequence: node.sequence)
+                        VStack(spacing: 2 * cs) {
+                            gridView(sequence: node.sequence)
+                            velocityBars(sequence: node.sequence)
+                        }
 
                         if transportState.isPlaying {
                             playheadOverlay(lengthInBeats: node.sequence.lengthInBeats)
@@ -78,9 +87,6 @@ struct StepSequencerPanel: View {
                     }
                 }
             }
-
-            // Euclidean + Fill controls
-            euclideanControls
 
             // Probability slider
             probabilitySlider
@@ -103,7 +109,7 @@ struct StepSequencerPanel: View {
             }
         }
         .padding(14 * cs)
-        .fixedSize()
+        .frame(width: panelWidth * cs)
         .background(CanopyColors.bloomPanelBackground.opacity(0.9))
         .clipShape(RoundedRectangle(cornerRadius: 10 * cs))
         .overlay(
@@ -114,28 +120,34 @@ struct StepSequencerPanel: View {
         .onTapGesture { }
     }
 
-    // MARK: - Length Picker
+    // MARK: - Header Controls (S / E / R / dice)
 
-    private var lengthPicker: some View {
-        HStack(spacing: 3 * cs) {
-            ForEach(Self.lengthOptions, id: \.self) { length in
-                let isActive = columns == length
-                Button(action: { changeLength(to: length) }) {
-                    Text("\(length)")
-                        .font(.system(size: 10 * cs, weight: .medium, design: .monospaced))
-                        .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.5))
-                        .frame(width: 22 * cs, height: 18 * cs)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3 * cs)
-                                .fill(isActive ? CanopyColors.glowColor.opacity(0.15) : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 3 * cs)
-                                .stroke(isActive ? CanopyColors.glowColor.opacity(0.4) : CanopyColors.bloomPanelBorder.opacity(0.2), lineWidth: 0.5)
-                        )
-                }
-                .buttonStyle(.plain)
+    private var headerControls: some View {
+        let euclidean = node?.sequence.euclidean
+        let pulses = euclidean?.pulses ?? 4
+        let rotation = euclidean?.rotation ?? 0
+
+        return HStack(spacing: 6 * cs) {
+            dragValue(label: "S", value: columns, range: 1...32) { changeLength(to: $0) }
+
+            dragValue(
+                label: "E", value: pulses, range: 0...columns,
+                color: euclidean != nil ? Color(red: 0.2, green: 0.7, blue: 0.4) : CanopyColors.chromeText.opacity(0.4)
+            ) { applyEuclidean(pulses: $0, rotation: rotation) }
+
+            dragValue(
+                label: "R", value: rotation, range: 0...(max(1, columns - 1)),
+                color: CanopyColors.chromeText.opacity(0.4)
+            ) { applyEuclidean(pulses: pulses, rotation: $0) }
+
+            Button(action: { randomFill() }) {
+                Image(systemName: "dice")
+                    .font(.system(size: 12 * cs))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                    .frame(width: 22 * cs, height: 18 * cs)
             }
+            .buttonStyle(.plain)
+            .help("Random scale fill")
         }
     }
 
@@ -171,8 +183,6 @@ struct StepSequencerPanel: View {
                 .buttonStyle(.plain)
                 .help(tooltip)
             }
-
-            Spacer()
         }
     }
 
@@ -242,116 +252,146 @@ struct StepSequencerPanel: View {
         VStack(spacing: cellSpacing) {
             ForEach((0..<rows).reversed(), id: \.self) { row in
                 HStack(spacing: cellSpacing) {
-                    ForEach(0..<columns, id: \.self) { col in
+                    ForEach(0..<displayColumns, id: \.self) { col in
                         let pitch = baseNote + row
-                        let noteEvent = findNote(in: sequence, pitch: pitch, step: col)
-                        stepCell(pitch: pitch, step: col, noteEvent: noteEvent, sequence: sequence)
+                        let enabled = col < columns
+                        let noteEvent = enabled ? findNote(in: sequence, pitch: pitch, step: col) : nil
+                        stepCell(pitch: pitch, step: col, noteEvent: noteEvent, sequence: sequence, enabled: enabled)
                     }
                 }
             }
         }
     }
 
-    private func stepCell(pitch: Int, step: Int, noteEvent: NoteEvent?, sequence: NoteSequence) -> some View {
+    // MARK: - Velocity Bars
+
+    private func velocityBars(sequence: NoteSequence) -> some View {
+        let maxBarHeight: CGFloat = 5 * cs
+        return HStack(spacing: cellSpacing) {
+            ForEach(0..<displayColumns, id: \.self) { col in
+                let enabled = col < columns
+                let stepBeat = Double(col) * NoteSequence.stepDuration
+                let maxVel = enabled ? (sequence.notes
+                    .filter { abs($0.startBeat - stepBeat) < 0.01 }
+                    .map(\.velocity)
+                    .max() ?? 0) : 0.0
+                let dimFactor: Double = enabled ? 1.0 : 0.25
+
+                RoundedRectangle(cornerRadius: 1 * cs)
+                    .fill(CanopyColors.glowColor.opacity((maxVel > 0 ? 0.5 : 0.1) * dimFactor))
+                    .frame(width: cellSize, height: max(1, maxBarHeight * CGFloat(maxVel)))
+            }
+        }
+        .frame(height: 5 * cs, alignment: .bottom)
+    }
+
+    private func stepCell(pitch: Int, step: Int, noteEvent: NoteEvent?, sequence: NoteSequence, enabled: Bool = true) -> some View {
         let isActive = noteEvent != nil
         let isEuclidean = sequence.euclidean != nil && isActive
         let probability = noteEvent?.probability ?? 1.0
         let ratchetCount = noteEvent?.ratchetCount ?? 1
+        let dimFactor: Double = enabled ? 1.0 : 0.25
 
-        let baseColor = isEuclidean
-            ? Color(red: 0.2, green: 0.7, blue: 0.4)  // green for euclidean
-            : CanopyColors.gridCellActive
+        let euclideanGreen = Color(red: 0.2, green: 0.7, blue: 0.4)
+        let baseColor = isEuclidean ? euclideanGreen : CanopyColors.gridCellActive
+
+        let strokeColor: Color = isActive
+            ? baseColor.opacity((probability * 0.8 + 0.2) * dimFactor)
+            : CanopyColors.bloomPanelBorder.opacity(0.3 * dimFactor)
+        let strokeWidth: CGFloat = isActive ? 1.5 : 0.5
+        let fillColor: Color = isActive
+            ? baseColor.opacity(0.1 * dimFactor)
+            : CanopyColors.gridCellInactive.opacity(dimFactor)
 
         return ZStack {
-            RoundedRectangle(cornerRadius: 3 * cs)
-                .fill(isActive ? baseColor.opacity(probability) : CanopyColors.gridCellInactive)
+            RoundedRectangle(cornerRadius: cellCornerRadius)
+                .fill(fillColor)
                 .frame(width: cellSize, height: cellSize)
 
-            // Probability indicator: dim outline for low probability
-            if isActive && probability < 1.0 {
-                RoundedRectangle(cornerRadius: 3 * cs)
-                    .stroke(baseColor.opacity(0.4), lineWidth: 0.5)
-                    .frame(width: cellSize, height: cellSize)
-            }
+            RoundedRectangle(cornerRadius: cellCornerRadius)
+                .stroke(strokeColor, lineWidth: strokeWidth)
+                .frame(width: cellSize, height: cellSize)
 
             // Ratchet indicator: subdivision lines
             if isActive && ratchetCount > 1 {
                 VStack(spacing: 0) {
                     ForEach(0..<ratchetCount, id: \.self) { _ in
                         Rectangle()
-                            .fill(Color.white.opacity(0.3))
+                            .fill(Color.white.opacity(0.3 * dimFactor))
                             .frame(width: cellSize - 4 * cs, height: 1)
                     }
                 }
             }
         }
         .onTapGesture {
-            toggleNote(pitch: pitch, step: step)
+            if enabled { toggleNote(pitch: pitch, step: step) }
         }
     }
 
-    // MARK: - Euclidean Controls
+    // MARK: - Custom Controls
 
-    private var euclideanControls: some View {
-        let euclidean = node?.sequence.euclidean
-        let pulses = euclidean?.pulses ?? 4
-        let rotation = euclidean?.rotation ?? 0
+    /// Drag-to-adjust integer field: vertical drag changes value, tap for +/-1.
+    private func dragValue(label: String, value: Int, range: ClosedRange<Int>, color: Color = CanopyColors.chromeText.opacity(0.7), onChange: @escaping (Int) -> Void) -> some View {
+        let dragSensitivity: CGFloat = 8  // points per increment
+        return HStack(spacing: 3 * cs) {
+            Text(label)
+                .font(.system(size: 10 * cs, weight: .bold, design: .monospaced))
+                .foregroundColor(color)
 
-        return VStack(alignment: .leading, spacing: 4 * cs) {
-            HStack(spacing: 8 * cs) {
-                // Euclidean pulses
-                HStack(spacing: 4 * cs) {
-                    Text("E")
-                        .font(.system(size: 10 * cs, weight: .bold, design: .monospaced))
-                        .foregroundColor(euclidean != nil ? Color(red: 0.2, green: 0.7, blue: 0.4) : CanopyColors.chromeText.opacity(0.4))
-
-                    Text("\(pulses)")
-                        .font(.system(size: 10 * cs, design: .monospaced))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.7))
-                        .frame(width: 16 * cs)
-
-                    Stepper("", value: Binding(
-                        get: { pulses },
-                        set: { applyEuclidean(pulses: $0, rotation: rotation) }
-                    ), in: 0...columns)
-                    .labelsHidden()
-                    .scaleEffect(0.7 * cs)
-                    .frame(width: 40 * cs)
+            Text("\(value)")
+                .font(.system(size: 10 * cs, weight: .medium, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.8))
+                .frame(width: 22 * cs, height: 18 * cs)
+                .background(
+                    RoundedRectangle(cornerRadius: 3 * cs)
+                        .fill(CanopyColors.chromeBackground.opacity(0.5))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3 * cs)
+                        .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 0.5)
+                )
+                .gesture(
+                    DragGesture(minimumDistance: 2)
+                        .onChanged { drag in
+                            let delta = -Int(round(drag.translation.height / dragSensitivity))
+                            let newVal = max(range.lowerBound, min(range.upperBound, value + delta))
+                            onChange(newVal)
+                        }
+                )
+                .onTapGesture {
+                    // Tap cycles +1, wrapping
+                    let next = value + 1 > range.upperBound ? range.lowerBound : value + 1
+                    onChange(next)
                 }
-
-                // Rotation
-                HStack(spacing: 4 * cs) {
-                    Text("R")
-                        .font(.system(size: 10 * cs, weight: .bold, design: .monospaced))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-
-                    Text("\(rotation)")
-                        .font(.system(size: 10 * cs, design: .monospaced))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.7))
-                        .frame(width: 16 * cs)
-
-                    Stepper("", value: Binding(
-                        get: { rotation },
-                        set: { applyEuclidean(pulses: pulses, rotation: $0) }
-                    ), in: 0...(columns - 1))
-                    .labelsHidden()
-                    .scaleEffect(0.7 * cs)
-                    .frame(width: 40 * cs)
-                }
-
-                Spacer()
-
-                // Random fill button (dice)
-                Button(action: { randomFill() }) {
-                    Image(systemName: "dice")
-                        .font(.system(size: 12 * cs))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                        .frame(width: 22 * cs, height: 18 * cs)
-                }
-                .buttonStyle(.plain)
-                .help("Random scale fill")
-            }
         }
+    }
+
+    /// Bloom-style horizontal slider matching SynthControlsPanel design.
+    private func seqSlider(value: Double, range: ClosedRange<Double>, onChange: @escaping (Double) -> Void) -> some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let fraction = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
+            let filledWidth = max(0, min(width, width * fraction))
+
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 3 * cs)
+                    .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
+                    .frame(height: 8 * cs)
+
+                RoundedRectangle(cornerRadius: 3 * cs)
+                    .fill(CanopyColors.glowColor.opacity(0.6))
+                    .frame(width: filledWidth, height: 8 * cs)
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        let frac = max(0, min(1, drag.location.x / width))
+                        let newValue = range.lowerBound + Double(frac) * (range.upperBound - range.lowerBound)
+                        onChange(newValue)
+                    }
+            )
+        }
+        .frame(height: 8 * cs)
     }
 
     // MARK: - Probability Slider
@@ -363,11 +403,8 @@ struct StepSequencerPanel: View {
                 .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.5))
 
-            Slider(value: Binding(
-                get: { prob },
-                set: { setGlobalProbability($0) }
-            ), in: 0...1)
-            .frame(width: 100 * cs)
+            seqSlider(value: prob, range: 0...1) { setGlobalProbability($0) }
+                .frame(width: 100 * cs)
 
             Text("\(Int(prob * 100))%")
                 .font(.system(size: 9 * cs, design: .monospaced))
@@ -393,11 +430,8 @@ struct StepSequencerPanel: View {
                     .font(.system(size: 9 * cs, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText.opacity(0.4))
 
-                Slider(value: Binding(
-                    get: { amount },
-                    set: { setMutationAmount($0) }
-                ), in: 0...1)
-                .frame(width: 80 * cs)
+                seqSlider(value: amount, range: 0...1) { setMutationAmount($0) }
+                    .frame(width: 80 * cs)
 
                 Text("\(Int(amount * 100))%")
                     .font(.system(size: 9 * cs, design: .monospaced))
@@ -406,17 +440,7 @@ struct StepSequencerPanel: View {
             }
 
             HStack(spacing: 6 * cs) {
-                Text("Rng")
-                    .font(.system(size: 9 * cs, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-
-                Stepper("\(range)", value: Binding(
-                    get: { range },
-                    set: { setMutationRange($0) }
-                ), in: 1...7)
-                .font(.system(size: 9 * cs, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText.opacity(0.6))
-                .scaleEffect(0.8 * cs)
+                dragValue(label: "Rng", value: range, range: 1...7, color: CanopyColors.chromeText.opacity(0.4)) { setMutationRange($0) }
 
                 Spacer()
 
@@ -491,11 +515,8 @@ struct StepSequencerPanel: View {
                     Text("Amt")
                         .font(.system(size: 9 * cs, design: .monospaced))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                    Slider(value: Binding(
-                        get: { amount },
-                        set: { setAccumulatorAmount($0) }
-                    ), in: -12...12)
-                    .frame(width: 80 * cs)
+                    seqSlider(value: amount, range: -12...12) { setAccumulatorAmount($0) }
+                        .frame(width: 80 * cs)
                     Text(String(format: "%.1f", amount))
                         .font(.system(size: 9 * cs, design: .monospaced))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.6))
@@ -506,11 +527,8 @@ struct StepSequencerPanel: View {
                     Text("Lim")
                         .font(.system(size: 9 * cs, design: .monospaced))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                    Slider(value: Binding(
-                        get: { limit },
-                        set: { setAccumulatorLimit($0) }
-                    ), in: 1...48)
-                    .frame(width: 80 * cs)
+                    seqSlider(value: limit, range: 1...48) { setAccumulatorLimit($0) }
+                        .frame(width: 80 * cs)
                     Text(String(format: "%.0f", limit))
                         .font(.system(size: 9 * cs, design: .monospaced))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.6))
@@ -547,10 +565,11 @@ struct StepSequencerPanel: View {
         let step = beatFraction * Double(columns)
         let xOffset = CGFloat(step) * (cellSize + cellSpacing)
         let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
+        let totalHeight = gridHeight + 2 * cs + 5 * cs  // grid + gap + velocity bars
 
-        return RoundedRectangle(cornerRadius: 3 * cs)
+        return RoundedRectangle(cornerRadius: cellCornerRadius)
             .fill(CanopyColors.glowColor.opacity(0.2))
-            .frame(width: cellSize, height: gridHeight)
+            .frame(width: cellSize, height: totalHeight)
             .offset(x: xOffset, y: 0)
             .allowsHitTesting(false)
     }
