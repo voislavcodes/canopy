@@ -258,14 +258,14 @@ struct Sequencer {
             // Trigger any remaining note-offs before wrapping
             for i in 0..<events.count {
                 if triggeredOnFlags[i] && !triggeredOffFlags[i] {
-                    voices.noteOff(pitch: effectivePitch(for: i))
+                    voices.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
                     triggeredOffFlags[i] = true
                 }
             }
             // Clear pending ratchets
             for i in 0..<pendingRatchets.count {
                 if pendingRatchets[i].isActive && !pendingRatchets[i].hasTriggeredOff {
-                    voices.noteOff(pitch: pendingRatchets[i].pitch)
+                    voices.noteOff(pitch: applyAccumulatorToPitch(pendingRatchets[i].pitch))
                 }
                 pendingRatchets[i].isActive = false
             }
@@ -320,7 +320,7 @@ struct Sequencer {
 
             // Note off: trigger once we've reached the end beat
             if triggeredOnFlags[i] && !triggeredOffFlags[i] && currentBeat >= event.endBeat {
-                voices.noteOff(pitch: effectivePitch(for: i))
+                voices.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
                 triggeredOffFlags[i] = true
             }
         }
@@ -368,7 +368,7 @@ struct Sequencer {
                 // Use current beat position relative to the event's start
                 if currentBeat >= event.startBeat + duration || currentBeat < event.startBeat {
                     if directionTriggeredOn[i] {
-                        voices.noteOff(pitch: effectivePitch(for: i))
+                        voices.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
                         directionTriggeredOff[i] = true
                     }
                 }

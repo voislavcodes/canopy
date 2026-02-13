@@ -160,56 +160,22 @@ struct CanopyCanvasView: View {
         // Default offsets from node center (canvas points)
         static let synthOffset = CGPoint(x: -260, y: 20)
         static let seqOffset = CGPoint(x: 260, y: 20)
-        static let promptOffset = CGPoint(x: 0, y: 130)
-        static let keyboardOffset = CGPoint(x: 0, y: 230)
+        static let promptOffset = CGPoint(x: 0, y: 180)
+        static let keyboardOffset = CGPoint(x: 0, y: 280)
 
         // Approximate bounding box sizes for hit-testing
         static let synthSize = CGSize(width: 230, height: 230)
-        static let seqSize = CGSize(width: 270, height: 210)
+        static let seqSize = CGSize(width: 320, height: 340)
         static let promptSize = CGSize(width: 350, height: 55)
         static let keyboardSize = CGSize(width: 400, height: 110)
     }
 
-    private struct BloomOffsets {
-        var synth: CGPoint
-        var seq: CGPoint
-        var prompt: CGPoint
-        var keyboard: CGPoint
-    }
-
-    private func adjustedBloomOffsets(nodePosition: NodePosition, viewSize: CGSize) -> BloomOffsets {
-        var synth = BloomLayout.synthOffset
-        var seq = BloomLayout.seqOffset
-        let prompt = BloomLayout.promptOffset
-        let keyboard = BloomLayout.keyboardOffset
-
-        // Convert node position to screen to check edge proximity
-        let center = centerOffset(viewSize: viewSize)
-        let screenX = (nodePosition.x + center.width) * canvasState.scale + canvasState.offset.width
-
-        let synthHalfW = BloomLayout.synthSize.width / 2
-        let seqHalfW = BloomLayout.seqSize.width / 2
-
-        // If synth panel would go off left edge, flip to right
-        if screenX + synth.x * canvasState.scale - synthHalfW * canvasState.scale < 0 {
-            synth.x = abs(synth.x)
-        }
-        // If sequencer would go off right edge, flip to left
-        if screenX + seq.x * canvasState.scale + seqHalfW * canvasState.scale > viewSize.width {
-            seq.x = -abs(seq.x)
-        }
-
-        return BloomOffsets(synth: synth, seq: seq, prompt: prompt, keyboard: keyboard)
-    }
-
     private func bloomContent(node: Node, viewSize: CGSize) -> some View {
-        // Canvas-space offsets from node center
-        let offsets = adjustedBloomOffsets(nodePosition: node.position, viewSize: viewSize)
-
-        let synthPos = CGPoint(x: node.position.x + offsets.synth.x, y: node.position.y + offsets.synth.y)
-        let seqPos = CGPoint(x: node.position.x + offsets.seq.x, y: node.position.y + offsets.seq.y)
-        let promptPos = CGPoint(x: node.position.x + offsets.prompt.x, y: node.position.y + offsets.prompt.y)
-        let keyboardPos = CGPoint(x: node.position.x + offsets.keyboard.x, y: node.position.y + offsets.keyboard.y)
+        // Fixed canvas-space offsets from node center
+        let synthPos = CGPoint(x: node.position.x + BloomLayout.synthOffset.x, y: node.position.y + BloomLayout.synthOffset.y)
+        let seqPos = CGPoint(x: node.position.x + BloomLayout.seqOffset.x, y: node.position.y + BloomLayout.seqOffset.y)
+        let promptPos = CGPoint(x: node.position.x + BloomLayout.promptOffset.x, y: node.position.y + BloomLayout.promptOffset.y)
+        let keyboardPos = CGPoint(x: node.position.x + BloomLayout.keyboardOffset.x, y: node.position.y + BloomLayout.keyboardOffset.y)
 
         return ZStack {
             BloomConnectors(

@@ -102,6 +102,7 @@ final class NodeAudioUnit {
                                         let direction, let mutationAmount, let mutationRange,
                                         let scaleRootSemitone, let scaleIntervals,
                                         let accumulatorConfig):
+                        voices.allNotesOff()
                         seq.load(events: events, lengthInBeats: lengthInBeats,
                                  direction: direction,
                                  mutationAmount: mutationAmount, mutationRange: mutationRange,
