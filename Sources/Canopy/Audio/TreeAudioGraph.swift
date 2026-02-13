@@ -120,15 +120,31 @@ final class TreeAudioGraph {
 
     private func loadNodeSequenceRecursive(_ node: Node) {
         guard let unit = units[node.id] else { return }
-        let events = node.sequence.notes.map { event in
+        let seq = node.sequence
+        let events = seq.notes.map { event in
             SequencerEvent(
                 pitch: event.pitch,
                 velocity: event.velocity,
                 startBeat: event.startBeat,
-                endBeat: event.startBeat + event.duration
+                endBeat: event.startBeat + event.duration,
+                probability: event.probability,
+                ratchetCount: event.ratchetCount
             )
         }
-        unit.loadSequence(events, lengthInBeats: node.sequence.lengthInBeats)
+
+        let key = node.scaleOverride ?? node.key
+        let mutation = seq.mutation
+        unit.loadSequence(
+            events, lengthInBeats: seq.lengthInBeats,
+            direction: seq.playbackDirection ?? .forward,
+            mutationAmount: mutation?.amount ?? 0,
+            mutationRange: mutation?.range ?? 0,
+            scaleRootSemitone: key.root.semitone,
+            scaleIntervals: key.mode.intervals,
+            accumulatorConfig: seq.accumulator
+        )
+        unit.setGlobalProbability(seq.globalProbability)
+
         for child in node.children {
             loadNodeSequenceRecursive(child)
         }

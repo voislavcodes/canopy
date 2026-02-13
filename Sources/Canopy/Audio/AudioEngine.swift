@@ -92,8 +92,37 @@ final class AudioEngine {
     }
 
     /// Load a note sequence for a specific node.
-    func loadSequence(_ events: [SequencerEvent], lengthInBeats: Double, nodeID: UUID) {
-        graph.unit(for: nodeID)?.loadSequence(events, lengthInBeats: lengthInBeats)
+    func loadSequence(_ events: [SequencerEvent], lengthInBeats: Double, nodeID: UUID,
+                      direction: PlaybackDirection = .forward,
+                      mutationAmount: Double = 0, mutationRange: Int = 0,
+                      scaleRootSemitone: Int = 0, scaleIntervals: [Int] = [],
+                      accumulatorConfig: AccumulatorConfig? = nil) {
+        graph.unit(for: nodeID)?.loadSequence(
+            events, lengthInBeats: lengthInBeats,
+            direction: direction,
+            mutationAmount: mutationAmount, mutationRange: mutationRange,
+            scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
+            accumulatorConfig: accumulatorConfig)
+    }
+
+    /// Set global probability on a specific node's sequencer.
+    func setGlobalProbability(_ probability: Double, nodeID: UUID) {
+        graph.unit(for: nodeID)?.setGlobalProbability(probability)
+    }
+
+    /// Set mutation parameters on a specific node's sequencer.
+    func setMutation(amount: Double, range: Int, rootSemitone: Int, intervals: [Int], nodeID: UUID) {
+        graph.unit(for: nodeID)?.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
+    }
+
+    /// Reset mutation on a specific node's sequencer.
+    func resetMutation(nodeID: UUID) {
+        graph.unit(for: nodeID)?.resetMutation()
+    }
+
+    /// Freeze mutation on a specific node's sequencer.
+    func freezeMutation(nodeID: UUID) {
+        graph.unit(for: nodeID)?.freezeMutation()
     }
 
     /// Set volume on a specific node's mixer.

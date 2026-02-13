@@ -21,6 +21,8 @@ struct Node: Codable, Equatable, Identifiable {
     var position: NodePosition
     var isMuted: Bool
     var isSolo: Bool
+    /// Per-node scale override. nil = inherit from tree/project.
+    var scaleOverride: MusicalKey?
 
     init(
         id: UUID = UUID(),
@@ -33,7 +35,8 @@ struct Node: Codable, Equatable, Identifiable {
         children: [Node] = [],
         position: NodePosition = NodePosition(),
         isMuted: Bool = false,
-        isSolo: Bool = false
+        isSolo: Bool = false,
+        scaleOverride: MusicalKey? = nil
     ) {
         self.id = id
         self.name = name
@@ -46,6 +49,7 @@ struct Node: Codable, Equatable, Identifiable {
         self.position = position
         self.isMuted = isMuted
         self.isSolo = isSolo
+        self.scaleOverride = scaleOverride
     }
 }
 

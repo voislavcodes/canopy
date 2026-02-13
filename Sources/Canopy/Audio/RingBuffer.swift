@@ -12,7 +12,17 @@ enum AudioCommand {
     case sequencerStart(bpm: Double)
     case sequencerStop
     case sequencerSetBPM(Double)
-    case sequencerLoad(events: [SequencerEvent], lengthInBeats: Double)
+    case sequencerLoad(events: [SequencerEvent], lengthInBeats: Double,
+                       direction: PlaybackDirection,
+                       mutationAmount: Double, mutationRange: Int,
+                       scaleRootSemitone: Int, scaleIntervals: [Int],
+                       accumulatorConfig: AccumulatorConfig?)
+
+    // Real-time parameter updates (no full reload needed)
+    case sequencerSetGlobalProbability(Double)
+    case sequencerSetMutation(amount: Double, range: Int, rootSemitone: Int, intervals: [Int])
+    case sequencerResetMutation
+    case sequencerFreezeMutation
 }
 
 /// Lock-free single-producer single-consumer ring buffer for AudioCommands.

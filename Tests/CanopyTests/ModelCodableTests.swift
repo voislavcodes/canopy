@@ -65,4 +65,129 @@ final class ModelCodableTests: XCTestCase {
 
         XCTAssertEqual(key, decoded)
     }
+
+    // MARK: - New Fields Round-Trip
+
+    func testNoteEventWithProbabilityRoundTrip() throws {
+        let event = NoteEvent(pitch: 60, velocity: 0.7, startBeat: 2.0, duration: 0.5,
+                              probability: 0.6, ratchetCount: 3)
+
+        let data = try JSONEncoder().encode(event)
+        let decoded = try JSONDecoder().decode(NoteEvent.self, from: data)
+
+        XCTAssertEqual(event, decoded)
+        XCTAssertEqual(decoded.probability, 0.6)
+        XCTAssertEqual(decoded.ratchetCount, 3)
+    }
+
+    func testNoteSequenceWithAllFieldsRoundTrip() throws {
+        let seq = NoteSequence(
+            notes: [NoteEvent(pitch: 60, startBeat: 0)],
+            lengthInBeats: 8,
+            globalProbability: 0.75,
+            euclidean: EuclideanConfig(pulses: 5, rotation: 1),
+            pitchRange: PitchRange(low: 48, high: 84),
+            playbackDirection: .pingPong,
+            mutation: MutationConfig(amount: 0.2, range: 3),
+            accumulator: AccumulatorConfig(target: .velocity, amount: 1.5, limit: 24, mode: .wrap)
+        )
+
+        let data = try JSONEncoder().encode(seq)
+        let decoded = try JSONDecoder().decode(NoteSequence.self, from: data)
+
+        XCTAssertEqual(seq, decoded)
+        XCTAssertEqual(decoded.globalProbability, 0.75)
+        XCTAssertEqual(decoded.euclidean?.pulses, 5)
+        XCTAssertEqual(decoded.playbackDirection, .pingPong)
+        XCTAssertEqual(decoded.mutation?.amount, 0.2)
+        XCTAssertEqual(decoded.accumulator?.mode, .wrap)
+    }
+
+    func testNodeWithScaleOverrideRoundTrip() throws {
+        let node = Node(name: "Test", scaleOverride: MusicalKey(root: .Fs, mode: .lydian))
+
+        let data = try JSONEncoder().encode(node)
+        let decoded = try JSONDecoder().decode(Node.self, from: data)
+
+        XCTAssertEqual(node, decoded)
+        XCTAssertEqual(decoded.scaleOverride?.root, .Fs)
+        XCTAssertEqual(decoded.scaleOverride?.mode, .lydian)
+    }
+
+    func testNodeTreeWithScaleRoundTrip() throws {
+        let tree = NodeTree(name: "Test Tree", scale: MusicalKey(root: .D, mode: .dorian))
+
+        let data = try JSONEncoder().encode(tree)
+        let decoded = try JSONDecoder().decode(NodeTree.self, from: data)
+
+        XCTAssertEqual(tree, decoded)
+        XCTAssertEqual(decoded.scale?.root, .D)
+    }
+
+    // MARK: - Backward Compatibility
+
+    func testOldNoteEventDecodesWithDefaults() throws {
+        // Simulate old JSON without probability/ratchetCount
+        let json = """
+        {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "pitch": 60,
+            "velocity": 0.8,
+            "startBeat": 0.0,
+            "duration": 1.0
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(NoteEvent.self, from: data)
+
+        XCTAssertEqual(decoded.pitch, 60)
+        XCTAssertEqual(decoded.probability, 1.0, "Missing probability should default to 1.0")
+        XCTAssertEqual(decoded.ratchetCount, 1, "Missing ratchetCount should default to 1")
+    }
+
+    func testOldNoteSequenceDecodesWithDefaults() throws {
+        // Simulate old JSON without new fields
+        let json = """
+        {
+            "notes": [],
+            "lengthInBeats": 16.0
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(NoteSequence.self, from: data)
+
+        XCTAssertEqual(decoded.globalProbability, 1.0)
+        XCTAssertNil(decoded.euclidean)
+        XCTAssertNil(decoded.pitchRange)
+        XCTAssertNil(decoded.playbackDirection)
+        XCTAssertNil(decoded.mutation)
+        XCTAssertNil(decoded.accumulator)
+    }
+
+    func testOldNodeDecodesWithNilScaleOverride() throws {
+        // Node encoded without scaleOverride field — should decode as nil
+        var node = Node(name: "Legacy")
+        // Encode with new format (scaleOverride will be nil)
+        let data = try JSONEncoder().encode(node)
+        let decoded = try JSONDecoder().decode(Node.self, from: data)
+        XCTAssertNil(decoded.scaleOverride)
+    }
+
+    func testOldNodeTreeDecodesWithNilScale() throws {
+        let tree = NodeTree(name: "Legacy Tree")
+        let data = try JSONEncoder().encode(tree)
+        let decoded = try JSONDecoder().decode(NodeTree.self, from: data)
+        XCTAssertNil(decoded.scale)
+    }
+
+    func testNewScaleModesEncodeDecode() throws {
+        let modes: [ScaleMode] = [.harmonicMinor, .melodicMinor, .phrygian, .lydian,
+                                   .locrian, .pentatonicMajor, .pentatonicMinor, .wholeTone]
+        for mode in modes {
+            let key = MusicalKey(root: .C, mode: mode)
+            let data = try JSONEncoder().encode(key)
+            let decoded = try JSONDecoder().decode(MusicalKey.self, from: data)
+            XCTAssertEqual(key, decoded, "Failed round-trip for \(mode)")
+        }
+    }
 }

@@ -98,8 +98,27 @@ final class NodeAudioUnit {
                     case .sequencerSetBPM(let bpm):
                         seq.bpm = bpm
 
-                    case .sequencerLoad(let events, let lengthInBeats):
-                        seq.load(events: events, lengthInBeats: lengthInBeats)
+                    case .sequencerLoad(let events, let lengthInBeats,
+                                        let direction, let mutationAmount, let mutationRange,
+                                        let scaleRootSemitone, let scaleIntervals,
+                                        let accumulatorConfig):
+                        seq.load(events: events, lengthInBeats: lengthInBeats,
+                                 direction: direction,
+                                 mutationAmount: mutationAmount, mutationRange: mutationRange,
+                                 scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
+                                 accumulatorConfig: accumulatorConfig)
+
+                    case .sequencerSetGlobalProbability(let prob):
+                        seq.globalProbability = prob
+
+                    case .sequencerSetMutation(let amount, let range, let rootSemitone, let intervals):
+                        seq.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
+
+                    case .sequencerResetMutation:
+                        seq.resetMutation()
+
+                    case .sequencerFreezeMutation:
+                        seq.freezeMutation()
                     }
                 }
 
@@ -162,8 +181,33 @@ final class NodeAudioUnit {
         ))
     }
 
-    func loadSequence(_ events: [SequencerEvent], lengthInBeats: Double) {
-        commandBuffer.push(.sequencerLoad(events: events, lengthInBeats: lengthInBeats))
+    func loadSequence(_ events: [SequencerEvent], lengthInBeats: Double,
+                       direction: PlaybackDirection = .forward,
+                       mutationAmount: Double = 0, mutationRange: Int = 0,
+                       scaleRootSemitone: Int = 0, scaleIntervals: [Int] = [],
+                       accumulatorConfig: AccumulatorConfig? = nil) {
+        commandBuffer.push(.sequencerLoad(
+            events: events, lengthInBeats: lengthInBeats,
+            direction: direction,
+            mutationAmount: mutationAmount, mutationRange: mutationRange,
+            scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
+            accumulatorConfig: accumulatorConfig))
+    }
+
+    func setGlobalProbability(_ probability: Double) {
+        commandBuffer.push(.sequencerSetGlobalProbability(probability))
+    }
+
+    func setMutation(amount: Double, range: Int, rootSemitone: Int, intervals: [Int]) {
+        commandBuffer.push(.sequencerSetMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals))
+    }
+
+    func resetMutation() {
+        commandBuffer.push(.sequencerResetMutation)
+    }
+
+    func freezeMutation() {
+        commandBuffer.push(.sequencerFreezeMutation)
     }
 
     func startSequencer(bpm: Double) {

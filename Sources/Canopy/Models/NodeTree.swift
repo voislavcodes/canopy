@@ -22,16 +22,20 @@ struct NodeTree: Codable, Equatable, Identifiable {
     var name: String
     var rootNode: Node
     var transition: TransitionBehavior
+    /// Per-tree scale override. nil = inherit from `CanopyProject.globalKey`.
+    var scale: MusicalKey?
 
     init(
         id: UUID = UUID(),
         name: String = "Tree 1",
         rootNode: Node = Node(),
-        transition: TransitionBehavior = TransitionBehavior()
+        transition: TransitionBehavior = TransitionBehavior(),
+        scale: MusicalKey? = nil
     ) {
         self.id = id
         self.name = name
         self.rootNode = rootNode
         self.transition = transition
+        self.scale = scale
     }
 }
