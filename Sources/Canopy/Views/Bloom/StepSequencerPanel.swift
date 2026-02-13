@@ -832,6 +832,9 @@ private struct SequencerPlayhead: View {
     let cellCornerRadius: CGFloat
     let cs: CGFloat
 
+    /// Poll interval matches TransportState timer (~30Hz).
+    private let pollInterval: Double = 1.0 / 30.0
+
     var body: some View {
         if transportState.isPlaying {
             let beatFraction = transportState.currentBeat / max(lengthInBeats, 1)
@@ -845,6 +848,7 @@ private struct SequencerPlayhead: View {
                 .frame(width: cellSize, height: totalHeight)
                 .offset(x: xOffset, y: 0)
                 .allowsHitTesting(false)
+                .animation(.linear(duration: pollInterval), value: xOffset)
         }
     }
 }
