@@ -83,7 +83,8 @@ struct StepSequencerPanel: View {
                         .drawingGroup()
 
                         SequencerPlayhead(
-                            transportState: transportState,
+                            isPlaying: transportState.isPlaying,
+                            nodeID: transportState.focusedNodeID,
                             lengthInBeats: node.sequence.lengthInBeats,
                             columns: columns,
                             rows: rows,
@@ -820,10 +821,11 @@ struct StepSequencerPanel: View {
     }
 }
 
-// MARK: - Playhead (isolated ObservableObject to avoid re-rendering grid at 30Hz)
+// MARK: - Playhead (TimelineView reads beat position directly from audio engine at display refresh rate)
 
 private struct SequencerPlayhead: View {
-    @ObservedObject var transportState: TransportState
+    let isPlaying: Bool
+    let nodeID: UUID?
     let lengthInBeats: Double
     let columns: Int
     let rows: Int
@@ -832,23 +834,22 @@ private struct SequencerPlayhead: View {
     let cellCornerRadius: CGFloat
     let cs: CGFloat
 
-    /// Poll interval matches TransportState timer (~30Hz).
-    private let pollInterval: Double = 1.0 / 30.0
-
     var body: some View {
-        if transportState.isPlaying {
-            let beatFraction = transportState.currentBeat / max(lengthInBeats, 1)
-            let step = beatFraction * Double(columns)
-            let xOffset = CGFloat(step) * (cellSize + cellSpacing)
-            let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
-            let totalHeight = gridHeight + 2 * cs + 5 * cs
+        if isPlaying, let nodeID {
+            TimelineView(.animation) { _ in
+                let currentBeat = AudioEngine.shared.currentBeat(for: nodeID)
+                let beatFraction = currentBeat / max(lengthInBeats, 1)
+                let step = beatFraction * Double(columns)
+                let xOffset = CGFloat(step) * (cellSize + cellSpacing)
+                let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
+                let totalHeight = gridHeight + 2 * cs + 5 * cs
 
-            RoundedRectangle(cornerRadius: cellCornerRadius)
-                .fill(CanopyColors.glowColor.opacity(0.2))
-                .frame(width: cellSize, height: totalHeight)
-                .offset(x: xOffset, y: 0)
-                .allowsHitTesting(false)
-                .animation(.linear(duration: pollInterval), value: xOffset)
+                RoundedRectangle(cornerRadius: cellCornerRadius)
+                    .fill(CanopyColors.glowColor.opacity(0.2))
+                    .frame(width: cellSize, height: totalHeight)
+                    .offset(x: xOffset, y: 0)
+                    .allowsHitTesting(false)
+            }
         }
     }
 }

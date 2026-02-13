@@ -42,7 +42,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        transportState.stopPolling()
         AudioEngine.shared.stop()
     }
 
