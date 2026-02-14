@@ -133,8 +133,10 @@ struct CanopyCanvasView: View {
         )
     }
 
-    /// Bloom panels rendered outside the parent scaleEffect for crisp text at any zoom.
-    /// Each panel is positioned at screen coordinates and scaled individually.
+    /// Bloom panels rendered at base size (cs=1) and geometrically scaled via
+    /// `.scaleEffect()`. This avoids re-rendering 256+ grid cells, sliders, and
+    /// keyboard keys on every zoom frame — SwiftUI applies the transform without
+    /// re-running any child body.
     private func bloomContentScreen(node: Node, viewSize: CGSize) -> some View {
         // Canvas-space positions
         let synthCanvas = CGPoint(x: node.position.x + BloomLayout.synthOffset.x, y: node.position.y + BloomLayout.synthOffset.y)
@@ -159,23 +161,31 @@ struct CanopyCanvasView: View {
                 promptCenter: canvasToScreen(CGPoint(x: promptCanvas.x, y: promptCanvas.y - 20), viewSize: viewSize)
             )
 
+            // Bloom panels render at base size (cs=1.0) — their body only
+            // re-runs when projectState changes, NOT on zoom/pan gestures.
+            // The geometric scaleEffect handles zoom visually.
+
             SynthControlsPanel(projectState: projectState)
-                .environment(\.canvasScale, scale)
+                .environment(\.canvasScale, 1.0)
+                .scaleEffect(scale)
                 .position(x: synthScreen.x, y: synthScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
             StepSequencerPanel(projectState: projectState, transportState: transportState)
-                .environment(\.canvasScale, scale)
+                .environment(\.canvasScale, 1.0)
+                .scaleEffect(scale)
                 .position(x: seqScreen.x, y: seqScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
             ClaudePromptPanel()
-                .environment(\.canvasScale, scale)
+                .environment(\.canvasScale, 1.0)
+                .scaleEffect(scale)
                 .position(x: promptScreen.x, y: promptScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
             KeyboardBarView(baseOctave: $keyboardOctave, selectedNodeID: projectState.selectedNodeID)
-                .environment(\.canvasScale, scale)
+                .environment(\.canvasScale, 1.0)
+                .scaleEffect(scale)
                 .position(x: keyboardScreen.x, y: keyboardScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
         }
