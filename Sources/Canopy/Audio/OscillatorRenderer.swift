@@ -38,7 +38,10 @@ struct OscillatorRenderer {
         attackRate = 1.0 / (max(attack, minTime) * sampleRate)
         decayRate = (1.0 - sustain) / (max(decay, minTime) * sampleRate)
         sustainLevel = sustain
-        releaseRate = sustain / (max(release, minTime) * sampleRate)
+        // Fixed rate: descends from 1.0 to 0.0 in `release` seconds.
+        // Independent of sustain level so mid-note parameter changes
+        // can't produce a near-zero rate that causes stuck notes.
+        releaseRate = 1.0 / (max(release, minTime) * sampleRate)
     }
 
     /// Trigger a note on.
@@ -108,8 +111,15 @@ struct OscillatorRenderer {
             }
 
         case .sustain:
-            // Hold at sustain level until noteOff
-            envelopeLevel = sustainLevel
+            // Converge toward sustain level so mid-note parameter
+            // changes don't cause an instantaneous level jump (click).
+            let diff = sustainLevel - envelopeLevel
+            if abs(diff) < 0.0001 {
+                envelopeLevel = sustainLevel
+            } else {
+                // ~5ms convergence at 44.1kHz (same time constant as volume smoothing)
+                envelopeLevel += diff * 0.01
+            }
 
         case .release:
             envelopeLevel -= releaseRate
