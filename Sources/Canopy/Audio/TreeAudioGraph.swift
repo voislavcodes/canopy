@@ -113,6 +113,8 @@ final class TreeAudioGraph {
             )
         }
         unit.setPan(Float(node.patch.pan))
+        let f = node.patch.filter
+        unit.configureFilter(enabled: f.enabled, cutoff: f.cutoff, resonance: f.resonance)
         for child in node.children {
             configureNodePatchRecursive(child)
         }

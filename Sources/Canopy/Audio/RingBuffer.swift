@@ -23,6 +23,9 @@ enum AudioCommand {
     case sequencerSetMutation(amount: Double, range: Int, rootSemitone: Int, intervals: [Int])
     case sequencerResetMutation
     case sequencerFreezeMutation
+
+    // Filter
+    case setFilter(enabled: Bool, cutoff: Double, resonance: Double)
 }
 
 /// Lock-free single-producer single-consumer ring buffer for AudioCommands.

@@ -250,6 +250,107 @@ final class AudioDSPTests: XCTestCase {
         XCTAssertEqual(active, 0)
     }
 
+    // MARK: - Moog Ladder Filter
+
+    func testMoogFilterBypassPassesThrough() {
+        var filter = MoogLadderFilter()
+        // Disabled by default — should pass through unchanged
+        filter.updateCoefficients(sampleRate: 44100)
+
+        let testValues: [Float] = [-1.0, -0.5, 0.0, 0.5, 1.0, 0.3, -0.7]
+        for value in testValues {
+            let output = filter.process(value)
+            XCTAssertEqual(output, value, accuracy: 0.0001,
+                           "Disabled filter should pass through input unchanged")
+        }
+    }
+
+    func testMoogFilterOutputRange() {
+        var filter = MoogLadderFilter()
+        filter.enabled = true
+        filter.cutoffHz = 2000.0
+        filter.resonance = 0.5
+        filter.updateCoefficients(sampleRate: 44100)
+
+        // Generate a sawtooth wave and filter it
+        var phase: Double = 0
+        let freq = 440.0
+        let sampleRate = 44100.0
+
+        for _ in 0..<4410 { // 100ms of audio
+            let saw = Float(2.0 * (phase - floor(phase + 0.5)))
+            let output = filter.process(saw)
+            XCTAssertFalse(output.isNaN, "Filter output should not be NaN")
+            XCTAssertFalse(output.isInfinite, "Filter output should not be infinite")
+            XCTAssertTrue(output >= -2.0 && output <= 2.0,
+                          "Filter output \(output) out of reasonable range")
+            phase += freq / sampleRate
+        }
+    }
+
+    func testMoogFilterHighResonanceNoExplosion() {
+        var filter = MoogLadderFilter()
+        filter.enabled = true
+        filter.cutoffHz = 1000.0
+        filter.resonance = 0.99
+        filter.updateCoefficients(sampleRate: 44100)
+
+        // Feed noise at high resonance — must not explode
+        for _ in 0..<44100 { // 1 second
+            let noise = Float.random(in: -1...1)
+            let output = filter.process(noise)
+            XCTAssertFalse(output.isNaN, "Filter exploded to NaN at high resonance")
+            XCTAssertFalse(output.isInfinite, "Filter exploded to Inf at high resonance")
+        }
+    }
+
+    func testMoogFilterAttenuatesHighFrequencies() {
+        var filter = MoogLadderFilter()
+        filter.enabled = true
+        filter.cutoffHz = 200.0
+        filter.resonance = 0.0
+        filter.updateCoefficients(sampleRate: 44100)
+
+        // Generate 5kHz sine — well above 200Hz cutoff
+        var phase: Double = 0
+        let freq = 5000.0
+        let sampleRate = 44100.0
+
+        // Warm up the filter
+        for _ in 0..<4410 {
+            let sine = Float(sin(2.0 * .pi * phase))
+            _ = filter.process(sine)
+            phase += freq / sampleRate
+        }
+
+        // Measure output amplitude after settling
+        var maxOutput: Float = 0
+        for _ in 0..<4410 {
+            let sine = Float(sin(2.0 * .pi * phase))
+            let output = abs(filter.process(sine))
+            maxOutput = max(maxOutput, output)
+            phase += freq / sampleRate
+        }
+
+        // 5kHz through 200Hz 4-pole filter should be heavily attenuated
+        XCTAssertLessThan(maxOutput, 0.05,
+                          "5kHz signal should be heavily attenuated by 200Hz lowpass, got \(maxOutput)")
+    }
+
+    func testRingBufferFilterCommand() {
+        let buffer = AudioCommandRingBuffer(capacity: 16)
+
+        buffer.push(.setFilter(enabled: true, cutoff: 1500.0, resonance: 0.6))
+
+        if case .setFilter(let enabled, let cutoff, let resonance) = buffer.pop()! {
+            XCTAssertTrue(enabled)
+            XCTAssertEqual(cutoff, 1500.0)
+            XCTAssertEqual(resonance, 0.6)
+        } else {
+            XCTFail("Expected setFilter command")
+        }
+    }
+
     // MARK: - Sequencer
 
     func testSequencerBeatAdvance() {

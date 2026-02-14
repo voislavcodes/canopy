@@ -135,6 +135,11 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.setPan(pan)
     }
 
+    /// Update the filter on a specific node.
+    func configureFilter(enabled: Bool, cutoff: Double, resonance: Double, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureFilter(enabled: enabled, cutoff: cutoff, resonance: resonance)
+    }
+
     // MARK: - Transport (all nodes)
 
     /// Start all sequencers simultaneously at the given BPM.

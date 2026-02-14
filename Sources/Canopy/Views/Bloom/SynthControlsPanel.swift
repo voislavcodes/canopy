@@ -18,6 +18,9 @@ struct SynthControlsPanel: View {
     @State private var localDecay: Double = 0.1
     @State private var localSustain: Double = 0.8
     @State private var localRelease: Double = 0.3
+    @State private var localFilterEnabled: Bool = false
+    @State private var localFilterCutoff: Double = 8000.0
+    @State private var localFilterResonance: Double = 0.0
 
     private var node: Node? {
         projectState.selectedNode
@@ -96,6 +99,9 @@ struct SynthControlsPanel: View {
                     }
                 }
 
+                // Filter section
+                filterSection()
+
                 // Waveform label
                 Text("waveform")
                     .font(.system(size: 12 * cs, weight: .regular, design: .monospaced))
@@ -129,6 +135,110 @@ struct SynthControlsPanel: View {
         localDecay = patch.envelope.decay
         localSustain = patch.envelope.sustain
         localRelease = patch.envelope.release
+        localFilterEnabled = patch.filter.enabled
+        localFilterCutoff = patch.filter.cutoff
+        localFilterResonance = patch.filter.resonance
+    }
+
+    // MARK: - Filter Section
+
+    @ViewBuilder
+    private func filterSection() -> some View {
+        VStack(alignment: .leading, spacing: 6 * cs) {
+            // Header with toggle
+            HStack {
+                Text("FILTER")
+                    .font(.system(size: 11 * cs, weight: .medium, design: .monospaced))
+                    .foregroundColor(localFilterEnabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.5))
+                Spacer()
+                Button(action: {
+                    localFilterEnabled.toggle()
+                    commitFilter { $0.enabled = localFilterEnabled }
+                }) {
+                    Text(localFilterEnabled ? "ON" : "OFF")
+                        .font(.system(size: 10 * cs, weight: .bold, design: .monospaced))
+                        .foregroundColor(localFilterEnabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.4))
+                        .padding(.horizontal, 6 * cs)
+                        .padding(.vertical, 2 * cs)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .fill(localFilterEnabled ? CanopyColors.glowColor.opacity(0.1) : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .stroke(
+                                    localFilterEnabled ? CanopyColors.glowColor.opacity(0.5) : CanopyColors.bloomPanelBorder.opacity(0.3),
+                                    lineWidth: 1
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            if localFilterEnabled {
+                // Cutoff slider (logarithmic)
+                VStack(spacing: 2 * cs) {
+                    HStack {
+                        Text("cutoff")
+                            .font(.system(size: 10 * cs, weight: .regular, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                        Spacer()
+                        Text(formatCutoff(localFilterCutoff))
+                            .font(.system(size: 10 * cs, weight: .medium, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.7))
+                    }
+                    bloomSlider(value: $localFilterCutoff, range: 20...20000, logarithmic: true) {
+                        commitFilter { $0.cutoff = localFilterCutoff }
+                    } onDrag: {
+                        pushFilterToEngine()
+                    }
+                }
+
+                // Resonance slider (linear)
+                VStack(spacing: 2 * cs) {
+                    HStack {
+                        Text("resonance")
+                            .font(.system(size: 10 * cs, weight: .regular, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                        Spacer()
+                        Text("\(Int(localFilterResonance * 100))%")
+                            .font(.system(size: 10 * cs, weight: .medium, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.7))
+                    }
+                    bloomSlider(value: $localFilterResonance, range: 0...1) {
+                        commitFilter { $0.resonance = localFilterResonance }
+                    } onDrag: {
+                        pushFilterToEngine()
+                    }
+                }
+            }
+        }
+    }
+
+    private func formatCutoff(_ hz: Double) -> String {
+        if hz >= 1000 {
+            return String(format: "%.1fkHz", hz / 1000)
+        } else {
+            return String(format: "%.0fHz", hz)
+        }
+    }
+
+    private func commitFilter(_ transform: (inout FilterConfig) -> Void) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            transform(&node.patch.filter)
+        }
+        pushPatchToEngine()
+    }
+
+    private func pushFilterToEngine() {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        AudioEngine.shared.configureFilter(
+            enabled: localFilterEnabled,
+            cutoff: localFilterCutoff,
+            resonance: localFilterResonance,
+            nodeID: nodeID
+        )
     }
 
     // MARK: - Waveform Picker
@@ -167,10 +277,12 @@ struct SynthControlsPanel: View {
 
     // MARK: - Sliders (Binding-based, local @State during drag)
 
-    private func bloomSlider(value: Binding<Double>, range: ClosedRange<Double>, onCommit: @escaping () -> Void, onDrag: @escaping () -> Void) -> some View {
+    private func bloomSlider(value: Binding<Double>, range: ClosedRange<Double>, logarithmic: Bool = false, onCommit: @escaping () -> Void, onDrag: @escaping () -> Void) -> some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let fraction = CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
+            let fraction: CGFloat = logarithmic
+                ? CGFloat((log(value.wrappedValue) - log(range.lowerBound)) / (log(range.upperBound) - log(range.lowerBound)))
+                : CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
             let filledWidth = max(0, min(width, width * fraction))
 
             ZStack(alignment: .leading) {
@@ -187,8 +299,12 @@ struct SynthControlsPanel: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
-                        let frac = max(0, min(1, drag.location.x / width))
-                        value.wrappedValue = range.lowerBound + Double(frac) * (range.upperBound - range.lowerBound)
+                        let frac = Double(max(0, min(1, drag.location.x / width)))
+                        if logarithmic {
+                            value.wrappedValue = exp(log(range.lowerBound) + frac * (log(range.upperBound) - log(range.lowerBound)))
+                        } else {
+                            value.wrappedValue = range.lowerBound + frac * (range.upperBound - range.lowerBound)
+                        }
                         onDrag()
                     }
                     .onEnded { _ in
@@ -343,6 +459,12 @@ struct SynthControlsPanel: View {
             )
         }
         AudioEngine.shared.setNodePan(Float(patch.pan), nodeID: nodeID)
+        AudioEngine.shared.configureFilter(
+            enabled: patch.filter.enabled,
+            cutoff: patch.filter.cutoff,
+            resonance: patch.filter.resonance,
+            nodeID: nodeID
+        )
     }
 
     private func waveformToIndex(_ wf: Waveform) -> Int {

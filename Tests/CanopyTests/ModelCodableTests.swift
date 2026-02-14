@@ -180,6 +180,43 @@ final class ModelCodableTests: XCTestCase {
         XCTAssertNil(decoded.scale)
     }
 
+    func testFilterConfigRoundTrip() throws {
+        let patch = SoundPatch(
+            name: "Filtered Saw",
+            soundType: .oscillator(OscillatorConfig(waveform: .sawtooth)),
+            filter: FilterConfig(enabled: true, cutoff: 1200.0, resonance: 0.7)
+        )
+
+        let data = try JSONEncoder().encode(patch)
+        let decoded = try JSONDecoder().decode(SoundPatch.self, from: data)
+
+        XCTAssertEqual(patch, decoded)
+        XCTAssertTrue(decoded.filter.enabled)
+        XCTAssertEqual(decoded.filter.cutoff, 1200.0)
+        XCTAssertEqual(decoded.filter.resonance, 0.7)
+    }
+
+    func testOldSoundPatchDecodesWithDefaultFilter() throws {
+        // Simulate old JSON without "filter" key
+        let json = """
+        {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "name": "Legacy",
+            "soundType": { "oscillator": { "_0": { "waveform": "sine", "detune": 0, "pulseWidth": 0.5 } } },
+            "envelope": { "attack": 0.01, "decay": 0.1, "sustain": 0.7, "release": 0.3 },
+            "volume": 0.8,
+            "pan": 0.0
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(SoundPatch.self, from: data)
+
+        XCTAssertEqual(decoded.name, "Legacy")
+        XCTAssertFalse(decoded.filter.enabled, "Missing filter should default to disabled")
+        XCTAssertEqual(decoded.filter.cutoff, 8000.0, "Missing filter cutoff should default to 8000")
+        XCTAssertEqual(decoded.filter.resonance, 0.0, "Missing filter resonance should default to 0")
+    }
+
     func testNewScaleModesEncodeDecode() throws {
         let modes: [ScaleMode] = [.harmonicMinor, .melodicMinor, .phrygian, .lydian,
                                    .locrian, .pentatonicMajor, .pentatonicMinor, .wholeTone]

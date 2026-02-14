@@ -38,6 +38,7 @@ final class NodeAudioUnit {
         // Audio-thread owned state — captured by render closure
         var voices = VoiceManager(voiceCount: 8)
         var seq = Sequencer()
+        var filter = MoogLadderFilter()
         var volume: Double = 0.8
         var volumeSmoothed: Double = 0.8 // smoothed to prevent clicks
         var detune: Double = 0
@@ -126,6 +127,12 @@ final class NodeAudioUnit {
 
                 case .sequencerFreezeMutation:
                     seq.freezeMutation()
+
+                case .setFilter(let enabled, let cutoff, let reso):
+                    filter.enabled = enabled
+                    filter.cutoffHz = cutoff
+                    filter.resonance = reso
+                    filter.updateCoefficients(sampleRate: sr)
                 }
             }
 
@@ -135,7 +142,8 @@ final class NodeAudioUnit {
 
                 // 3. Render all voices (with smoothed volume to prevent clicks)
                 volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
-                let sample = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+                let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+                let sample = filter.process(raw)
 
                 // 4. Write to output channels with pan
                 if ablPointer.count >= 2 {
@@ -237,5 +245,9 @@ final class NodeAudioUnit {
 
     func setPan(_ pan: Float) {
         _pan.pointee = max(-1, min(1, pan))
+    }
+
+    func configureFilter(enabled: Bool, cutoff: Double, resonance: Double) {
+        commandBuffer.push(.setFilter(enabled: enabled, cutoff: cutoff, resonance: resonance))
     }
 }

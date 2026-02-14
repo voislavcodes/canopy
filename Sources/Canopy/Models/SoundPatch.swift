@@ -56,6 +56,18 @@ enum SoundType: Codable, Equatable {
     case auv3(AUv3Config)
 }
 
+struct FilterConfig: Codable, Equatable {
+    var enabled: Bool
+    var cutoff: Double   // Hz, 20–20000
+    var resonance: Double // 0.0–1.0
+
+    init(enabled: Bool = false, cutoff: Double = 8000.0, resonance: Double = 0.0) {
+        self.enabled = enabled
+        self.cutoff = cutoff
+        self.resonance = resonance
+    }
+}
+
 struct SoundPatch: Codable, Equatable {
     var id: UUID
     var name: String
@@ -63,6 +75,7 @@ struct SoundPatch: Codable, Equatable {
     var envelope: EnvelopeConfig
     var volume: Double  // 0.0-1.0
     var pan: Double     // -1.0 (left) to 1.0 (right)
+    var filter: FilterConfig
 
     init(
         id: UUID = UUID(),
@@ -70,7 +83,8 @@ struct SoundPatch: Codable, Equatable {
         soundType: SoundType = .oscillator(OscillatorConfig()),
         envelope: EnvelopeConfig = EnvelopeConfig(),
         volume: Double = 0.8,
-        pan: Double = 0.0
+        pan: Double = 0.0,
+        filter: FilterConfig = FilterConfig()
     ) {
         self.id = id
         self.name = name
@@ -78,5 +92,18 @@ struct SoundPatch: Codable, Equatable {
         self.envelope = envelope
         self.volume = volume
         self.pan = pan
+        self.filter = filter
+    }
+
+    // Custom decoder for backward compatibility with old .canopy files
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        soundType = try container.decode(SoundType.self, forKey: .soundType)
+        envelope = try container.decode(EnvelopeConfig.self, forKey: .envelope)
+        volume = try container.decode(Double.self, forKey: .volume)
+        pan = try container.decode(Double.self, forKey: .pan)
+        filter = try container.decodeIfPresent(FilterConfig.self, forKey: .filter) ?? FilterConfig()
     }
 }
