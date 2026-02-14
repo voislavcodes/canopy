@@ -71,52 +71,75 @@ struct PendingRatchet {
 ///
 /// This struct is owned by the AudioEngine render callback.
 /// All mutation happens on the audio thread — no locks needed.
+///
+/// All arrays are pre-allocated to `maxEvents` capacity in `init()`.
+/// `load()` copies into pre-allocated storage via indexed assignment —
+/// zero heap allocations on the audio thread.
 struct Sequencer {
+    /// Maximum number of events a single sequence can hold.
+    /// Pre-allocated at init; load() clamps to this limit.
+    static let maxEvents = 128
+
+    /// Maximum number of scale intervals (chromatic = 12).
+    static let maxScaleIntervals = 12
+
     var bpm: Double = 120
     var currentBeat: Double = 0
     var isPlaying: Bool = false
 
-    private var events: [SequencerEvent] = []
+    private var events: [SequencerEvent]
+    private var eventCount: Int = 0
     private var lengthInBeats: Double = 16
 
     // Track which events have been triggered this loop cycle
-    private var triggeredOnFlags: [Bool] = []
-    private var triggeredOffFlags: [Bool] = []
+    private var triggeredOnFlags: [Bool]
+    private var triggeredOffFlags: [Bool]
 
     // Probability
     var globalProbability: Double = 1.0
     private var prng = Xorshift64()
-    // Whether probability was already rolled for each event this cycle
-    private var probabilityRolled: [Bool] = []
-    private var probabilityPassed: [Bool] = []
+    private var probabilityRolled: [Bool]
+    private var probabilityPassed: [Bool]
 
     // Direction
     private var direction: PlaybackDirection = .forward
-    private var sortedStepIndices: [Int] = []  // indices into events sorted by startBeat
+    private var sortedStepIndices: [Int]
+    private var sortedStepCount: Int = 0
     private var currentStepIndex: Int = 0
     private var pingPongForward: Bool = true
     private var lastBrownianStep: Int = 0
-    // For non-forward directions, we track which step indices have been processed
-    private var directionTriggeredOn: [Bool] = []
-    private var directionTriggeredOff: [Bool] = []
+    private var directionTriggeredOn: [Bool]
+    private var directionTriggeredOff: [Bool]
     // Step boundaries for direction-based stepping
-    private var stepBoundaries: [Double] = []
+    private var stepBoundaries: [Double]
+    private var stepBoundaryCount: Int = 0
     private var lastStepBoundaryIndex: Int = -1
+
+    // Cursor-based event scanning (forward mode)
+    // Indices into events[] sorted by startBeat, for O(1) note-on scanning
+    private var sortedOnIndices: [Int]
+    private var sortedOnCount: Int = 0
+    private var nextOnCursor: Int = 0
+    // Indices into events[] sorted by endBeat, for O(1) note-off scanning
+    private var sortedOffIndices: [Int]
+    private var sortedOffCount: Int = 0
+    private var nextOffCursor: Int = 0
 
     // Ratcheting
     private var pendingRatchets: [PendingRatchet] = Array(repeating: PendingRatchet(), count: 32)
     private var activeRatchetCount: Int = 0
 
     // Mutation
-    private var mutatedPitches: [Int] = []
-    private var originalPitches: [Int] = []
+    private var mutatedPitches: [Int]
+    private var originalPitches: [Int]
     private var mutationAmount: Double = 0
     private var mutationRange: Int = 0
     private var scaleRootSemitone: Int = 0
-    private var scaleIntervals: [Int] = []
+    private var scaleIntervals: [Int]
+    private var scaleIntervalsCount: Int = 0
     /// Double buffer for freeze: A and B arrays. Audio writes active, main reads inactive.
-    private var mutatedPitchesA: [Int] = []
-    private var mutatedPitchesB: [Int] = []
+    private var mutatedPitchesA: [Int]
+    private var mutatedPitchesB: [Int]
     private var activeBufferIsA: Bool = true
 
     // Accumulator
@@ -131,31 +154,120 @@ struct Sequencer {
     // Cycle counter for loop wrap detection
     private var loopCount: Int = 0
 
-    /// Load a sequence of events.
-    mutating func load(events: [SequencerEvent], lengthInBeats: Double,
+    /// Sentinel event used for unused pre-allocated slots.
+    private static let emptyEvent = SequencerEvent(pitch: 0, velocity: 0, startBeat: 0, endBeat: 0)
+
+    init() {
+        let cap = Sequencer.maxEvents
+        events = Array(repeating: Sequencer.emptyEvent, count: cap)
+        triggeredOnFlags = Array(repeating: false, count: cap)
+        triggeredOffFlags = Array(repeating: false, count: cap)
+        probabilityRolled = Array(repeating: false, count: cap)
+        probabilityPassed = Array(repeating: false, count: cap)
+        sortedStepIndices = Array(repeating: 0, count: cap)
+        directionTriggeredOn = Array(repeating: false, count: cap)
+        directionTriggeredOff = Array(repeating: false, count: cap)
+        stepBoundaries = Array(repeating: 0, count: cap)
+        sortedOnIndices = Array(repeating: 0, count: cap)
+        sortedOffIndices = Array(repeating: 0, count: cap)
+        mutatedPitches = Array(repeating: 0, count: cap)
+        originalPitches = Array(repeating: 0, count: cap)
+        mutatedPitchesA = Array(repeating: 0, count: cap)
+        mutatedPitchesB = Array(repeating: 0, count: cap)
+        scaleIntervals = Array(repeating: 0, count: Sequencer.maxScaleIntervals)
+    }
+
+    /// Load a sequence of events into pre-allocated storage. Zero heap allocations.
+    mutating func load(events incoming: [SequencerEvent], lengthInBeats: Double,
                        direction: PlaybackDirection = .forward,
                        mutationAmount: Double = 0, mutationRange: Int = 0,
-                       scaleRootSemitone: Int = 0, scaleIntervals: [Int] = [],
+                       scaleRootSemitone: Int = 0, scaleIntervals incomingIntervals: [Int] = [],
                        accumulatorConfig: AccumulatorConfig? = nil) {
-        self.events = events
+        let count = min(incoming.count, Sequencer.maxEvents)
+        self.eventCount = count
         self.lengthInBeats = max(lengthInBeats, 1)
         self.direction = direction
-        self.triggeredOnFlags = Array(repeating: false, count: events.count)
-        self.triggeredOffFlags = Array(repeating: false, count: events.count)
-        self.probabilityRolled = Array(repeating: false, count: events.count)
-        self.probabilityPassed = Array(repeating: false, count: events.count)
 
-        // Direction setup
-        self.sortedStepIndices = events.indices.sorted { events[$0].startBeat < events[$1].startBeat }
-        self.currentStepIndex = direction == .reverse ? sortedStepIndices.count - 1 : 0
+        // Copy events into pre-allocated storage
+        for i in 0..<count {
+            events[i] = incoming[i]
+        }
+
+        // Reset flags
+        for i in 0..<count {
+            triggeredOnFlags[i] = false
+            triggeredOffFlags[i] = false
+            probabilityRolled[i] = false
+            probabilityPassed[i] = false
+            directionTriggeredOn[i] = false
+            directionTriggeredOff[i] = false
+        }
+
+        // Direction setup: build sorted step indices
+        // Simple insertion sort (count is small, avoids allocation)
+        for i in 0..<count {
+            sortedStepIndices[i] = i
+        }
+        self.sortedStepCount = count
+        if count > 1 {
+            for i in 1..<count {
+                let key = sortedStepIndices[i]
+                var j = i - 1
+                while j >= 0 && events[sortedStepIndices[j]].startBeat > events[key].startBeat {
+                    sortedStepIndices[j + 1] = sortedStepIndices[j]
+                    j -= 1
+                }
+                sortedStepIndices[j + 1] = key
+            }
+        }
+
+        self.currentStepIndex = direction == .reverse ? max(count - 1, 0) : 0
         self.pingPongForward = true
         self.lastBrownianStep = 0
-        self.directionTriggeredOn = Array(repeating: false, count: events.count)
-        self.directionTriggeredOff = Array(repeating: false, count: events.count)
 
-        // Build step boundaries for direction mode
-        self.stepBoundaries = events.map { $0.startBeat }.sorted()
+        // Build step boundaries (sorted startBeats)
+        self.stepBoundaryCount = count
+        for i in 0..<count {
+            stepBoundaries[i] = events[sortedStepIndices[i]].startBeat
+        }
         self.lastStepBoundaryIndex = -1
+
+        // Build cursor arrays for forward-mode O(1) scanning
+        // sortedOnIndices: indices into events[] sorted by startBeat
+        for i in 0..<count {
+            sortedOnIndices[i] = i
+        }
+        self.sortedOnCount = count
+        if count > 1 {
+            for i in 1..<count {
+                let key = sortedOnIndices[i]
+                var j = i - 1
+                while j >= 0 && events[sortedOnIndices[j]].startBeat > events[key].startBeat {
+                    sortedOnIndices[j + 1] = sortedOnIndices[j]
+                    j -= 1
+                }
+                sortedOnIndices[j + 1] = key
+            }
+        }
+
+        // sortedOffIndices: indices into events[] sorted by endBeat
+        for i in 0..<count {
+            sortedOffIndices[i] = i
+        }
+        self.sortedOffCount = count
+        if count > 1 {
+            for i in 1..<count {
+                let key = sortedOffIndices[i]
+                var j = i - 1
+                while j >= 0 && events[sortedOffIndices[j]].endBeat > events[key].endBeat {
+                    sortedOffIndices[j + 1] = sortedOffIndices[j]
+                    j -= 1
+                }
+                sortedOffIndices[j + 1] = key
+            }
+        }
+        self.nextOnCursor = 0
+        self.nextOffCursor = 0
 
         // Clear ratchets
         for i in 0..<pendingRatchets.count {
@@ -164,15 +276,23 @@ struct Sequencer {
         activeRatchetCount = 0
 
         // Mutation setup
-        self.originalPitches = events.map { $0.pitch }
-        self.mutatedPitches = self.originalPitches
-        self.mutatedPitchesA = self.originalPitches
-        self.mutatedPitchesB = self.originalPitches
+        for i in 0..<count {
+            originalPitches[i] = incoming[i].pitch
+            mutatedPitches[i] = incoming[i].pitch
+            mutatedPitchesA[i] = incoming[i].pitch
+            mutatedPitchesB[i] = incoming[i].pitch
+        }
         self.activeBufferIsA = true
         self.mutationAmount = mutationAmount
         self.mutationRange = mutationRange
         self.scaleRootSemitone = scaleRootSemitone
-        self.scaleIntervals = scaleIntervals
+
+        // Copy scale intervals
+        let intervalCount = min(incomingIntervals.count, Sequencer.maxScaleIntervals)
+        self.scaleIntervalsCount = intervalCount
+        for i in 0..<intervalCount {
+            scaleIntervals[i] = incomingIntervals[i]
+        }
 
         // Accumulator setup
         self.accumulatorValue = 0
@@ -214,17 +334,23 @@ struct Sequencer {
         self.scaleRootSemitone = rootSemitone
         // Only update intervals if provided (avoid empty overwrite)
         if !intervals.isEmpty {
-            self.scaleIntervals = intervals
+            let intervalCount = min(intervals.count, Sequencer.maxScaleIntervals)
+            self.scaleIntervalsCount = intervalCount
+            for i in 0..<intervalCount {
+                scaleIntervals[i] = intervals[i]
+            }
         }
     }
 
     /// Reset mutated pitches to originals.
     mutating func resetMutation() {
-        mutatedPitches = originalPitches
+        for i in 0..<eventCount {
+            mutatedPitches[i] = originalPitches[i]
+        }
         if activeBufferIsA {
-            mutatedPitchesA = originalPitches
+            for i in 0..<eventCount { mutatedPitchesA[i] = originalPitches[i] }
         } else {
-            mutatedPitchesB = originalPitches
+            for i in 0..<eventCount { mutatedPitchesB[i] = originalPitches[i] }
         }
     }
 
@@ -232,16 +358,17 @@ struct Sequencer {
     /// After this, the main thread can read the inactive buffer safely.
     mutating func freezeMutation() {
         if activeBufferIsA {
-            mutatedPitchesB = mutatedPitchesA
+            for i in 0..<eventCount { mutatedPitchesB[i] = mutatedPitchesA[i] }
         } else {
-            mutatedPitchesA = mutatedPitchesB
+            for i in 0..<eventCount { mutatedPitchesA[i] = mutatedPitchesB[i] }
         }
         activeBufferIsA.toggle()
     }
 
     /// Read frozen pitches (call from main thread when audio is using the other buffer).
     func frozenPitches() -> [Int] {
-        activeBufferIsA ? mutatedPitchesB : mutatedPitchesA
+        let source = activeBufferIsA ? mutatedPitchesB : mutatedPitchesA
+        return Array(source[0..<eventCount])
     }
 
     /// Advance the beat clock by one sample and trigger any pending events.
@@ -256,7 +383,7 @@ struct Sequencer {
         // Check for loop wrap
         if currentBeat >= lengthInBeats {
             // Trigger any remaining note-offs before wrapping
-            for i in 0..<events.count {
+            for i in 0..<eventCount {
                 if triggeredOnFlags[i] && !triggeredOffFlags[i] {
                     voices.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
                     triggeredOffFlags[i] = true
@@ -275,7 +402,7 @@ struct Sequencer {
             loopCount += 1
 
             // Apply mutation at loop wrap
-            if mutationAmount > 0 && !scaleIntervals.isEmpty {
+            if mutationAmount > 0 && scaleIntervalsCount > 0 {
                 applyMutation()
             }
 
@@ -286,19 +413,25 @@ struct Sequencer {
 
             // Reset direction state for new cycle
             if direction == .reverse {
-                currentStepIndex = sortedStepIndices.count - 1
+                currentStepIndex = max(sortedStepCount - 1, 0)
             } else {
                 currentStepIndex = 0
             }
             lastStepBoundaryIndex = -1
 
+            // Reset cursors for forward mode
+            nextOnCursor = 0
+            nextOffCursor = 0
+
             resetFlags()
         }
 
-        // Process ratchets
-        processRatchets(voices: &voices, detune: detune)
+        // Process ratchets (short-circuit when none active)
+        if activeRatchetCount > 0 {
+            processRatchets(voices: &voices, detune: detune)
+        }
 
-        // Forward direction uses simple linear beat comparison
+        // Forward direction uses cursor-based scanning
         if direction == .forward {
             advanceForward(sampleRate: sampleRate, voices: &voices, detune: detune)
         } else {
@@ -306,22 +439,31 @@ struct Sequencer {
         }
     }
 
-    // MARK: - Forward Playback (original logic)
+    // MARK: - Forward Playback (cursor-based O(1) amortized scanning)
 
     private mutating func advanceForward(sampleRate: Double, voices: inout VoiceManager, detune: Double) {
-        for i in 0..<events.count {
-            let event = events[i]
-
-            // Note on: trigger once we've reached the start beat
-            if !triggeredOnFlags[i] && currentBeat >= event.startBeat {
-                triggeredOnFlags[i] = true
-                triggerEventOn(index: i, voices: &voices, detune: detune)
+        // Note-on: check only the next event(s) at the cursor
+        while nextOnCursor < sortedOnCount {
+            let eventIdx = sortedOnIndices[nextOnCursor]
+            let event = events[eventIdx]
+            if currentBeat >= event.startBeat {
+                triggeredOnFlags[eventIdx] = true
+                triggerEventOn(index: eventIdx, voices: &voices, detune: detune)
+                nextOnCursor += 1
+            } else {
+                break
             }
+        }
 
-            // Note off: trigger once we've reached the end beat
-            if triggeredOnFlags[i] && !triggeredOffFlags[i] && currentBeat >= event.endBeat {
-                voices.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
-                triggeredOffFlags[i] = true
+        // Note-off: check only the next event(s) at the cursor
+        while nextOffCursor < sortedOffCount {
+            let eventIdx = sortedOffIndices[nextOffCursor]
+            if triggeredOnFlags[eventIdx] && currentBeat >= events[eventIdx].endBeat {
+                voices.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: eventIdx)))
+                triggeredOffFlags[eventIdx] = true
+                nextOffCursor += 1
+            } else {
+                break
             }
         }
     }
@@ -329,16 +471,13 @@ struct Sequencer {
     // MARK: - Directional Playback
 
     private mutating func advanceDirectional(sampleRate: Double, voices: inout VoiceManager, detune: Double) {
-        guard !sortedStepIndices.isEmpty else { return }
+        guard sortedStepCount > 0 else { return }
 
-        // Determine current step boundary based on beat position
-        var currentBoundaryIndex = -1
-        for (bi, boundary) in stepBoundaries.enumerated() {
-            if currentBeat >= boundary {
-                currentBoundaryIndex = bi
-            } else {
-                break
-            }
+        // Cursor-based boundary detection: check only the next boundary
+        var currentBoundaryIndex = lastStepBoundaryIndex
+        while currentBoundaryIndex + 1 < stepBoundaryCount
+                && currentBeat >= stepBoundaries[currentBoundaryIndex + 1] {
+            currentBoundaryIndex += 1
         }
 
         // If we crossed a new step boundary, advance the directional index
@@ -353,14 +492,14 @@ struct Sequencer {
 
             // Map directional step to actual event
             let eventIndex = mapStepToEvent(currentStepIndex)
-            if eventIndex >= 0 && eventIndex < events.count && !directionTriggeredOn[eventIndex] {
+            if eventIndex >= 0 && eventIndex < eventCount && !directionTriggeredOn[eventIndex] {
                 directionTriggeredOn[eventIndex] = true
                 triggerEventOn(index: eventIndex, voices: &voices, detune: detune)
             }
         }
 
         // Handle note-offs based on duration
-        for i in 0..<events.count {
+        for i in 0..<eventCount {
             if directionTriggeredOn[i] && !directionTriggeredOff[i] {
                 let event = events[i]
                 let duration = event.endBeat - event.startBeat
@@ -377,7 +516,7 @@ struct Sequencer {
     }
 
     private mutating func advanceStepIndex() {
-        let count = sortedStepIndices.count
+        let count = sortedStepCount
         guard count > 0 else { return }
 
         switch direction {
@@ -408,7 +547,7 @@ struct Sequencer {
     }
 
     private func mapStepToEvent(_ stepIndex: Int) -> Int {
-        guard stepIndex >= 0 && stepIndex < sortedStepIndices.count else { return -1 }
+        guard stepIndex >= 0 && stepIndex < sortedStepCount else { return -1 }
         return sortedStepIndices[stepIndex]
     }
 
@@ -496,8 +635,8 @@ struct Sequencer {
     // MARK: - Effective Pitch (mutation)
 
     private func effectivePitch(for index: Int) -> Int {
-        guard index < mutatedPitches.count else {
-            return index < events.count ? events[index].pitch : 60
+        guard index < eventCount else {
+            return index < eventCount ? events[index].pitch : 60
         }
         return mutatedPitches[index]
     }
@@ -505,64 +644,65 @@ struct Sequencer {
     // MARK: - Mutation
 
     private mutating func applyMutation() {
-        guard mutationRange > 0 && !scaleIntervals.isEmpty else { return }
-        let intervals = scaleIntervals
+        guard mutationRange > 0 && scaleIntervalsCount > 0 else { return }
         let rootSemi = scaleRootSemitone
 
-        for i in 0..<mutatedPitches.count {
+        for i in 0..<eventCount {
             if prng.nextDouble() < mutationAmount {
                 let shift = prng.nextInt(in: -mutationRange...mutationRange)
                 if shift != 0 {
                     mutatedPitches[i] = quantizeToScale(
-                        shiftPitch(mutatedPitches[i], byDegrees: shift, root: rootSemi, intervals: intervals),
-                        root: rootSemi, intervals: intervals
+                        shiftPitch(mutatedPitches[i], byDegrees: shift, root: rootSemi),
+                        root: rootSemi
                     )
                 }
             }
         }
         // Update active buffer
         if activeBufferIsA {
-            mutatedPitchesA = mutatedPitches
+            for i in 0..<eventCount { mutatedPitchesA[i] = mutatedPitches[i] }
         } else {
-            mutatedPitchesB = mutatedPitches
+            for i in 0..<eventCount { mutatedPitchesB[i] = mutatedPitches[i] }
         }
     }
 
     /// Shift a MIDI note by scale degrees. Pure math, no allocations.
-    private func shiftPitch(_ midi: Int, byDegrees degrees: Int, root: Int, intervals: [Int]) -> Int {
+    private func shiftPitch(_ midi: Int, byDegrees degrees: Int, root: Int) -> Int {
         let pc = ((midi % 12) - root + 12) % 12
         let octave = midi / 12
 
         // Find current degree
         var currentDeg = 0
         var minDist = 12
-        for (idx, interval) in intervals.enumerated() {
-            let dist = abs(pc - interval)
+        for idx in 0..<scaleIntervalsCount {
+            let dist = abs(pc - scaleIntervals[idx])
             if dist < minDist {
                 minDist = dist
                 currentDeg = idx
             }
         }
 
-        let scaleSize = intervals.count
+        let scaleSize = scaleIntervalsCount
         let targetDeg = currentDeg + degrees
         let octShift = targetDeg >= 0
             ? targetDeg / scaleSize
             : (targetDeg - scaleSize + 1) / scaleSize
         let degInScale = ((targetDeg % scaleSize) + scaleSize) % scaleSize
 
-        let result = (octave + octShift) * 12 + root + intervals[degInScale]
+        let result = (octave + octShift) * 12 + root + scaleIntervals[degInScale]
         return max(0, min(127, result))
     }
 
     /// Quantize to nearest scale note. Pure math.
-    private func quantizeToScale(_ midi: Int, root: Int, intervals: [Int]) -> Int {
+    private func quantizeToScale(_ midi: Int, root: Int) -> Int {
         let pc = ((midi % 12) - root + 12) % 12
-        if intervals.contains(pc) { return midi }
+        for idx in 0..<scaleIntervalsCount {
+            if scaleIntervals[idx] == pc { return midi }
+        }
 
         var bestOffset = 12
-        for interval in intervals {
-            let diff = interval - pc
+        for idx in 0..<scaleIntervalsCount {
+            let diff = scaleIntervals[idx] - pc
             for candidate in [diff, diff + 12, diff - 12] {
                 if abs(candidate) < abs(bestOffset) {
                     bestOffset = candidate
@@ -616,7 +756,7 @@ struct Sequencer {
     // MARK: - Flag Reset
 
     private mutating func resetFlags() {
-        for i in 0..<triggeredOnFlags.count {
+        for i in 0..<eventCount {
             triggeredOnFlags[i] = false
             triggeredOffFlags[i] = false
             probabilityRolled[i] = false

@@ -93,6 +93,13 @@ final class AudioCommandRingBuffer: @unchecked Sendable {
 
     /// Pop a command from the buffer. Called from audio thread only.
     /// Returns nil if the buffer is empty. No allocations, no locks.
+    ///
+    /// The popped slot is NOT nilled out — leaving the old value avoids
+    /// ARC release on the audio thread (which would call `free()` for
+    /// commands carrying heap-allocated associated values like
+    /// `.sequencerLoad`). The slot will be overwritten by the next
+    /// `push()` from the main thread, where ARC release is safe.
+    /// Stale slots are bounded by the ring buffer capacity (256).
     func pop() -> AudioCommand? {
         let tail = tailPtr.pointee
         let head = headPtr.pointee
@@ -102,7 +109,7 @@ final class AudioCommandRingBuffer: @unchecked Sendable {
         }
 
         let command = storage[tail]
-        storage[tail] = nil
+        // Don't nil the slot — defer ARC release to the producer thread (push).
         tailPtr.pointee = (tail + 1) & mask
         return command
     }

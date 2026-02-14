@@ -65,67 +65,71 @@ final class NodeAudioUnit {
             let gainL = Float(cos(angle))
             let gainR = Float(sin(angle))
 
-            for frame in 0..<Int(frameCount) {
-                // 1. Drain command ring buffer
-                while let cmd = cmdBuffer.pop() {
-                    switch cmd {
-                    case .noteOn(let pitch, let velocity):
-                        let freq = MIDIUtilities.detunedFrequency(
-                            base: MIDIUtilities.frequency(forNote: pitch),
-                            cents: detune
-                        )
-                        voices.noteOn(pitch: pitch, velocity: velocity, frequency: freq)
+            // 1. Drain command ring buffer ONCE per callback (not per-sample).
+            //    Commands arrive at human-interaction rates (~10/sec). Draining
+            //    once per callback (~86/sec at 512 samples) is more than enough.
+            //    This also ensures associated-value payloads (heap arrays in
+            //    .sequencerLoad) go out of scope here — not inside the hot loop.
+            while let cmd = cmdBuffer.pop() {
+                switch cmd {
+                case .noteOn(let pitch, let velocity):
+                    let freq = MIDIUtilities.detunedFrequency(
+                        base: MIDIUtilities.frequency(forNote: pitch),
+                        cents: detune
+                    )
+                    voices.noteOn(pitch: pitch, velocity: velocity, frequency: freq)
 
-                    case .noteOff(let pitch):
-                        voices.noteOff(pitch: pitch)
+                case .noteOff(let pitch):
+                    voices.noteOff(pitch: pitch)
 
-                    case .allNotesOff:
-                        voices.allNotesOff()
+                case .allNotesOff:
+                    voices.allNotesOff()
 
-                    case .setPatch(let waveform, let newDetune, let attack, let decay, let sustain, let release, let newVolume):
-                        detune = newDetune
-                        volume = newVolume
-                        voices.configurePatch(
-                            waveform: waveform, detune: newDetune,
-                            attack: attack, decay: decay, sustain: sustain, release: release,
-                            sampleRate: sr
-                        )
+                case .setPatch(let waveform, let newDetune, let attack, let decay, let sustain, let release, let newVolume):
+                    detune = newDetune
+                    volume = newVolume
+                    voices.configurePatch(
+                        waveform: waveform, detune: newDetune,
+                        attack: attack, decay: decay, sustain: sustain, release: release,
+                        sampleRate: sr
+                    )
 
-                    case .sequencerStart(let bpm):
-                        seq.start(bpm: bpm)
+                case .sequencerStart(let bpm):
+                    seq.start(bpm: bpm)
 
-                    case .sequencerStop:
-                        seq.stop()
-                        voices.allNotesOff()
+                case .sequencerStop:
+                    seq.stop()
+                    voices.allNotesOff()
 
-                    case .sequencerSetBPM(let bpm):
-                        seq.bpm = bpm
+                case .sequencerSetBPM(let bpm):
+                    seq.bpm = bpm
 
-                    case .sequencerLoad(let events, let lengthInBeats,
-                                        let direction, let mutationAmount, let mutationRange,
-                                        let scaleRootSemitone, let scaleIntervals,
-                                        let accumulatorConfig):
-                        voices.allNotesOff()
-                        seq.load(events: events, lengthInBeats: lengthInBeats,
-                                 direction: direction,
-                                 mutationAmount: mutationAmount, mutationRange: mutationRange,
-                                 scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                                 accumulatorConfig: accumulatorConfig)
+                case .sequencerLoad(let events, let lengthInBeats,
+                                    let direction, let mutationAmount, let mutationRange,
+                                    let scaleRootSemitone, let scaleIntervals,
+                                    let accumulatorConfig):
+                    voices.allNotesOff()
+                    seq.load(events: events, lengthInBeats: lengthInBeats,
+                             direction: direction,
+                             mutationAmount: mutationAmount, mutationRange: mutationRange,
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
+                             accumulatorConfig: accumulatorConfig)
 
-                    case .sequencerSetGlobalProbability(let prob):
-                        seq.globalProbability = prob
+                case .sequencerSetGlobalProbability(let prob):
+                    seq.globalProbability = prob
 
-                    case .sequencerSetMutation(let amount, let range, let rootSemitone, let intervals):
-                        seq.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
+                case .sequencerSetMutation(let amount, let range, let rootSemitone, let intervals):
+                    seq.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
 
-                    case .sequencerResetMutation:
-                        seq.resetMutation()
+                case .sequencerResetMutation:
+                    seq.resetMutation()
 
-                    case .sequencerFreezeMutation:
-                        seq.freezeMutation()
-                    }
+                case .sequencerFreezeMutation:
+                    seq.freezeMutation()
                 }
+            }
 
+            for frame in 0..<Int(frameCount) {
                 // 2. Advance sequencer
                 seq.advanceOneSample(sampleRate: sr, voices: &voices, detune: detune)
 

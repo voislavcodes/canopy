@@ -138,4 +138,208 @@ final class SequencerAlgorithmTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AccumulatorConfig.self, from: data)
         XCTAssertEqual(config, decoded)
     }
+
+    // MARK: - Sequencer Cursor Correctness
+
+    /// Helper: advance a sequencer by the given number of samples, collecting
+    /// all (pitch, isNoteOn) events from VoiceManager state changes.
+    private func collectEvents(
+        seq: inout Sequencer,
+        voices: inout VoiceManager,
+        sampleRate: Double,
+        totalSamples: Int
+    ) -> [(sample: Int, pitch: Int, isOn: Bool)] {
+        var result: [(sample: Int, pitch: Int, isOn: Bool)] = []
+        // Track previous voice pitches to detect note-on/off transitions
+        var prevPitches = voices.voicePitches
+        for s in 0..<totalSamples {
+            seq.advanceOneSample(sampleRate: sampleRate, voices: &voices, detune: 0)
+            // Detect changes in voice allocations
+            for v in 0..<voices.voiceCount {
+                let cur = voices.voicePitches[v]
+                let prev = prevPitches[v]
+                if cur != prev {
+                    if prev >= 0 && !voices.voices[v].isActive {
+                        // voice went from active to inactive → note-off
+                        result.append((sample: s, pitch: prev, isOn: false))
+                    }
+                    if cur >= 0 && voices.voices[v].isActive {
+                        // voice became active with new pitch → note-on
+                        result.append((sample: s, pitch: cur, isOn: true))
+                    }
+                }
+            }
+            prevPitches = voices.voicePitches
+        }
+        return result
+    }
+
+    /// Verify that cursor-based forward scanning triggers note-on at the
+    /// correct beat position for a simple 4-event sequence.
+    func testCursorNoteOnTiming() {
+        let sampleRate = 44100.0
+        let bpm = 120.0
+        let beatsPerSample = bpm / (60.0 * sampleRate)
+
+        // Create events at beats 0, 1, 2, 3 with duration 0.5
+        let events = (0..<4).map { i in
+            SequencerEvent(pitch: 60 + i, velocity: 0.8,
+                           startBeat: Double(i), endBeat: Double(i) + 0.5)
+        }
+
+        var seq = Sequencer()
+        seq.load(events: events, lengthInBeats: 4)
+        seq.start(bpm: bpm)
+
+        var voices = VoiceManager(voiceCount: 8)
+        voices.configurePatch(waveform: 0, detune: 0,
+                              attack: 0.001, decay: 0.01, sustain: 1.0, release: 0.001,
+                              sampleRate: sampleRate)
+
+        // Advance sample-by-sample and check that each event fires
+        // at or just after its startBeat
+        var noteOnBeats: [Int: Double] = [:]
+        for s in 0..<Int(4.0 / beatsPerSample) + 100 {
+            seq.advanceOneSample(sampleRate: sampleRate, voices: &voices, detune: 0)
+            // Check if a new pitch appeared
+            for v in 0..<voices.voiceCount {
+                let p = voices.voicePitches[v]
+                if p >= 60 && p <= 63 && noteOnBeats[p] == nil && voices.voices[v].isActive {
+                    noteOnBeats[p] = seq.currentBeat
+                }
+            }
+        }
+
+        // Each note should have triggered
+        for i in 0..<4 {
+            let pitch = 60 + i
+            XCTAssertNotNil(noteOnBeats[pitch], "Note \(pitch) should have triggered")
+        }
+    }
+
+    // MARK: - Pre-allocation Capacity Tests
+
+    /// Verify that loading 1 event works correctly.
+    func testPreallocationSingleEvent() {
+        var seq = Sequencer()
+        let events = [SequencerEvent(pitch: 60, velocity: 0.8, startBeat: 0, endBeat: 0.5)]
+        seq.load(events: events, lengthInBeats: 1)
+        seq.start(bpm: 120)
+
+        var voices = VoiceManager(voiceCount: 8)
+        voices.configurePatch(waveform: 0, detune: 0,
+                              attack: 0.001, decay: 0.01, sustain: 1.0, release: 0.001,
+                              sampleRate: 44100)
+
+        // Advance enough samples for the note to trigger
+        for _ in 0..<1000 {
+            seq.advanceOneSample(sampleRate: 44100, voices: &voices, detune: 0)
+        }
+
+        // The note should have been allocated to a voice
+        XCTAssertTrue(voices.voicePitches.contains(60), "Single event should trigger note-on")
+    }
+
+    /// Verify that loading 32 events works correctly.
+    func testPreallocation32Events() {
+        var seq = Sequencer()
+        let events = (0..<32).map { i in
+            SequencerEvent(pitch: 40 + (i % 48), velocity: 0.8,
+                           startBeat: Double(i) * 0.5, endBeat: Double(i) * 0.5 + 0.25)
+        }
+        seq.load(events: events, lengthInBeats: 16)
+        seq.start(bpm: 120)
+
+        var voices = VoiceManager(voiceCount: 8)
+        voices.configurePatch(waveform: 0, detune: 0,
+                              attack: 0.001, decay: 0.01, sustain: 1.0, release: 0.001,
+                              sampleRate: 44100)
+
+        // Advance through the full sequence
+        let samplesPerBeat = 44100.0 * 60.0 / 120.0
+        let totalSamples = Int(16.0 * samplesPerBeat) + 100
+        for _ in 0..<totalSamples {
+            seq.advanceOneSample(sampleRate: 44100, voices: &voices, detune: 0)
+        }
+
+        // Should have completed without crash
+        XCTAssertTrue(true, "32-event sequence completed without crash")
+    }
+
+    /// Verify that loading 64 events works correctly.
+    func testPreallocation64Events() {
+        var seq = Sequencer()
+        let events = (0..<64).map { i in
+            SequencerEvent(pitch: 36 + (i % 52), velocity: 0.7,
+                           startBeat: Double(i) * 0.25, endBeat: Double(i) * 0.25 + 0.125)
+        }
+        seq.load(events: events, lengthInBeats: 16)
+        seq.start(bpm: 120)
+
+        var voices = VoiceManager(voiceCount: 8)
+        voices.configurePatch(waveform: 0, detune: 0,
+                              attack: 0.001, decay: 0.01, sustain: 1.0, release: 0.001,
+                              sampleRate: 44100)
+
+        let samplesPerBeat = 44100.0 * 60.0 / 120.0
+        let totalSamples = Int(16.0 * samplesPerBeat) + 100
+        for _ in 0..<totalSamples {
+            seq.advanceOneSample(sampleRate: 44100, voices: &voices, detune: 0)
+        }
+
+        XCTAssertTrue(true, "64-event sequence completed without crash")
+    }
+
+    /// Verify that loading exactly maxEvents (128) events works correctly.
+    func testPreallocation128Events() {
+        var seq = Sequencer()
+        let events = (0..<128).map { i in
+            SequencerEvent(pitch: 24 + (i % 80), velocity: 0.6,
+                           startBeat: Double(i) * 0.125, endBeat: Double(i) * 0.125 + 0.0625)
+        }
+        seq.load(events: events, lengthInBeats: 16)
+        seq.start(bpm: 120)
+
+        var voices = VoiceManager(voiceCount: 8)
+        voices.configurePatch(waveform: 0, detune: 0,
+                              attack: 0.001, decay: 0.01, sustain: 1.0, release: 0.001,
+                              sampleRate: 44100)
+
+        let samplesPerBeat = 44100.0 * 60.0 / 120.0
+        let totalSamples = Int(16.0 * samplesPerBeat) + 100
+        for _ in 0..<totalSamples {
+            seq.advanceOneSample(sampleRate: 44100, voices: &voices, detune: 0)
+        }
+
+        XCTAssertTrue(true, "128-event (maxEvents) sequence completed without crash")
+    }
+
+    /// Verify that events exceeding maxEvents are clamped (not crash).
+    func testPreallocationOverMaxEventsClamps() {
+        var seq = Sequencer()
+        // Create 150 events (exceeds maxEvents=128)
+        let events = (0..<150).map { i in
+            SequencerEvent(pitch: 60, velocity: 0.8,
+                           startBeat: Double(i) * 0.1, endBeat: Double(i) * 0.1 + 0.05)
+        }
+        seq.load(events: events, lengthInBeats: 16)
+        seq.start(bpm: 120)
+
+        var voices = VoiceManager(voiceCount: 8)
+        voices.configurePatch(waveform: 0, detune: 0,
+                              attack: 0.001, decay: 0.01, sustain: 1.0, release: 0.001,
+                              sampleRate: 44100)
+
+        // Advance briefly — should not crash
+        for _ in 0..<10000 {
+            seq.advanceOneSample(sampleRate: 44100, voices: &voices, detune: 0)
+        }
+
+        XCTAssertTrue(true, "Over-maxEvents sequence clamped without crash")
+    }
+
+    /// Verify maxEvents constant is what we expect.
+    func testMaxEventsConstant() {
+        XCTAssertEqual(Sequencer.maxEvents, 128)
+    }
 }

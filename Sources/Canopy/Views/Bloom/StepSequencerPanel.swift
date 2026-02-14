@@ -95,8 +95,7 @@ struct StepSequencerPanel: View {
                         .drawingGroup()
 
                         SequencerPlayhead(
-                            isPlaying: transportState.isPlaying,
-                            nodeID: transportState.focusedNodeID,
+                            nodeID: node.id,
                             lengthInBeats: node.sequence.lengthInBeats,
                             columns: columns,
                             rows: rows,
@@ -872,11 +871,17 @@ struct StepSequencerPanel: View {
     }
 }
 
-// MARK: - Playhead (TimelineView reads beat position directly from audio engine at display refresh rate)
+// MARK: - Playhead (polls audio engine at 30fps, Core Animation interpolates between updates)
 
+/// Polls beat position at 30fps via `TimelineView(.periodic)` and applies
+/// `.animation(.linear)` so Core Animation smoothly interpolates offset
+/// on the compositor thread — zero main thread work between polls.
+///
+/// Uses `nodeID: UUID` (value type) so SwiftUI structural diffing works:
+/// parent re-evaluations from pan/zoom gestures see identical inputs and
+/// skip this view's body entirely.
 private struct SequencerPlayhead: View {
-    let isPlaying: Bool
-    let nodeID: UUID?
+    let nodeID: UUID
     let lengthInBeats: Double
     let columns: Int
     let rows: Int
@@ -885,22 +890,27 @@ private struct SequencerPlayhead: View {
     let cellCornerRadius: CGFloat
     let cs: CGFloat
 
-    var body: some View {
-        if isPlaying, let nodeID {
-            TimelineView(.animation) { _ in
-                let currentBeat = AudioEngine.shared.currentBeat(for: nodeID)
-                let beatFraction = currentBeat / max(lengthInBeats, 1)
-                let step = beatFraction * Double(columns)
-                let xOffset = CGFloat(step) * (cellSize + cellSpacing)
-                let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
-                let totalHeight = gridHeight + 2 * cs + 5 * cs
+    /// 30fps poll interval — enough for playhead visual accuracy while
+    /// leaving the main thread free for gesture processing.
+    private static let pollInterval: TimeInterval = 1.0 / 30.0
 
-                RoundedRectangle(cornerRadius: cellCornerRadius)
-                    .fill(CanopyColors.glowColor.opacity(0.2))
-                    .frame(width: cellSize, height: totalHeight)
-                    .offset(x: xOffset, y: 0)
-                    .allowsHitTesting(false)
-            }
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: Self.pollInterval)) { _ in
+            let engine = AudioEngine.shared
+            let isPlaying = engine.isPlaying(for: nodeID)
+            let currentBeat = engine.currentBeat(for: nodeID)
+            let beatFraction = currentBeat / max(lengthInBeats, 1)
+            let step = beatFraction * Double(columns)
+            let xOffset = CGFloat(step) * (cellSize + cellSpacing)
+            let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
+            let totalHeight = gridHeight + 2 * cs + 5 * cs
+
+            RoundedRectangle(cornerRadius: cellCornerRadius)
+                .fill(CanopyColors.glowColor.opacity(isPlaying ? 0.2 : 0))
+                .frame(width: cellSize, height: totalHeight)
+                .offset(x: xOffset, y: 0)
+                .allowsHitTesting(false)
+                .animation(.linear(duration: Self.pollInterval), value: xOffset)
         }
     }
 }
