@@ -1,6 +1,8 @@
 import Foundation
 
 struct CanopyProject: Codable, Equatable {
+    static let currentFormatVersion = 1
+
     var id: UUID
     var name: String
     var bpm: Double
@@ -12,6 +14,7 @@ struct CanopyProject: Codable, Equatable {
     var lfos: [LFODefinition]
     var modulationRoutings: [ModulationRouting]
     var scaleAwareEnabled: Bool
+    var formatVersion: Int
 
     init(
         id: UUID = UUID(),
@@ -24,7 +27,8 @@ struct CanopyProject: Codable, Equatable {
         modifiedAt: Date = Date(),
         lfos: [LFODefinition] = [],
         modulationRoutings: [ModulationRouting] = [],
-        scaleAwareEnabled: Bool = false
+        scaleAwareEnabled: Bool = false,
+        formatVersion: Int = CanopyProject.currentFormatVersion
     ) {
         self.id = id
         self.name = name
@@ -37,6 +41,7 @@ struct CanopyProject: Codable, Equatable {
         self.lfos = lfos
         self.modulationRoutings = modulationRoutings
         self.scaleAwareEnabled = scaleAwareEnabled
+        self.formatVersion = formatVersion
     }
 
     // Custom decoder for backward compatibility with projects saved before LFO support.
@@ -55,5 +60,15 @@ struct CanopyProject: Codable, Equatable {
         lfos = try container.decodeIfPresent([LFODefinition].self, forKey: .lfos) ?? []
         modulationRoutings = try container.decodeIfPresent([ModulationRouting].self, forKey: .modulationRoutings) ?? []
         scaleAwareEnabled = try container.decodeIfPresent(Bool.self, forKey: .scaleAwareEnabled) ?? false
+        formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
+    }
+
+    /// Migrate a project to the current format version. No-op when already current.
+    static func migrate(_ project: CanopyProject) -> CanopyProject {
+        var migrated = project
+        // Future migrations go here:
+        // if migrated.formatVersion < 2 { ... migrated.formatVersion = 2 }
+        migrated.formatVersion = currentFormatVersion
+        return migrated
     }
 }

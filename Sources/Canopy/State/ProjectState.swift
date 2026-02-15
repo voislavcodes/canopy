@@ -13,6 +13,10 @@ class ProjectState: ObservableObject {
     @Published var currentFilePath: URL?
     @Published var isDirty: Bool = false
 
+    /// Closure set by AppDelegate to perform file I/O — keeps ProjectState free of file system knowledge.
+    var autoSaveHandler: ((CanopyProject, URL) -> Void)?
+    private var autoSaveWork: DispatchWorkItem?
+
     // MARK: - Transient keyboard state (not persisted)
 
     /// Base octave for both on-screen and computer keyboard input.
@@ -106,6 +110,34 @@ class ProjectState: ObservableObject {
         self.project = project
     }
 
+    // MARK: - Dirty Tracking & Auto-Save
+
+    /// Mark the project as dirty, update modifiedAt, and schedule a debounced auto-save (2s).
+    func markDirty() {
+        isDirty = true
+        project.modifiedAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        scheduleAutoSave()
+    }
+
+    /// Perform an immediate save, cancelling any pending debounce.
+    func performAutoSave() {
+        autoSaveWork?.cancel()
+        autoSaveWork = nil
+        guard let url = currentFilePath else { return }
+        autoSaveHandler?(project, url)
+        isDirty = false
+    }
+
+    private func scheduleAutoSave() {
+        autoSaveWork?.cancel()
+        guard currentFilePath != nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.performAutoSave()
+        }
+        autoSaveWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
+    }
+
     /// The currently selected node, if any.
     var selectedNode: Node? {
         guard let id = selectedNodeID else { return nil }
@@ -132,7 +164,7 @@ class ProjectState: ObservableObject {
     func updateNode(id: UUID, transform: (inout Node) -> Void) {
         for i in 0..<project.trees.count {
             if updateNodeRecursive(id: id, in: &project.trees[i].rootNode, transform: transform) {
-                isDirty = true
+                markDirty()
                 return
             }
         }
@@ -188,7 +220,7 @@ class ProjectState: ObservableObject {
             recomputeLayout(root: &project.trees[0].rootNode, x: 0, y: 0, depth: 0)
         }
 
-        isDirty = true
+        markDirty()
         return newNode
     }
 
@@ -217,7 +249,7 @@ class ProjectState: ObservableObject {
             recomputeLayout(root: &project.trees[0].rootNode, x: 0, y: 0, depth: 0)
         }
 
-        isDirty = true
+        markDirty()
         return newNode
     }
 
@@ -229,7 +261,7 @@ class ProjectState: ObservableObject {
 
         removeNodeRecursive(id: id, from: &project.trees[0].rootNode)
         recomputeLayout(root: &project.trees[0].rootNode, x: 0, y: 0, depth: 0)
-        isDirty = true
+        markDirty()
     }
 
     // MARK: - Module Swapping
@@ -243,19 +275,19 @@ class ProjectState: ObservableObject {
         if let node = findNode(id: nodeID) {
             AudioEngine.shared.addNode(node)
         }
-        isDirty = true
+        markDirty()
     }
 
     /// Swap the sequencer UI type (pitched grid vs drum grid).
     func swapSequencer(nodeID: UUID, to type: SequencerType) {
         updateNode(id: nodeID) { $0.sequencerType = type }
-        isDirty = true
+        markDirty()
     }
 
     /// Swap the input mode (keyboard vs pad grid).
     func swapInput(nodeID: UUID, to mode: InputMode) {
         updateNode(id: nodeID) { $0.inputMode = mode }
-        isDirty = true
+        markDirty()
     }
 
     /// Compute the LCM of all nodes' sequence lengths (the natural polyrhythmic cycle).
@@ -283,7 +315,7 @@ class ProjectState: ObservableObject {
         let colorIndex = (project.lfos.count) % 8
         let lfo = LFODefinition(name: "LFO \(index)", colorIndex: colorIndex)
         project.lfos.append(lfo)
-        isDirty = true
+        markDirty()
         syncModulationToEngine()
         return lfo
     }
@@ -293,7 +325,7 @@ class ProjectState: ObservableObject {
         project.lfos.removeAll { $0.id == id }
         project.modulationRoutings.removeAll { $0.lfoID == id }
         if selectedLFOID == id { selectedLFOID = nil }
-        isDirty = true
+        markDirty()
         syncModulationToEngine()
     }
 
@@ -301,7 +333,7 @@ class ProjectState: ObservableObject {
     func updateLFO(id: UUID, transform: (inout LFODefinition) -> Void) {
         if let idx = project.lfos.firstIndex(where: { $0.id == id }) {
             transform(&project.lfos[idx])
-            isDirty = true
+            markDirty()
             syncModulationToEngine()
         }
     }
@@ -311,7 +343,7 @@ class ProjectState: ObservableObject {
     func addModulationRouting(lfoID: UUID, nodeID: UUID, parameter: ModulationParameter, depth: Double = 0.5) -> ModulationRouting {
         let routing = ModulationRouting(lfoID: lfoID, nodeID: nodeID, parameter: parameter, depth: depth)
         project.modulationRoutings.append(routing)
-        isDirty = true
+        markDirty()
         syncModulationToEngine()
         return routing
     }
@@ -319,7 +351,7 @@ class ProjectState: ObservableObject {
     /// Remove a modulation routing.
     func removeModulationRouting(id: UUID) {
         project.modulationRoutings.removeAll { $0.id == id }
-        isDirty = true
+        markDirty()
         syncModulationToEngine()
     }
 
@@ -327,7 +359,7 @@ class ProjectState: ObservableObject {
     func updateModulationRouting(id: UUID, depth: Double) {
         if let idx = project.modulationRoutings.firstIndex(where: { $0.id == id }) {
             project.modulationRoutings[idx].depth = depth
-            isDirty = true
+            markDirty()
             syncModulationToEngine()
         }
     }

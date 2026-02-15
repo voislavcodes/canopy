@@ -1,5 +1,7 @@
 import AppKit
 import SwiftUI
+import Combine
+import UniformTypeIdentifiers
 import os
 
 private let logger = Logger(subsystem: "com.canopy", category: "AppDelegate")
@@ -8,6 +10,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var window: CanopyWindow!
     let projectState = ProjectState()
     let transportState = TransportState()
+
+    private enum AppMode {
+        case browser
+        case editing(url: URL)
+    }
+
+    private var appMode: AppMode = .browser
+    private var cancellables = Set<AnyCancellable>()
 
     /// Chromatic two-row mapping: home row = white keys, row above = black keys.
     private static let keyToSemitone: [String: Int] = [
@@ -27,19 +37,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var heldKeyNotes: [String: Int] = [:]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Start audio engine
         AudioEngine.shared.start()
-
-        // Sync transport BPM with project
-        transportState.bpm = projectState.project.bpm
-
-        let contentView = MainContentView(
-            projectState: projectState,
-            transportState: transportState
-        )
+        ProjectPersistenceService.ensureProjectsDirectory()
 
         window = CanopyWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -48,18 +50,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "Canopy"
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(red: 0.055, green: 0.065, blue: 0.06, alpha: 1)
-        window.contentView = NSHostingView(rootView: contentView)
         window.makeKeyAndOrderFront(nil)
-        window.setFrameAutosaveName("CanopyMainWindow")
-
-        window.keyDownHandler = { [weak self] event in
-            self?.handleKeyDown(event) ?? false
-        }
-        window.keyUpHandler = { [weak self] event in
-            self?.handleKeyUp(event) ?? false
-        }
 
         setupMenuBar()
+        showBrowser()
 
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -68,8 +62,156 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if projectState.isDirty {
+            projectState.performAutoSave()
+        }
+        return .terminateNow
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         AudioEngine.shared.stop()
+    }
+
+    /// Handle opening .canopy files from Finder / double-click.
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        let url = URL(fileURLWithPath: filename)
+        guard url.pathExtension == "canopy" else { return false }
+        handleOpenProject(url: url)
+        return true
+    }
+
+    // MARK: - Mode Transitions
+
+    private func showBrowser() {
+        // Save current work if editing
+        if case .editing = appMode {
+            transportState.stopPlayback()
+            if projectState.isDirty {
+                projectState.performAutoSave()
+            }
+            AudioEngine.shared.teardownGraph()
+        }
+
+        appMode = .browser
+        cancellables.removeAll()
+
+        let browserView = ProjectBrowserView(
+            onNewProject: { [weak self] in self?.handleNewProject() },
+            onOpenProject: { [weak self] url in self?.handleOpenProject(url: url) },
+            onOpenFile: { [weak self] in self?.openProject() }
+        )
+
+        window.contentView = NSHostingView(rootView: browserView)
+        window.keyDownHandler = nil
+        window.keyUpHandler = nil
+        window.title = "Canopy"
+        window.isDocumentEdited = false
+
+        // Resize to browser size
+        let browserFrame = NSRect(x: 0, y: 0, width: 600, height: 500)
+        let centered = browserFrame.offsetBy(
+            dx: window.frame.midX - browserFrame.width / 2,
+            dy: window.frame.midY - browserFrame.height / 2
+        )
+        window.setFrame(centered, display: true, animate: true)
+    }
+
+    private func showEditor(project: CanopyProject, url: URL) {
+        let migrated = CanopyProject.migrate(project)
+
+        projectState.project = migrated
+        projectState.selectedNodeID = nil
+        projectState.currentFilePath = url
+        projectState.isDirty = false
+        transportState.bpm = migrated.bpm
+
+        // Wire auto-save handler
+        projectState.autoSaveHandler = { project, url in
+            do {
+                try ProjectFileService.save(project, to: url)
+                logger.info("Auto-saved to \(url.lastPathComponent)")
+            } catch {
+                logger.error("Auto-save failed: \(error.localizedDescription)")
+            }
+        }
+
+        appMode = .editing(url: url)
+
+        let contentView = MainContentView(
+            projectState: projectState,
+            transportState: transportState
+        )
+        window.contentView = NSHostingView(rootView: contentView)
+
+        // Install key handlers
+        window.keyDownHandler = { [weak self] event in
+            self?.handleKeyDown(event) ?? false
+        }
+        window.keyUpHandler = { [weak self] event in
+            self?.handleKeyUp(event) ?? false
+        }
+
+        // Resize to editor size
+        let editorFrame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        let centered = editorFrame.offsetBy(
+            dx: window.frame.midX - editorFrame.width / 2,
+            dy: window.frame.midY - editorFrame.height / 2
+        )
+        window.setFrame(centered, display: true, animate: true)
+
+        rebuildAudioGraph()
+        updateWindowTitle()
+
+        // Subscribe to title updates
+        cancellables.removeAll()
+        projectState.$isDirty
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateWindowTitle() }
+            .store(in: &cancellables)
+        projectState.$project
+            .map(\.name)
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateWindowTitle() }
+            .store(in: &cancellables)
+    }
+
+    private func handleNewProject() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "canopy")!]
+        panel.nameFieldStringValue = "Untitled.canopy"
+        panel.prompt = "Create"
+        panel.message = "Choose where to save your new project"
+
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            let name = url.deletingPathExtension().lastPathComponent
+            var project = ProjectFactory.newProject()
+            project.name = name
+            do {
+                try ProjectFileService.save(project, to: url)
+                self.showEditor(project: project, url: url)
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+        }
+    }
+
+    private func handleOpenProject(url: URL) {
+        do {
+            let project = try ProjectFileService.load(from: url)
+            showEditor(project: project, url: url)
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.runModal()
+        }
+    }
+
+    private func updateWindowTitle() {
+        window.title = "Canopy — \(projectState.project.name)"
+        window.isDocumentEdited = projectState.isDirty
     }
 
     // MARK: - Menu Bar
@@ -92,6 +234,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(NSMenuItem(title: "New", action: #selector(newProject), keyEquivalent: "n"))
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Open...", action: #selector(openProject), keyEquivalent: "o"))
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(NSMenuItem(title: "Close Project", action: #selector(closeProject), keyEquivalent: "w"))
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Save", action: #selector(saveProject), keyEquivalent: "s"))
         fileMenu.addItem(NSMenuItem(title: "Save As...", action: #selector(saveProjectAs), keyEquivalent: "S"))
@@ -229,14 +373,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - File Actions
 
     @objc private func newProject() {
-        transportState.stopPlayback()
-        AudioEngine.shared.teardownGraph()
-        projectState.project = ProjectFactory.newProject()
-        projectState.selectedNodeID = nil
-        projectState.currentFilePath = nil
-        projectState.isDirty = false
-        transportState.bpm = projectState.project.bpm
-        rebuildAudioGraph()
+        handleNewProject()
     }
 
     @objc private func openProject() {
@@ -247,35 +384,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
-            do {
-                self.transportState.stopPlayback()
-                AudioEngine.shared.teardownGraph()
-                let project = try ProjectFileService.load(from: url)
-                self.projectState.project = project
-                self.projectState.selectedNodeID = nil
-                self.projectState.currentFilePath = url
-                self.projectState.isDirty = false
-                self.transportState.bpm = project.bpm
-                self.rebuildAudioGraph()
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.runModal()
-            }
+            self.handleOpenProject(url: url)
         }
     }
 
+    @objc private func closeProject() {
+        showBrowser()
+    }
+
     @objc private func saveProject() {
-        if let url = projectState.currentFilePath {
-            do {
-                try ProjectFileService.save(projectState.project, to: url)
-                projectState.isDirty = false
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.runModal()
-            }
-        } else {
-            saveProjectAs()
-        }
+        projectState.performAutoSave()
     }
 
     @objc private func saveProjectAs() {
@@ -289,6 +407,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 try ProjectFileService.save(self.projectState.project, to: url)
                 self.projectState.currentFilePath = url
                 self.projectState.isDirty = false
+                self.appMode = .editing(url: url)
+                self.updateWindowTitle()
             } catch {
                 let alert = NSAlert(error: error)
                 alert.runModal()

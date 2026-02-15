@@ -19,7 +19,7 @@ struct ToolbarView: View {
             if isEditingName {
                 TextField("Project Name", text: $editedName, onCommit: {
                     projectState.project.name = editedName
-                    projectState.isDirty = true
+                    projectState.markDirty()
                     isEditingName = false
                 })
                 .textFieldStyle(.plain)
@@ -97,7 +97,7 @@ struct ToolbarView: View {
             // Scale-aware toggle
             Button(action: {
                 projectState.project.scaleAwareEnabled.toggle()
-                projectState.isDirty = true
+                projectState.markDirty()
             }) {
                 let enabled = projectState.project.scaleAwareEnabled
                 Image(systemName: "music.note")
@@ -194,7 +194,7 @@ struct ToolbarView: View {
         let isSelected = globalKey.root == pitch
         return Button(action: {
             projectState.project.globalKey.root = pitch
-            projectState.isDirty = true
+            projectState.markDirty()
             showRootPicker = false
         }) {
             Text(pitch.displayName)
@@ -249,7 +249,7 @@ struct ToolbarView: View {
         let isSelected = globalKey.mode == mode
         return Button(action: {
             projectState.project.globalKey.mode = mode
-            projectState.isDirty = true
+            projectState.markDirty()
             showModePicker = false
         }) {
             Text(shortModeName(mode))
