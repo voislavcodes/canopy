@@ -1,9 +1,20 @@
 import SwiftUI
 
+/// Preference key to report chip frames from children up to the strip.
+private struct ChipFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
 /// Bottom bar showing project-level LFOs as draggable chips.
-/// Tapping a chip opens a settings popover above it.
+/// Tapping a chip opens a settings popover anchored directly above it.
 struct ModulatorStripView: View {
     @ObservedObject var projectState: ProjectState
+    @State private var chipFrames: [UUID: CGRect] = [:]
+
+    private let stripCoordSpace = "modulatorStrip"
 
     var body: some View {
         HStack(spacing: 8) {
@@ -48,6 +59,14 @@ struct ModulatorStripView: View {
                                 projectState.removeLFO(id: lfo.id)
                             }
                         )
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: ChipFramePreferenceKey.self,
+                                    value: [lfo.id: geo.frame(in: .named(stripCoordSpace))]
+                                )
+                            }
+                        )
                     }
                 }
             }
@@ -62,25 +81,47 @@ struct ModulatorStripView: View {
                 .fill(CanopyColors.chromeBorder)
                 .frame(height: 1)
         }
-        // Popover overlay above the strip
-        .overlay(alignment: .topLeading) {
+        .coordinateSpace(name: stripCoordSpace)
+        .onPreferenceChange(ChipFramePreferenceKey.self) { chipFrames = $0 }
+        // Popover anchored above the selected chip
+        .overlayPreferenceValue(ChipFramePreferenceKey.self) { _ in
             if let lfoID = projectState.selectedLFOID,
-               let lfo = projectState.project.lfos.first(where: { $0.id == lfoID }) {
+               let lfo = projectState.project.lfos.first(where: { $0.id == lfoID }),
+               let chipFrame = chipFrames[lfoID] {
                 LFOPopoverPanel(lfo: lfo, projectState: projectState)
-                    .offset(x: popoverXOffset(for: lfoID), y: -popoverHeight - 8)
+                    .fixedSize()
+                    .alignmentGuide(HorizontalAlignment.center) { d in d.width / 2 }
+                    .position(
+                        x: chipFrame.midX,
+                        y: -4  // 4px above the strip top edge
+                    )
+                    .anchorPopoverBottom()
                     .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
             }
         }
     }
+}
 
-    /// Approximate X offset for the popover based on chip index.
-    private func popoverXOffset(for lfoID: UUID) -> CGFloat {
-        guard let index = projectState.project.lfos.firstIndex(where: { $0.id == lfoID }) else { return 80 }
-        // "+ LFO" button is ~60pt, each chip is ~80pt with spacing
-        return 68 + CGFloat(index) * 86
+/// Helper to measure the popover height and offset it so its bottom edge is at the position point.
+private struct BottomAnchoredModifier: ViewModifier {
+    @State private var height: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                GeometryReader { geo in
+                    Color.clear.onAppear { height = geo.size.height }
+                        .onChange(of: geo.size.height) { height = $0 }
+                }
+            )
+            .offset(y: -height / 2)
     }
+}
 
-    private var popoverHeight: CGFloat { 320 }
+private extension View {
+    func anchorPopoverBottom() -> some View {
+        modifier(BottomAnchoredModifier())
+    }
 }
 
 // MARK: - LFO Chip
