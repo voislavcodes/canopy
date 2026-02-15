@@ -6,7 +6,6 @@ struct CanopyCanvasView: View {
     @ObservedObject var canvasState: CanvasState
     var transportState: TransportState
 
-    @State private var keyboardOctave: Int = 3
     @State private var scrollMonitor: Any?
 
     private let dotSpacing: CGFloat = 40
@@ -183,7 +182,7 @@ struct CanopyCanvasView: View {
                 .position(x: promptScreen.x, y: promptScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
-            KeyboardBarView(baseOctave: $keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState)
+            KeyboardBarView(baseOctave: $projectState.keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState)
                 .environment(\.canvasScale, 1.0)
                 .scaleEffect(scale)
                 .position(x: keyboardScreen.x, y: keyboardScreen.y)

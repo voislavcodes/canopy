@@ -1,10 +1,24 @@
 import AppKit
 import SwiftUI
+import os
+
+private let logger = Logger(subsystem: "com.canopy", category: "AppDelegate")
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var window: NSWindow!
+    var window: CanopyWindow!
     let projectState = ProjectState()
     let transportState = TransportState()
+
+    /// Chromatic two-row mapping: home row = white keys, row above = black keys.
+    private static let keyToSemitone: [String: Int] = [
+        "a": 0,  "w": 1,  "s": 2,  "e": 3,  "d": 4,
+        "f": 5,  "t": 6,  "g": 7,  "y": 8,  "h": 9,
+        "u": 10, "j": 11, "k": 12, "o": 13, "l": 14,
+        "p": 15,
+    ]
+
+    /// Track which character → MIDI note is currently held for correct noteOff.
+    private var heldKeyNotes: [String: Int] = [:]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Start audio engine
@@ -18,7 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             transportState: transportState
         )
 
-        window = NSWindow(
+        window = CanopyWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
@@ -31,6 +45,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = NSHostingView(rootView: contentView)
         window.makeKeyAndOrderFront(nil)
         window.setFrameAutosaveName("CanopyMainWindow")
+
+        // Wire key event handlers on the window
+        NSLog("[AppDelegate] Setting up keyboard handlers on window: %@", String(describing: type(of: window!)))
+        window.keyDownHandler = { [weak self] event in
+            self?.handleKeyDown(event) ?? false
+        }
+        window.keyUpHandler = { [weak self] event in
+            self?.handleKeyUp(event) ?? false
+        }
+        NSLog("[AppDelegate] Keyboard handlers installed")
 
         setupMenuBar()
 
@@ -85,6 +109,78 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(editMenuItem)
 
         NSApp.mainMenu = mainMenu
+    }
+
+    // MARK: - Keyboard Input
+
+    /// Returns true if the event was consumed.
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
+        let isEditing = isEditingTextField()
+        let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        NSLog("[AppDelegate] handleKeyDown: chars='%@' isEditing=%d kbEnabled=%d selectedNode=%@", chars, isEditing ? 1 : 0, projectState.computerKeyboardEnabled ? 1 : 0, projectState.selectedNodeID?.uuidString ?? "nil")
+
+        // Spacebar → transport toggle (always, unless editing text)
+        if event.keyCode == 49 && !isEditing {
+            transportState.togglePlayback()
+            return true
+        }
+
+        // Everything below requires computer keyboard mode ON
+        guard projectState.computerKeyboardEnabled,
+              !isEditing,
+              !chars.isEmpty,
+              !event.isARepeat else {
+            return false
+        }
+
+        // Octave control
+        if chars == ";" {
+            if projectState.keyboardOctave > 0 { projectState.keyboardOctave -= 1 }
+            return true
+        }
+        if chars == "'" {
+            if projectState.keyboardOctave < 7 { projectState.keyboardOctave += 1 }
+            return true
+        }
+
+        // Note input
+        if let semitone = Self.keyToSemitone[chars],
+           let nodeID = projectState.selectedNodeID {
+            let midiNote = (projectState.keyboardOctave + 1) * 12 + semitone
+            guard midiNote >= 0 && midiNote <= 127 else { return false }
+            heldKeyNotes[chars] = midiNote
+            projectState.computerKeyPressedNotes.insert(midiNote)
+            AudioEngine.shared.noteOn(pitch: midiNote, velocity: 0.8, nodeID: nodeID)
+            return true
+        }
+
+        return false
+    }
+
+    /// Returns true if the event was consumed.
+    private func handleKeyUp(_ event: NSEvent) -> Bool {
+        guard let chars = event.charactersIgnoringModifiers?.lowercased() else {
+            return false
+        }
+
+        if let midiNote = heldKeyNotes.removeValue(forKey: chars) {
+            projectState.computerKeyPressedNotes.remove(midiNote)
+            if let nodeID = projectState.selectedNodeID {
+                AudioEngine.shared.noteOff(pitch: midiNote, nodeID: nodeID)
+            }
+            return true
+        }
+
+        if chars == ";" || chars == "'" {
+            return true
+        }
+
+        return false
+    }
+
+    private func isEditingTextField() -> Bool {
+        guard let firstResponder = NSApp.keyWindow?.firstResponder else { return false }
+        return firstResponder is NSTextView || firstResponder is NSTextField
     }
 
     // MARK: - Audio Graph

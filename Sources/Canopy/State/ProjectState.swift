@@ -13,6 +13,15 @@ class ProjectState: ObservableObject {
     @Published var currentFilePath: URL?
     @Published var isDirty: Bool = false
 
+    // MARK: - Transient keyboard state (not persisted)
+
+    /// Base octave for both on-screen and computer keyboard input.
+    @Published var keyboardOctave: Int = 3
+    /// MIDI notes currently held via computer keyboard — merged into visual keyboard state.
+    @Published var computerKeyPressedNotes: Set<Int> = []
+    /// When true, the computer keyboard acts as a MIDI piano input.
+    @Published var computerKeyboardEnabled: Bool = false
+
     // MARK: - Cached computations (invalidated on project mutation)
 
     private var _cachedAllNodes: [Node]?

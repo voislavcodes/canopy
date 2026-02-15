@@ -23,7 +23,6 @@ struct MainContentView: View {
         }
         .background(CanopyColors.canvasBackground)
         .onAppear {
-            setupSpacebarHandler()
             syncTreeToEngine()
         }
         .onChange(of: projectState.selectedNodeID) { _ in
@@ -128,20 +127,4 @@ struct MainContentView: View {
         AudioEngine.shared.setGlobalProbability(seq.globalProbability, nodeID: node.id)
     }
 
-    // MARK: - Keyboard Shortcut
-
-    private func setupSpacebarHandler() {
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if event.keyCode == 49 && !isEditingTextField() {
-                transportState.togglePlayback()
-                return nil
-            }
-            return event
-        }
-    }
-
-    private func isEditingTextField() -> Bool {
-        guard let firstResponder = NSApp.keyWindow?.firstResponder else { return false }
-        return firstResponder is NSTextView || firstResponder is NSTextField
-    }
 }

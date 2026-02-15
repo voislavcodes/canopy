@@ -45,6 +45,27 @@ struct ToolbarView: View {
 
             Spacer()
 
+            // Computer keyboard MIDI input toggle
+            Button(action: {
+                projectState.computerKeyboardEnabled.toggle()
+            }) {
+                let enabled = projectState.computerKeyboardEnabled
+                Image(systemName: "pianokeys")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(enabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
+                    .frame(width: 26, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(enabled ? CanopyColors.glowColor.opacity(0.1) : Color.clear)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(enabled ? CanopyColors.glowColor.opacity(0.3) : CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Computer keyboard MIDI input (A-L = notes, ; / ' = octave)")
+
             // Dirty indicator
             if projectState.isDirty {
                 Circle()

@@ -11,6 +11,11 @@ struct KeyboardBarView: View {
 
     @State private var pressedNotes: Set<Int> = []
 
+    /// Combined pressed notes from mouse/touch and computer keyboard.
+    private var allPressedNotes: Set<Int> {
+        pressedNotes.union(projectState.computerKeyPressedNotes)
+    }
+
     private var whiteKeyWidth: CGFloat { 24 * cs }
     private var whiteKeyHeight: CGFloat { 56 * cs }
     private var blackKeyWidth: CGFloat { 15 * cs }
@@ -134,7 +139,7 @@ struct KeyboardBarView: View {
     }
 
     private func whiteKey(note: Int) -> some View {
-        let isPressed = pressedNotes.contains(note)
+        let isPressed = allPressedNotes.contains(note)
         return RoundedRectangle(cornerRadius: 2 * cs)
             .fill(isPressed
                   ? Color(red: 0.4, green: 0.6, blue: 0.45)
@@ -160,7 +165,7 @@ struct KeyboardBarView: View {
     }
 
     private func blackKey(note: Int) -> some View {
-        let isPressed = pressedNotes.contains(note)
+        let isPressed = allPressedNotes.contains(note)
         return RoundedRectangle(cornerRadius: 2 * cs)
             .fill(isPressed
                   ? Color(red: 0.25, green: 0.4, blue: 0.3)
@@ -201,7 +206,7 @@ struct KeyboardBarView: View {
     }
 
     private func foldedKey(note: Int, isAccidental: Bool) -> some View {
-        let isPressed = pressedNotes.contains(note)
+        let isPressed = allPressedNotes.contains(note)
         let baseColor = isAccidental
             ? Color(red: 0.35, green: 0.38, blue: 0.36)
             : Color(red: 0.55, green: 0.58, blue: 0.55)
