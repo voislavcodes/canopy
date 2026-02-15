@@ -217,6 +217,71 @@ final class ModelCodableTests: XCTestCase {
         XCTAssertEqual(decoded.filter.resonance, 0.0, "Missing filter resonance should default to 0")
     }
 
+    // MARK: - LFO Modulation
+
+    func testLFODefinitionRoundTrip() throws {
+        let lfo = LFODefinition(
+            name: "LFO 1",
+            waveform: .sampleAndHold,
+            rateHz: 3.5,
+            phase: 0.25,
+            enabled: true,
+            colorIndex: 4
+        )
+
+        let data = try JSONEncoder().encode(lfo)
+        let decoded = try JSONDecoder().decode(LFODefinition.self, from: data)
+
+        XCTAssertEqual(lfo, decoded)
+        XCTAssertEqual(decoded.waveform, .sampleAndHold)
+        XCTAssertEqual(decoded.rateHz, 3.5)
+        XCTAssertEqual(decoded.phase, 0.25)
+        XCTAssertEqual(decoded.colorIndex, 4)
+    }
+
+    func testModulationRoutingRoundTrip() throws {
+        let lfoID = UUID()
+        let nodeID = UUID()
+        let routing = ModulationRouting(
+            lfoID: lfoID,
+            nodeID: nodeID,
+            parameter: .filterCutoff,
+            depth: 0.75
+        )
+
+        let data = try JSONEncoder().encode(routing)
+        let decoded = try JSONDecoder().decode(ModulationRouting.self, from: data)
+
+        XCTAssertEqual(routing, decoded)
+        XCTAssertEqual(decoded.lfoID, lfoID)
+        XCTAssertEqual(decoded.parameter, .filterCutoff)
+        XCTAssertEqual(decoded.depth, 0.75)
+    }
+
+    func testOldProjectDecodesWithEmptyModulation() throws {
+        // Simulate old project JSON without lfos/modulationRoutings fields
+        let json = """
+        {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "name": "Old Project",
+            "bpm": 120.0,
+            "globalKey": { "root": "C", "mode": "minor" },
+            "trees": [],
+            "arrangements": [],
+            "createdAt": 1700000000,
+            "modifiedAt": 1700000000
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let decoded = try decoder.decode(CanopyProject.self, from: data)
+
+        XCTAssertEqual(decoded.name, "Old Project")
+        XCTAssertEqual(decoded.lfos.count, 0, "Missing lfos should default to empty array")
+        XCTAssertEqual(decoded.modulationRoutings.count, 0, "Missing modulationRoutings should default to empty array")
+    }
+
     func testNewScaleModesEncodeDecode() throws {
         let modes: [ScaleMode] = [.harmonicMinor, .melodicMinor, .phrygian, .lydian,
                                    .locrian, .pentatonicMajor, .pentatonicMinor, .wholeTone]

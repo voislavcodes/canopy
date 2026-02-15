@@ -18,6 +18,8 @@ struct MainContentView: View {
                 canvasState: canvasState,
                 transportState: transportState
             )
+
+            ModulatorStripView(projectState: projectState)
         }
         .background(CanopyColors.canvasBackground)
         .onAppear {
@@ -42,6 +44,9 @@ struct MainContentView: View {
         if transportState.focusedNodeID == nil {
             transportState.focusedNodeID = tree.rootNode.id
         }
+
+        // Push LFO modulation routings to audio engine
+        projectState.syncModulationToEngine()
     }
 
     /// Add a single node to the live audio graph (incremental, no teardown).

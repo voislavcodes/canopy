@@ -167,6 +167,90 @@ final class AudioEngine {
         graph.loadAllSequences(from: tree)
     }
 
+    // MARK: - LFO Modulation
+
+    /// Configure a single LFO slot on a specific node's audio unit.
+    func configureLFOSlot(_ slotIndex: Int, enabled: Bool, waveform: Int,
+                           rateHz: Double, initialPhase: Double, depth: Double,
+                           parameter: Int, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureLFOSlot(
+            slotIndex, enabled: enabled, waveform: waveform,
+            rateHz: rateHz, initialPhase: initialPhase, depth: depth, parameter: parameter
+        )
+    }
+
+    /// Set the number of active LFO slots on a specific node.
+    func setLFOSlotCount(_ count: Int, nodeID: UUID) {
+        graph.unit(for: nodeID)?.setLFOSlotCount(count)
+    }
+
+    /// Push all LFO modulation routings to the audio graph.
+    /// Groups routings by node, resolves LFO definitions, and configures slots.
+    /// Max 4 slots per node (extra routings are ignored).
+    func syncModulationRoutings(lfos: [LFODefinition], routings: [ModulationRouting]) {
+        // Build LFO lookup
+        var lfoMap: [UUID: LFODefinition] = [:]
+        for lfo in lfos {
+            lfoMap[lfo.id] = lfo
+        }
+
+        // Group routings by node
+        var routingsByNode: [UUID: [ModulationRouting]] = [:]
+        for routing in routings {
+            routingsByNode[routing.nodeID, default: []].append(routing)
+        }
+
+        // Track which nodes have routings so we can clear others
+        var nodesWithRoutings: Set<UUID> = []
+
+        for (nodeID, nodeRoutings) in routingsByNode {
+            nodesWithRoutings.insert(nodeID)
+            let capped = Array(nodeRoutings.prefix(LFOBank.maxSlots))
+
+            for (slotIndex, routing) in capped.enumerated() {
+                if let lfo = lfoMap[routing.lfoID] {
+                    configureLFOSlot(
+                        slotIndex,
+                        enabled: lfo.enabled,
+                        waveform: lfoWaveformToInt(lfo.waveform),
+                        rateHz: lfo.rateHz,
+                        initialPhase: lfo.phase,
+                        depth: routing.depth,
+                        parameter: modulationParameterToInt(routing.parameter),
+                        nodeID: nodeID
+                    )
+                }
+            }
+            setLFOSlotCount(capped.count, nodeID: nodeID)
+        }
+
+        // Clear LFO slots on nodes that no longer have routings
+        for (nodeID, _) in graph.units {
+            if !nodesWithRoutings.contains(nodeID) {
+                setLFOSlotCount(0, nodeID: nodeID)
+            }
+        }
+    }
+
+    private func lfoWaveformToInt(_ wf: LFOWaveform) -> Int {
+        switch wf {
+        case .sine: return 0
+        case .triangle: return 1
+        case .sawtooth: return 2
+        case .square: return 3
+        case .sampleAndHold: return 4
+        }
+    }
+
+    private func modulationParameterToInt(_ param: ModulationParameter) -> Int {
+        switch param {
+        case .volume: return 0
+        case .pan: return 1
+        case .filterCutoff: return 2
+        case .filterResonance: return 3
+        }
+    }
+
     // MARK: - Polling
 
     /// Get the current beat position for a specific node.

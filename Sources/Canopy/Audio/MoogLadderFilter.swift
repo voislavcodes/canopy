@@ -70,6 +70,33 @@ struct MoogLadderFilter {
         return Float(stage3 * gComp)
     }
 
+    /// Process a single sample with per-sample cutoff modulation from an LFO.
+    /// `cutoffMod` is in the range [-1, 1] and scales exponentially (±4 octaves at depth 1.0).
+    /// Used when an LFO is routed to filter cutoff. Zero allocations.
+    mutating func processWithCutoffMod(_ input: Float, cutoffMod: Double, sampleRate: Double) -> Float {
+        guard enabled else { return input }
+
+        // Exponential scaling: ±4 octaves at full depth gives perceptually even sweeps
+        let modCutoff = cutoffHz * pow(2.0, cutoffMod * 4.0)
+        let clamped = max(20.0, min(sampleRate * 0.45, modCutoff))
+        let gMod = 1.0 - exp(-2.0 * .pi * clamped / sampleRate)
+
+        let x = Double(input)
+        let feedback = resonance * 4.0 * (delay3 - 0.5 * x)
+        let driven = tanh(x - feedback)
+
+        stage0 = driven * gMod + delay0 * (1.0 - gMod)
+        delay0 = stage0
+        stage1 = stage0 * gMod + delay1 * (1.0 - gMod)
+        delay1 = stage1
+        stage2 = stage1 * gMod + delay2 * (1.0 - gMod)
+        delay2 = stage2
+        stage3 = stage2 * gMod + delay3 * (1.0 - gMod)
+        delay3 = stage3
+
+        return Float(stage3 * gComp)
+    }
+
     /// Clear all filter state. Call when restarting playback.
     mutating func reset() {
         stage0 = 0; stage1 = 0; stage2 = 0; stage3 = 0

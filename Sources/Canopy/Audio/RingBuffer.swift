@@ -26,6 +26,11 @@ enum AudioCommand {
 
     // Filter
     case setFilter(enabled: Bool, cutoff: Double, resonance: Double)
+
+    // LFO modulation
+    case setLFOSlot(slotIndex: Int, enabled: Bool, waveform: Int,
+                    rateHz: Double, initialPhase: Double, depth: Double, parameter: Int)
+    case setLFOSlotCount(Int)
 }
 
 /// Lock-free single-producer single-consumer ring buffer for AudioCommands.

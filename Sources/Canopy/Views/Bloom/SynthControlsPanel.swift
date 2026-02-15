@@ -51,6 +51,7 @@ struct SynthControlsPanel: View {
                 } onDrag: {
                     pushLocalPatchToEngine()
                 }
+                .modulationDropTarget(parameter: .volume, nodeID: projectState.selectedNodeID, projectState: projectState)
 
                 // Pan slider
                 VStack(spacing: 2 * cs) {
@@ -74,6 +75,7 @@ struct SynthControlsPanel: View {
                         AudioEngine.shared.setNodePan(Float(localPan), nodeID: nodeID)
                     }
                 }
+                .modulationDropTarget(parameter: .pan, nodeID: projectState.selectedNodeID, projectState: projectState)
 
                 // ADSR compact
                 HStack(spacing: 6 * cs) {
@@ -192,6 +194,7 @@ struct SynthControlsPanel: View {
                     } onDrag: {
                         pushFilterToEngine()
                     }
+                    .modulationDropTarget(parameter: .filterCutoff, nodeID: projectState.selectedNodeID, projectState: projectState)
                 }
 
                 // Resonance slider (linear)
@@ -210,6 +213,7 @@ struct SynthControlsPanel: View {
                     } onDrag: {
                         pushFilterToEngine()
                     }
+                    .modulationDropTarget(parameter: .filterResonance, nodeID: projectState.selectedNodeID, projectState: projectState)
                 }
             }
         }
@@ -481,5 +485,66 @@ struct SynthControlsPanel: View {
 extension Waveform: CaseIterable {
     static var allCases: [Waveform] {
         [.sine, .triangle, .sawtooth, .square, .noise]
+    }
+}
+
+// MARK: - Modulation Drop Target
+
+/// View modifier that makes a slider a drop target for LFO chip drags.
+/// Shows a colored dot when a routing exists and a highlight border when dragging over.
+struct ModulationDropTargetModifier: ViewModifier {
+    let parameter: ModulationParameter
+    let nodeID: UUID?
+    @ObservedObject var projectState: ProjectState
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .trailing) {
+                // Colored dots for existing routings
+                if let nodeID {
+                    let existingRoutings = projectState.routings(for: nodeID, parameter: parameter)
+                    if !existingRoutings.isEmpty {
+                        HStack(spacing: 2) {
+                            ForEach(existingRoutings) { routing in
+                                if let lfo = projectState.project.lfos.first(where: { $0.id == routing.lfoID }) {
+                                    Circle()
+                                        .fill(lfoColor(lfo.colorIndex))
+                                        .frame(width: 6, height: 6)
+                                }
+                            }
+                        }
+                        .padding(.trailing, 2)
+                    }
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(isTargeted ? CanopyColors.glowColor : Color.clear, lineWidth: 2)
+            )
+            .onDrop(of: [.text], isTargeted: $isTargeted) { providers in
+                guard let nodeID else { return false }
+                guard let provider = providers.first else { return false }
+                _ = provider.loadObject(ofClass: NSString.self) { item, _ in
+                    guard let uuidString = item as? String,
+                          let lfoID = UUID(uuidString: uuidString) else { return }
+                    DispatchQueue.main.async {
+                        // Check if routing already exists
+                        let existing = projectState.project.modulationRoutings.first {
+                            $0.lfoID == lfoID && $0.nodeID == nodeID && $0.parameter == parameter
+                        }
+                        if existing == nil {
+                            projectState.addModulationRouting(lfoID: lfoID, nodeID: nodeID, parameter: parameter)
+                        }
+                    }
+                }
+                return true
+            }
+    }
+}
+
+extension View {
+    func modulationDropTarget(parameter: ModulationParameter, nodeID: UUID?, projectState: ProjectState) -> some View {
+        modifier(ModulationDropTargetModifier(parameter: parameter, nodeID: nodeID, projectState: projectState))
     }
 }

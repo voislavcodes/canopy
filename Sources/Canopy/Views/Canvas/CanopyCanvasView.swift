@@ -301,6 +301,8 @@ struct CanopyCanvasView: View {
         withAnimation(.spring(duration: 0.2)) {
             projectState.selectNode(nil)
         }
+        // Dismiss LFO popover on canvas background tap
+        projectState.selectedLFOID = nil
     }
 }
 

@@ -39,6 +39,7 @@ final class NodeAudioUnit {
         var voices = VoiceManager(voiceCount: 8)
         var seq = Sequencer()
         var filter = MoogLadderFilter()
+        var lfoBank = LFOBank()
         var volume: Double = 0.8
         var volumeSmoothed: Double = 0.8 // smoothed to prevent clicks
         var detune: Double = 0
@@ -133,28 +134,74 @@ final class NodeAudioUnit {
                     filter.cutoffHz = cutoff
                     filter.resonance = reso
                     filter.updateCoefficients(sampleRate: sr)
+
+                case .setLFOSlot(let slotIndex, let enabled, let waveform,
+                                 let rateHz, let initialPhase, let depth, let parameter):
+                    lfoBank.configureSlot(slotIndex, enabled: enabled, waveform: waveform,
+                                          rateHz: rateHz, initialPhase: initialPhase,
+                                          depth: depth, parameter: parameter)
+
+                case .setLFOSlotCount(let count):
+                    lfoBank.slotCount = count
                 }
             }
 
-            for frame in 0..<Int(frameCount) {
-                // 2. Advance sequencer
-                seq.advanceOneSample(sampleRate: sr, voices: &voices, detune: detune)
+            // Branch once before the loop: modulated vs unmodulated path.
+            // Zero overhead when no LFOs are routed to this node.
+            if lfoBank.slotCount > 0 {
+                // MODULATED PATH
+                for frame in 0..<Int(frameCount) {
+                    seq.advanceOneSample(sampleRate: sr, voices: &voices, detune: detune)
+                    let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
+                    _ = resMod // reserved for future per-sample resonance modulation
 
-                // 3. Render all voices (with smoothed volume to prevent clicks)
-                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
-                let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
-                let sample = filter.process(raw)
+                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
+                    let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
-                // 4. Write to output channels with pan
-                if ablPointer.count >= 2 {
-                    let bufL = ablPointer[0]
-                    let bufR = ablPointer[1]
-                    bufL.mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
-                    bufR.mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainR
-                } else {
-                    for buf in 0..<ablPointer.count {
-                        let buffer = ablPointer[buf]
-                        buffer.mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                    let sample: Float
+                    if cutMod != 0 {
+                        sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
+                    } else {
+                        sample = filter.process(raw)
+                    }
+
+                    let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
+                    let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
+                    let modGainL = Float(cos(modAngle))
+                    let modGainR = Float(sin(modAngle))
+
+                    if ablPointer.count >= 2 {
+                        let bufL = ablPointer[0]
+                        let bufR = ablPointer[1]
+                        bufL.mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainL
+                        bufR.mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            let buffer = ablPointer[buf]
+                            buffer.mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                        }
+                    }
+                }
+            } else {
+                // UNMODIFIED PATH (existing behavior, zero LFO overhead)
+                for frame in 0..<Int(frameCount) {
+                    seq.advanceOneSample(sampleRate: sr, voices: &voices, detune: detune)
+
+                    volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                    let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+                    let sample = filter.process(raw)
+
+                    if ablPointer.count >= 2 {
+                        let bufL = ablPointer[0]
+                        let bufR = ablPointer[1]
+                        bufL.mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
+                        bufR.mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            let buffer = ablPointer[buf]
+                            buffer.mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                        }
                     }
                 }
             }
@@ -249,5 +296,17 @@ final class NodeAudioUnit {
 
     func configureFilter(enabled: Bool, cutoff: Double, resonance: Double) {
         commandBuffer.push(.setFilter(enabled: enabled, cutoff: cutoff, resonance: resonance))
+    }
+
+    func configureLFOSlot(_ slotIndex: Int, enabled: Bool, waveform: Int,
+                           rateHz: Double, initialPhase: Double, depth: Double, parameter: Int) {
+        commandBuffer.push(.setLFOSlot(
+            slotIndex: slotIndex, enabled: enabled, waveform: waveform,
+            rateHz: rateHz, initialPhase: initialPhase, depth: depth, parameter: parameter
+        ))
+    }
+
+    func setLFOSlotCount(_ count: Int) {
+        commandBuffer.push(.setLFOSlotCount(count))
     }
 }

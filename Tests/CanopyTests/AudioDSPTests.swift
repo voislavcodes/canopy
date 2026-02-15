@@ -442,6 +442,119 @@ final class AudioDSPTests: XCTestCase {
         XCTAssertEqual(node?.sequence.notes.count, 2)
     }
 
+    // MARK: - LFO Processor
+
+    func testLFOProcessorSineOutput() {
+        var lfo = LFOProcessor()
+        lfo.enabled = true
+        lfo.waveform = 0 // sine
+        lfo.rateHz = 1.0
+        lfo.depth = 1.0
+        lfo.phase = 0
+
+        let sampleRate = 44100.0
+        // At phase=0, sine should be 0
+        let first = lfo.tick(sampleRate: sampleRate)
+        XCTAssertEqual(first, 0.0, accuracy: 0.01)
+
+        // Advance to ~quarter cycle (phase ≈ 0.25) → sine ≈ 1.0
+        let samplesPerQuarter = Int(sampleRate / 4.0)
+        var val = 0.0
+        for _ in 0..<samplesPerQuarter {
+            val = lfo.tick(sampleRate: sampleRate)
+        }
+        XCTAssertEqual(val, 1.0, accuracy: 0.01, "Sine at quarter cycle should be ~1.0")
+    }
+
+    func testLFOProcessorBypass() {
+        var lfo = LFOProcessor()
+        lfo.enabled = false
+        lfo.waveform = 0
+        lfo.rateHz = 5.0
+        lfo.depth = 1.0
+
+        for _ in 0..<1000 {
+            let val = lfo.tick(sampleRate: 44100)
+            XCTAssertEqual(val, 0.0, "Disabled LFO should always return 0")
+        }
+    }
+
+    func testLFOProcessorSampleAndHold() {
+        var lfo = LFOProcessor()
+        lfo.enabled = true
+        lfo.waveform = 4 // sample & hold
+        lfo.rateHz = 1.0
+        lfo.depth = 1.0
+
+        let sampleRate = 44100.0
+        // Collect values within one cycle — should all be the same
+        var values: Set<Double> = []
+        // Skip first sample (edge case at phase=0)
+        _ = lfo.tick(sampleRate: sampleRate)
+        for _ in 0..<100 {
+            let val = lfo.tick(sampleRate: sampleRate)
+            values.insert(val)
+        }
+        // Within a single cycle (no phase wrap), S&H should hold the same value
+        XCTAssertEqual(values.count, 1, "S&H should hold constant value within one cycle")
+
+        // Advance past one full cycle to trigger phase wrap
+        let samplesPerCycle = Int(sampleRate)
+        for _ in 0..<samplesPerCycle {
+            _ = lfo.tick(sampleRate: sampleRate)
+        }
+        // After wrap, value may change
+        let newVal = lfo.tick(sampleRate: sampleRate)
+        // Just verify it doesn't crash and returns a value in range
+        XCTAssertTrue(newVal >= -1.0 && newVal <= 1.0)
+    }
+
+    func testLFOBankAccumulatesTargets() {
+        var bank = LFOBank()
+        // Two LFOs both targeting volume (parameter 0)
+        bank.configureSlot(0, enabled: true, waveform: 0, rateHz: 1.0, initialPhase: 0.0, depth: 0.3, parameter: 0)
+        bank.configureSlot(1, enabled: true, waveform: 0, rateHz: 1.0, initialPhase: 0.0, depth: 0.2, parameter: 0)
+        bank.slotCount = 2
+
+        let sampleRate = 44100.0
+        // Advance to quarter cycle where sine ≈ 1.0
+        var result = (volMod: 0.0, panMod: 0.0, cutMod: 0.0, resMod: 0.0)
+        let samplesPerQuarter = Int(sampleRate / 4.0)
+        for _ in 0..<samplesPerQuarter {
+            result = bank.tick(sampleRate: sampleRate)
+        }
+        // Both sines at peak: 0.3 + 0.2 = 0.5
+        XCTAssertEqual(result.volMod, 0.5, accuracy: 0.02, "Two LFOs targeting volume should sum")
+        XCTAssertEqual(result.panMod, 0.0, accuracy: 0.001)
+        XCTAssertEqual(result.cutMod, 0.0, accuracy: 0.001)
+    }
+
+    func testRingBufferLFOCommand() {
+        let buffer = AudioCommandRingBuffer(capacity: 16)
+
+        buffer.push(.setLFOSlot(slotIndex: 1, enabled: true, waveform: 2,
+                                rateHz: 3.5, initialPhase: 0.1, depth: 0.7, parameter: 2))
+
+        if case .setLFOSlot(let slot, let enabled, let waveform, let rate, let phase, let depth, let param) = buffer.pop()! {
+            XCTAssertEqual(slot, 1)
+            XCTAssertTrue(enabled)
+            XCTAssertEqual(waveform, 2)
+            XCTAssertEqual(rate, 3.5)
+            XCTAssertEqual(phase, 0.1)
+            XCTAssertEqual(depth, 0.7)
+            XCTAssertEqual(param, 2)
+        } else {
+            XCTFail("Expected setLFOSlot command")
+        }
+
+        buffer.push(.setLFOSlotCount(3))
+        if case .setLFOSlotCount(let count) = buffer.pop()! {
+            XCTAssertEqual(count, 3)
+        } else {
+            XCTFail("Expected setLFOSlotCount command")
+        }
+    }
+
     func testProjectRoundTripWithNotes() throws {
         let state = ProjectState()
         let rootID = state.project.trees[0].rootNode.id

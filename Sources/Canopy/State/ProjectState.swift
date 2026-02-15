@@ -9,6 +9,7 @@ class ProjectState: ObservableObject {
         }
     }
     @Published var selectedNodeID: UUID?
+    @Published var selectedLFOID: UUID?
     @Published var currentFilePath: URL?
     @Published var isDirty: Bool = false
 
@@ -132,6 +133,82 @@ class ProjectState: ObservableObject {
         let result = Double(lcmSteps) * sd
         _cachedCycleLength = result
         return result
+    }
+
+    // MARK: - LFO / Modulation
+
+    /// Add a new LFO with auto-generated name and color.
+    @discardableResult
+    func addLFO() -> LFODefinition {
+        let index = project.lfos.count + 1
+        let colorIndex = (project.lfos.count) % 8
+        let lfo = LFODefinition(name: "LFO \(index)", colorIndex: colorIndex)
+        project.lfos.append(lfo)
+        isDirty = true
+        syncModulationToEngine()
+        return lfo
+    }
+
+    /// Remove an LFO and all its routings.
+    func removeLFO(id: UUID) {
+        project.lfos.removeAll { $0.id == id }
+        project.modulationRoutings.removeAll { $0.lfoID == id }
+        if selectedLFOID == id { selectedLFOID = nil }
+        isDirty = true
+        syncModulationToEngine()
+    }
+
+    /// Update an LFO in-place.
+    func updateLFO(id: UUID, transform: (inout LFODefinition) -> Void) {
+        if let idx = project.lfos.firstIndex(where: { $0.id == id }) {
+            transform(&project.lfos[idx])
+            isDirty = true
+            syncModulationToEngine()
+        }
+    }
+
+    /// Add a modulation routing from an LFO to a node parameter.
+    @discardableResult
+    func addModulationRouting(lfoID: UUID, nodeID: UUID, parameter: ModulationParameter, depth: Double = 0.5) -> ModulationRouting {
+        let routing = ModulationRouting(lfoID: lfoID, nodeID: nodeID, parameter: parameter, depth: depth)
+        project.modulationRoutings.append(routing)
+        isDirty = true
+        syncModulationToEngine()
+        return routing
+    }
+
+    /// Remove a modulation routing.
+    func removeModulationRouting(id: UUID) {
+        project.modulationRoutings.removeAll { $0.id == id }
+        isDirty = true
+        syncModulationToEngine()
+    }
+
+    /// Update a routing's depth.
+    func updateModulationRouting(id: UUID, depth: Double) {
+        if let idx = project.modulationRoutings.firstIndex(where: { $0.id == id }) {
+            project.modulationRoutings[idx].depth = depth
+            isDirty = true
+            syncModulationToEngine()
+        }
+    }
+
+    /// Push all LFO routings to the audio engine.
+    func syncModulationToEngine() {
+        AudioEngine.shared.syncModulationRoutings(
+            lfos: project.lfos,
+            routings: project.modulationRoutings
+        )
+    }
+
+    /// All routings for a specific LFO.
+    func routings(for lfoID: UUID) -> [ModulationRouting] {
+        project.modulationRoutings.filter { $0.lfoID == lfoID }
+    }
+
+    /// All routings for a specific node and parameter.
+    func routings(for nodeID: UUID, parameter: ModulationParameter) -> [ModulationRouting] {
+        project.modulationRoutings.filter { $0.nodeID == nodeID && $0.parameter == parameter }
     }
 
     // MARK: - Layout
