@@ -1,8 +1,16 @@
 import Foundation
 
+/// Protocol for generic note dispatch — monomorphized at compile time.
+protocol NoteReceiver {
+    mutating func noteOn(pitch: Int, velocity: Double, frequency: Double)
+    mutating func noteOff(pitch: Int)
+    mutating func allNotesOff()
+    mutating func renderSample(sampleRate: Double) -> Float
+}
+
 /// Manages a fixed pool of polyphonic voices.
 /// All methods are designed for audio-thread use unless noted otherwise.
-struct VoiceManager {
+struct VoiceManager: NoteReceiver {
     let voiceCount: Int
 
     /// Each voice tracks which MIDI pitch it's playing (or -1 if free).

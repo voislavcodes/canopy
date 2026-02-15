@@ -9,6 +9,18 @@ enum NodeType: String, Codable, Equatable {
     case group
 }
 
+/// Which sequencer UI to show. nil = derive from SoundType.
+enum SequencerType: String, Codable, Equatable {
+    case pitched
+    case drum
+}
+
+/// Which input UI to show. nil = derive from SoundType.
+enum InputMode: String, Codable, Equatable {
+    case keyboard
+    case padGrid
+}
+
 struct Node: Codable, Equatable, Identifiable {
     var id: UUID
     var name: String
@@ -23,6 +35,12 @@ struct Node: Codable, Equatable, Identifiable {
     var isSolo: Bool
     /// Per-node scale override. nil = inherit from tree/project.
     var scaleOverride: MusicalKey?
+    /// Preset that created this node. nil = seed or legacy node.
+    var presetID: String?
+    /// Override for sequencer UI. nil = derive from SoundType.
+    var sequencerType: SequencerType?
+    /// Override for input UI. nil = derive from SoundType.
+    var inputMode: InputMode?
 
     init(
         id: UUID = UUID(),
@@ -36,7 +54,10 @@ struct Node: Codable, Equatable, Identifiable {
         position: NodePosition = NodePosition(),
         isMuted: Bool = false,
         isSolo: Bool = false,
-        scaleOverride: MusicalKey? = nil
+        scaleOverride: MusicalKey? = nil,
+        presetID: String? = nil,
+        sequencerType: SequencerType? = nil,
+        inputMode: InputMode? = nil
     ) {
         self.id = id
         self.name = name
@@ -50,6 +71,29 @@ struct Node: Codable, Equatable, Identifiable {
         self.isMuted = isMuted
         self.isSolo = isSolo
         self.scaleOverride = scaleOverride
+        self.presetID = presetID
+        self.sequencerType = sequencerType
+        self.inputMode = inputMode
+    }
+
+    // Backward-compatible decoding — old files lack presetID
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        type = try container.decode(NodeType.self, forKey: .type)
+        key = try container.decode(MusicalKey.self, forKey: .key)
+        sequence = try container.decode(NoteSequence.self, forKey: .sequence)
+        patch = try container.decode(SoundPatch.self, forKey: .patch)
+        effects = try container.decode([Effect].self, forKey: .effects)
+        children = try container.decode([Node].self, forKey: .children)
+        position = try container.decode(NodePosition.self, forKey: .position)
+        isMuted = try container.decode(Bool.self, forKey: .isMuted)
+        isSolo = try container.decode(Bool.self, forKey: .isSolo)
+        scaleOverride = try container.decodeIfPresent(MusicalKey.self, forKey: .scaleOverride)
+        presetID = try container.decodeIfPresent(String.self, forKey: .presetID)
+        sequencerType = try container.decodeIfPresent(SequencerType.self, forKey: .sequencerType)
+        inputMode = try container.decodeIfPresent(InputMode.self, forKey: .inputMode)
     }
 }
 

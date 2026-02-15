@@ -364,7 +364,7 @@ final class AudioDSPTests: XCTestCase {
         // At 120 BPM and 44100 Hz, 1 beat = 0.5 seconds = 22050 samples
         let samplesPerBeat = 44100.0 * 60.0 / 120.0
         for _ in 0..<Int(samplesPerBeat) {
-            seq.advanceOneSample(sampleRate: 44100, voices: &vm, detune: 0)
+            seq.advanceOneSample(sampleRate: 44100, receiver: &vm, detune: 0)
         }
 
         XCTAssertEqual(seq.currentBeat, 1.0, accuracy: 0.01)
@@ -381,7 +381,7 @@ final class AudioDSPTests: XCTestCase {
         // Advance 5 beats worth of samples (should wrap back to ~1.0)
         let samplesPerBeat = 44100.0 * 60.0 / 120.0
         for _ in 0..<Int(samplesPerBeat * 5) {
-            seq.advanceOneSample(sampleRate: 44100, voices: &vm, detune: 0)
+            seq.advanceOneSample(sampleRate: 44100, receiver: &vm, detune: 0)
         }
 
         // After 5 beats with 4-beat loop, should be at ~1.0

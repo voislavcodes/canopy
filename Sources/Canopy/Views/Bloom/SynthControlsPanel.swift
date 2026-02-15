@@ -40,9 +40,22 @@ struct SynthControlsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10 * cs) {
-            Text("SYNTH")
-                .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText)
+            HStack {
+                Text("SYNTH")
+                    .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText)
+
+                ModuleSwapButton(
+                    options: [("Oscillator", "osc"), ("Drum Kit", "drum")],
+                    current: oscillatorConfig != nil ? "osc" : "drum",
+                    onChange: { type in
+                        guard let nodeID = projectState.selectedNodeID else { return }
+                        if type == "drum" {
+                            projectState.swapEngine(nodeID: nodeID, to: .drumKit(DrumKitConfig()))
+                        }
+                    }
+                )
+            }
 
             if let osc = oscillatorConfig, let _ = patch {
                 // Volume / level slider

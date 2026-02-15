@@ -9,7 +9,7 @@ struct BranchLineView: View {
         ZStack {
             ForEach(branchPairs, id: \.id) { pair in
                 BranchLineShape(from: pair.parentPos, to: pair.childPos)
-                    .stroke(CanopyColors.branchLine, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    .stroke(pair.lineColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
             }
         }
         .allowsHitTesting(false)
@@ -20,7 +20,8 @@ struct BranchLineView: View {
             node.children.map { child in
                 BranchPair(
                     parentID: node.id, childID: child.id,
-                    parentPos: node.position, childPos: child.position
+                    parentPos: node.position, childPos: child.position,
+                    childPresetID: child.presetID
                 )
             }
         }
@@ -32,7 +33,16 @@ struct BranchPair: Identifiable {
     let childID: UUID
     let parentPos: NodePosition
     let childPos: NodePosition
+    let childPresetID: String?
     var id: String { "\(parentID)-\(childID)" }
+
+    /// Tint toward child's preset color at low opacity, fall back to default.
+    var lineColor: Color {
+        if let pid = childPresetID, let preset = NodePreset.find(pid) {
+            return CanopyColors.presetColor(preset.color).opacity(0.4)
+        }
+        return CanopyColors.branchLine
+    }
 }
 
 struct BranchLineShape: Shape {

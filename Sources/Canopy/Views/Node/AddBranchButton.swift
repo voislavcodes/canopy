@@ -9,7 +9,9 @@ struct AddBranchButton: View {
 
     private let size: CGFloat = 28
 
-    private var buttonPosition: CGPoint {
+    /// Compute button position from parent position and children.
+    /// Static so PresetPickerView can use the same positioning.
+    static func buttonPosition(parentPosition: CGPoint, children: [Node]) -> CGPoint {
         if children.isEmpty {
             return CGPoint(x: parentPosition.x, y: parentPosition.y - 80)
         } else {
@@ -17,6 +19,10 @@ struct AddBranchButton: View {
             let childY = children.first?.position.y ?? (parentPosition.y - 160)
             return CGPoint(x: rightmostX + 140, y: childY)
         }
+    }
+
+    private var computedPosition: CGPoint {
+        Self.buttonPosition(parentPosition: parentPosition, children: children)
     }
 
     var body: some View {
@@ -36,6 +42,6 @@ struct AddBranchButton: View {
             }
         }
         .buttonStyle(.plain)
-        .position(buttonPosition)
+        .position(computedPosition)
     }
 }

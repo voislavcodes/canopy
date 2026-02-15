@@ -31,7 +31,9 @@ final class TreeAudioGraph {
     /// Attach a single new node to the live graph without touching existing nodes.
     func addUnit(for node: Node, engine: AVAudioEngine, sampleRate: Double) {
         guard units[node.id] == nil else { return }
-        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate)
+        let isDrum: Bool
+        if case .drumKit = node.patch.soundType { isDrum = true } else { isDrum = false }
+        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum)
         engine.attach(unit.sourceNode)
         // Connect directly to main mixer — same pattern as Phase 2.
         // AVAudioSourceNode uses the engine's native format when no format is specified.
@@ -103,7 +105,8 @@ final class TreeAudioGraph {
 
     private func configureNodePatchRecursive(_ node: Node) {
         guard let unit = units[node.id] else { return }
-        if case .oscillator(let config) = node.patch.soundType {
+        switch node.patch.soundType {
+        case .oscillator(let config):
             let waveformIndex = waveformToIndex(config.waveform)
             unit.configurePatch(
                 waveform: waveformIndex, detune: config.detune,
@@ -111,6 +114,17 @@ final class TreeAudioGraph {
                 sustain: node.patch.envelope.sustain, release: node.patch.envelope.release,
                 volume: node.patch.volume
             )
+        case .drumKit(let kitConfig):
+            // Configure each drum voice
+            for (i, voiceConfig) in kitConfig.voices.enumerated() {
+                unit.configureDrumVoice(index: i, config: voiceConfig)
+            }
+            // Set volume via setPatch (only volume field matters for drums)
+            unit.configurePatch(waveform: 0, detune: 0,
+                               attack: 0, decay: 0, sustain: 0, release: 0,
+                               volume: node.patch.volume)
+        default:
+            break
         }
         unit.setPan(Float(node.patch.pan))
         let f = node.patch.filter

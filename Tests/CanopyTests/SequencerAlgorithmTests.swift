@@ -153,7 +153,7 @@ final class SequencerAlgorithmTests: XCTestCase {
         // Track previous voice pitches to detect note-on/off transitions
         var prevPitches = voices.voicePitches
         for s in 0..<totalSamples {
-            seq.advanceOneSample(sampleRate: sampleRate, voices: &voices, detune: 0)
+            seq.advanceOneSample(sampleRate: sampleRate, receiver: &voices, detune: 0)
             // Detect changes in voice allocations
             for v in 0..<voices.voiceCount {
                 let cur = voices.voicePitches[v]
@@ -200,7 +200,7 @@ final class SequencerAlgorithmTests: XCTestCase {
         // at or just after its startBeat
         var noteOnBeats: [Int: Double] = [:]
         for s in 0..<Int(4.0 / beatsPerSample) + 100 {
-            seq.advanceOneSample(sampleRate: sampleRate, voices: &voices, detune: 0)
+            seq.advanceOneSample(sampleRate: sampleRate, receiver: &voices, detune: 0)
             // Check if a new pitch appeared
             for v in 0..<voices.voiceCount {
                 let p = voices.voicePitches[v]
@@ -233,7 +233,7 @@ final class SequencerAlgorithmTests: XCTestCase {
 
         // Advance enough samples for the note to trigger
         for _ in 0..<1000 {
-            seq.advanceOneSample(sampleRate: 44100, voices: &voices, detune: 0)
+            seq.advanceOneSample(sampleRate: 44100, receiver: &voices, detune: 0)
         }
 
         // The note should have been allocated to a voice
@@ -259,7 +259,7 @@ final class SequencerAlgorithmTests: XCTestCase {
         let samplesPerBeat = 44100.0 * 60.0 / 120.0
         let totalSamples = Int(16.0 * samplesPerBeat) + 100
         for _ in 0..<totalSamples {
-            seq.advanceOneSample(sampleRate: 44100, voices: &voices, detune: 0)
+            seq.advanceOneSample(sampleRate: 44100, receiver: &voices, detune: 0)
         }
 
         // Should have completed without crash
@@ -284,7 +284,7 @@ final class SequencerAlgorithmTests: XCTestCase {
         let samplesPerBeat = 44100.0 * 60.0 / 120.0
         let totalSamples = Int(16.0 * samplesPerBeat) + 100
         for _ in 0..<totalSamples {
-            seq.advanceOneSample(sampleRate: 44100, voices: &voices, detune: 0)
+            seq.advanceOneSample(sampleRate: 44100, receiver: &voices, detune: 0)
         }
 
         XCTAssertTrue(true, "64-event sequence completed without crash")
@@ -308,7 +308,7 @@ final class SequencerAlgorithmTests: XCTestCase {
         let samplesPerBeat = 44100.0 * 60.0 / 120.0
         let totalSamples = Int(16.0 * samplesPerBeat) + 100
         for _ in 0..<totalSamples {
-            seq.advanceOneSample(sampleRate: 44100, voices: &voices, detune: 0)
+            seq.advanceOneSample(sampleRate: 44100, receiver: &voices, detune: 0)
         }
 
         XCTAssertTrue(true, "128-event (maxEvents) sequence completed without crash")
@@ -332,7 +332,7 @@ final class SequencerAlgorithmTests: XCTestCase {
 
         // Advance briefly — should not crash
         for _ in 0..<10000 {
-            seq.advanceOneSample(sampleRate: 44100, voices: &voices, detune: 0)
+            seq.advanceOneSample(sampleRate: 44100, receiver: &voices, detune: 0)
         }
 
         XCTAssertTrue(true, "Over-maxEvents sequence clamped without crash")

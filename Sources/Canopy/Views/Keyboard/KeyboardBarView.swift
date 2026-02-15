@@ -54,6 +54,17 @@ struct KeyboardBarView: View {
 
     var body: some View {
         VStack(spacing: 6 * cs) {
+            HStack(spacing: 4 * cs) {
+                ModuleSwapButton(
+                    options: [("Keyboard", InputMode.keyboard), ("Pads", InputMode.padGrid)],
+                    current: projectState.selectedNode?.inputMode ?? .keyboard,
+                    onChange: { mode in
+                        guard let nodeID = selectedNodeID else { return }
+                        projectState.swapInput(nodeID: nodeID, to: mode)
+                    }
+                )
+                Spacer()
+            }
             HStack(spacing: 0) {
                 Button(action: { if baseOctave > 0 { baseOctave -= 1 } }) {
                     Image(systemName: "chevron.left")

@@ -373,7 +373,8 @@ struct Sequencer {
 
     /// Advance the beat clock by one sample and trigger any pending events.
     /// Called from the audio render callback per sample frame.
-    mutating func advanceOneSample(sampleRate: Double, voices: inout VoiceManager, detune: Double) {
+    /// Generic over NoteReceiver — monomorphized at compile time for zero overhead.
+    mutating func advanceOneSample<R: NoteReceiver>(sampleRate: Double, receiver: inout R, detune: Double) {
         guard isPlaying else { return }
 
         let beatsPerSample = bpm / (60.0 * sampleRate)
@@ -385,14 +386,14 @@ struct Sequencer {
             // Trigger any remaining note-offs before wrapping
             for i in 0..<eventCount {
                 if triggeredOnFlags[i] && !triggeredOffFlags[i] {
-                    voices.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
+                    receiver.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
                     triggeredOffFlags[i] = true
                 }
             }
             // Clear pending ratchets
             for i in 0..<pendingRatchets.count {
                 if pendingRatchets[i].isActive && !pendingRatchets[i].hasTriggeredOff {
-                    voices.noteOff(pitch: applyAccumulatorToPitch(pendingRatchets[i].pitch))
+                    receiver.noteOff(pitch: applyAccumulatorToPitch(pendingRatchets[i].pitch))
                 }
                 pendingRatchets[i].isActive = false
             }
@@ -428,27 +429,27 @@ struct Sequencer {
 
         // Process ratchets (short-circuit when none active)
         if activeRatchetCount > 0 {
-            processRatchets(voices: &voices, detune: detune)
+            processRatchets(receiver: &receiver, detune: detune)
         }
 
         // Forward direction uses cursor-based scanning
         if direction == .forward {
-            advanceForward(sampleRate: sampleRate, voices: &voices, detune: detune)
+            advanceForward(sampleRate: sampleRate, receiver: &receiver, detune: detune)
         } else {
-            advanceDirectional(sampleRate: sampleRate, voices: &voices, detune: detune)
+            advanceDirectional(sampleRate: sampleRate, receiver: &receiver, detune: detune)
         }
     }
 
     // MARK: - Forward Playback (cursor-based O(1) amortized scanning)
 
-    private mutating func advanceForward(sampleRate: Double, voices: inout VoiceManager, detune: Double) {
+    private mutating func advanceForward<R: NoteReceiver>(sampleRate: Double, receiver: inout R, detune: Double) {
         // Note-on: check only the next event(s) at the cursor
         while nextOnCursor < sortedOnCount {
             let eventIdx = sortedOnIndices[nextOnCursor]
             let event = events[eventIdx]
             if currentBeat >= event.startBeat {
                 triggeredOnFlags[eventIdx] = true
-                triggerEventOn(index: eventIdx, voices: &voices, detune: detune)
+                triggerEventOn(index: eventIdx, receiver: &receiver, detune: detune)
                 nextOnCursor += 1
             } else {
                 break
@@ -459,7 +460,7 @@ struct Sequencer {
         while nextOffCursor < sortedOffCount {
             let eventIdx = sortedOffIndices[nextOffCursor]
             if triggeredOnFlags[eventIdx] && currentBeat >= events[eventIdx].endBeat {
-                voices.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: eventIdx)))
+                receiver.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: eventIdx)))
                 triggeredOffFlags[eventIdx] = true
                 nextOffCursor += 1
             } else {
@@ -470,7 +471,7 @@ struct Sequencer {
 
     // MARK: - Directional Playback
 
-    private mutating func advanceDirectional(sampleRate: Double, voices: inout VoiceManager, detune: Double) {
+    private mutating func advanceDirectional<R: NoteReceiver>(sampleRate: Double, receiver: inout R, detune: Double) {
         guard sortedStepCount > 0 else { return }
 
         // Cursor-based boundary detection: check only the next boundary
@@ -494,7 +495,7 @@ struct Sequencer {
             let eventIndex = mapStepToEvent(currentStepIndex)
             if eventIndex >= 0 && eventIndex < eventCount && !directionTriggeredOn[eventIndex] {
                 directionTriggeredOn[eventIndex] = true
-                triggerEventOn(index: eventIndex, voices: &voices, detune: detune)
+                triggerEventOn(index: eventIndex, receiver: &receiver, detune: detune)
             }
         }
 
@@ -507,7 +508,7 @@ struct Sequencer {
                 // Use current beat position relative to the event's start
                 if currentBeat >= event.startBeat + duration || currentBeat < event.startBeat {
                     if directionTriggeredOn[i] {
-                        voices.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
+                        receiver.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
                         directionTriggeredOff[i] = true
                     }
                 }
@@ -553,7 +554,7 @@ struct Sequencer {
 
     // MARK: - Event Triggering
 
-    private mutating func triggerEventOn(index i: Int, voices: inout VoiceManager, detune: Double) {
+    private mutating func triggerEventOn<R: NoteReceiver>(index i: Int, receiver: inout R, detune: Double) {
         let event = events[i]
 
         // Roll probability (only once per event per cycle)
@@ -599,13 +600,13 @@ struct Sequencer {
                 base: MIDIUtilities.frequency(forNote: accPitch),
                 cents: detune
             )
-            voices.noteOn(pitch: accPitch, velocity: accVelocity, frequency: freq)
+            receiver.noteOn(pitch: accPitch, velocity: accVelocity, frequency: freq)
         }
     }
 
     // MARK: - Ratchet Processing
 
-    private mutating func processRatchets(voices: inout VoiceManager, detune: Double) {
+    private mutating func processRatchets<R: NoteReceiver>(receiver: inout R, detune: Double) {
         for i in 0..<pendingRatchets.count {
             guard pendingRatchets[i].isActive else { continue }
 
@@ -617,14 +618,14 @@ struct Sequencer {
                     base: MIDIUtilities.frequency(forNote: pitch),
                     cents: detune
                 )
-                voices.noteOn(pitch: pitch, velocity: velocity, frequency: freq)
+                receiver.noteOn(pitch: pitch, velocity: velocity, frequency: freq)
                 pendingRatchets[i].hasTriggeredOn = true
             }
 
             // Note off
             if pendingRatchets[i].hasTriggeredOn && !pendingRatchets[i].hasTriggeredOff
                 && currentBeat >= pendingRatchets[i].endBeatTime {
-                voices.noteOff(pitch: applyAccumulatorToPitch(pendingRatchets[i].pitch))
+                receiver.noteOff(pitch: applyAccumulatorToPitch(pendingRatchets[i].pitch))
                 pendingRatchets[i].hasTriggeredOff = true
                 pendingRatchets[i].isActive = false
                 activeRatchetCount -= 1

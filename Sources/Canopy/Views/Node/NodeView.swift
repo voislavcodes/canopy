@@ -7,6 +7,10 @@ struct NodeView: View {
     private let nodeRadius: CGFloat = 22
 
     private var nodeColor: Color {
+        // Prefer preset color over NodeType-based color
+        if let pid = node.presetID, let preset = NodePreset.find(pid) {
+            return CanopyColors.presetColor(preset.color)
+        }
         switch node.type {
         case .seed: return CanopyColors.nodeSeed
         case .melodic: return CanopyColors.nodeMelodic
@@ -21,7 +25,7 @@ struct NodeView: View {
         VStack(spacing: 6) {
             ZStack {
                 if isSelected {
-                    NodeGlowEffect(radius: nodeRadius)
+                    NodeGlowEffect(radius: nodeRadius, color: nodeColor)
                 }
 
                 // Node fill — color based on type

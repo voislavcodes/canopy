@@ -83,7 +83,8 @@ struct MainContentView: View {
     }
 
     private func pushPatchToEngine(_ patch: SoundPatch, nodeID: UUID) {
-        if case .oscillator(let config) = patch.soundType {
+        switch patch.soundType {
+        case .oscillator(let config):
             let waveformIndex: Int
             switch config.waveform {
             case .sine: waveformIndex = 0
@@ -102,6 +103,18 @@ struct MainContentView: View {
                 volume: patch.volume,
                 nodeID: nodeID
             )
+        case .drumKit(let kitConfig):
+            for (i, voiceConfig) in kitConfig.voices.enumerated() {
+                AudioEngine.shared.configureDrumVoice(index: i, config: voiceConfig, nodeID: nodeID)
+            }
+            AudioEngine.shared.configurePatch(
+                waveform: 0, detune: 0,
+                attack: 0, decay: 0, sustain: 0, release: 0,
+                volume: patch.volume,
+                nodeID: nodeID
+            )
+        default:
+            break
         }
         AudioEngine.shared.setNodePan(Float(patch.pan), nodeID: nodeID)
     }

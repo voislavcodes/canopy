@@ -94,6 +94,15 @@ struct StepSequencerPanel: View {
                     .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText)
 
+                ModuleSwapButton(
+                    options: [("Pitched", SequencerType.pitched), ("Drum", SequencerType.drum)],
+                    current: node?.sequencerType ?? .pitched,
+                    onChange: { type in
+                        guard let nodeID = projectState.selectedNodeID else { return }
+                        projectState.swapSequencer(nodeID: nodeID, to: type)
+                    }
+                )
+
                 if node != nil {
                     directionPicker
                 }

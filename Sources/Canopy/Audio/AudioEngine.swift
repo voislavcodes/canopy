@@ -135,6 +135,11 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.setPan(pan)
     }
 
+    /// Configure a single drum voice on a specific node.
+    func configureDrumVoice(index: Int, config: DrumVoiceConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureDrumVoice(index: index, config: config)
+    }
+
     /// Update the filter on a specific node.
     func configureFilter(enabled: Bool, cutoff: Double, resonance: Double, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureFilter(enabled: enabled, cutoff: cutoff, resonance: resonance)

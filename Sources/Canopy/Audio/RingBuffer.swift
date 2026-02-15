@@ -31,6 +31,11 @@ enum AudioCommand {
     case setLFOSlot(slotIndex: Int, enabled: Bool, waveform: Int,
                     rateHz: Double, initialPhase: Double, depth: Double, parameter: Int)
     case setLFOSlotCount(Int)
+
+    // Drum kit voice configuration
+    case setDrumVoice(index: Int, carrierFreq: Double, modulatorRatio: Double,
+                      fmDepth: Double, noiseMix: Double, ampDecay: Double,
+                      pitchEnvAmount: Double, pitchDecay: Double, level: Double)
 }
 
 /// Lock-free single-producer single-consumer ring buffer for AudioCommands.

@@ -40,4 +40,21 @@ enum CanopyColors {
     static let nodeRhythmic = Color(red: 0.9, green: 0.55, blue: 0.25)   // Orange
     static let nodeEffect = Color(red: 0.7, green: 0.7, blue: 0.4)       // Yellow-olive
     static let nodeGroup = Color(red: 0.5, green: 0.5, blue: 0.55)       // Gray
+
+    // Preset-specific colors (pad, arp, fx don't map to existing NodeType colors)
+    static let nodePad = Color(red: 0.3, green: 0.75, blue: 0.65)        // Teal
+    static let nodeArp = Color(red: 0.35, green: 0.8, blue: 0.85)        // Cyan
+    static let nodeFX = Color(red: 0.85, green: 0.45, blue: 0.65)        // Pink
+
+    /// Map a PresetColor to a SwiftUI Color.
+    static func presetColor(_ pc: PresetColor) -> Color {
+        switch pc {
+        case .blue:   return nodeMelodic
+        case .purple: return nodeHarmonic
+        case .orange: return nodeRhythmic
+        case .green:  return nodePad
+        case .cyan:   return nodeArp
+        case .pink:   return nodeFX
+        }
+    }
 }

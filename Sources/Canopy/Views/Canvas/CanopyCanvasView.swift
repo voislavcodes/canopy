@@ -7,6 +7,9 @@ struct CanopyCanvasView: View {
     var transportState: TransportState
 
     @State private var scrollMonitor: Any?
+    @State private var showPresetPicker = false
+    @State private var editingNodeID: UUID?
+    @State private var editingName: String = ""
 
     private let dotSpacing: CGFloat = 40
     private let dotSize: CGFloat = 2
@@ -45,7 +48,26 @@ struct CanopyCanvasView: View {
                     allNodes: allNodes,
                     selectedNode: selectedNode,
                     selectedNodeID: selectedNodeID,
-                    onAddBranch: { handleAddBranch(to: $0) }
+                    showPresetPicker: showPresetPicker,
+                    onAddBranch: { _ in showPresetPicker = true },
+                    onPresetSelected: { preset in
+                        showPresetPicker = false
+                        if let sel = selectedNodeID {
+                            handleAddBranch(to: sel, preset: preset)
+                        }
+                    },
+                    onPickerDismiss: { showPresetPicker = false },
+                    onNodeTap: { nodeID in
+                        withAnimation(.spring(duration: 0.3)) {
+                            projectState.selectNode(nodeID)
+                        }
+                    },
+                    onDoubleTap: { nodeID in
+                        if let node = projectState.findNode(id: nodeID) {
+                            editingNodeID = nodeID
+                            editingName = node.name
+                        }
+                    }
                 )
                 .offset(centerOffset(viewSize: viewSize))
                 .offset(canvasState.offset)
@@ -54,6 +76,27 @@ struct CanopyCanvasView: View {
                 // Layer 3: Bloom panels — rendered outside scaleEffect for crisp text at any zoom
                 if let selectedNode {
                     bloomContentScreen(node: selectedNode, viewSize: viewSize)
+                }
+
+                // Layer 3.5: Inline rename overlay
+                if let editNodeID = editingNodeID,
+                   let editNode = projectState.findNode(id: editNodeID) {
+                    let nodeScreen = canvasToScreen(
+                        CGPoint(x: editNode.position.x, y: editNode.position.y + 36),
+                        viewSize: viewSize
+                    )
+                    InlineRenameField(
+                        name: $editingName,
+                        onCommit: {
+                            let finalName = editingName
+                            let nid = editNodeID
+                            editingNodeID = nil
+                            projectState.updateNode(id: nid) { $0.name = finalName }
+                        },
+                        onCancel: { editingNodeID = nil }
+                    )
+                    .scaleEffect(canvasState.scale)
+                    .position(x: nodeScreen.x, y: nodeScreen.y)
                 }
 
                 // Layer 4: Cycle length badge (top-right)
@@ -78,6 +121,10 @@ struct CanopyCanvasView: View {
             }
             .onAppear { installScrollMonitor() }
             .onDisappear { removeScrollMonitor() }
+            .onChange(of: projectState.selectedNodeID) { _ in
+                showPresetPicker = false
+                editingNodeID = nil
+            }
         }
     }
 
@@ -158,6 +205,15 @@ struct CanopyCanvasView: View {
 
         let scale = canvasState.scale
 
+        let isDrumEngine: Bool = {
+            if case .drumKit = node.patch.soundType { return true }
+            return false
+        }()
+
+        // Resolve effective module types (override or derive from SoundType)
+        let effectiveSeqType = node.sequencerType ?? (isDrumEngine ? .drum : .pitched)
+        let effectiveInputMode = node.inputMode ?? (isDrumEngine ? .padGrid : .keyboard)
+
         return ZStack {
             BloomConnectors(
                 nodeCenter: nodeScreen,
@@ -170,17 +226,31 @@ struct CanopyCanvasView: View {
             // re-runs when projectState changes, NOT on zoom/pan gestures.
             // The geometric scaleEffect handles zoom visually.
 
-            SynthControlsPanel(projectState: projectState)
-                .environment(\.canvasScale, 1.0)
-                .scaleEffect(scale)
-                .position(x: synthScreen.x, y: synthScreen.y)
-                .transition(.scale(scale: 0.8).combined(with: .opacity))
+            // Left panel: voice/synth controls (always follows engine type)
+            Group {
+                if isDrumEngine {
+                    DrumVoicePanel(projectState: projectState)
+                } else {
+                    SynthControlsPanel(projectState: projectState)
+                }
+            }
+            .environment(\.canvasScale, 1.0)
+            .scaleEffect(scale)
+            .position(x: synthScreen.x, y: synthScreen.y)
+            .transition(.scale(scale: 0.8).combined(with: .opacity))
 
-            StepSequencerPanel(projectState: projectState, transportState: transportState)
-                .environment(\.canvasScale, 1.0)
-                .scaleEffect(scale)
-                .position(x: seqScreen.x, y: seqScreen.y)
-                .transition(.scale(scale: 0.8).combined(with: .opacity))
+            // Right panel: sequencer (swappable)
+            Group {
+                if effectiveSeqType == .drum {
+                    DrumSequencerPanel(projectState: projectState, transportState: transportState)
+                } else {
+                    StepSequencerPanel(projectState: projectState, transportState: transportState)
+                }
+            }
+            .environment(\.canvasScale, 1.0)
+            .scaleEffect(scale)
+            .position(x: seqScreen.x, y: seqScreen.y)
+            .transition(.scale(scale: 0.8).combined(with: .opacity))
 
             ClaudePromptPanel()
                 .environment(\.canvasScale, 1.0)
@@ -188,26 +258,34 @@ struct CanopyCanvasView: View {
                 .position(x: promptScreen.x, y: promptScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
-            KeyboardBarView(baseOctave: $projectState.keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
-                .environment(\.canvasScale, 1.0)
-                .scaleEffect(scale)
-                .position(x: keyboardScreen.x, y: keyboardScreen.y)
-                .transition(.scale(scale: 0.8).combined(with: .opacity))
+            // Bottom: input (swappable)
+            Group {
+                if effectiveInputMode == .padGrid {
+                    DrumPadGridView(selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
+                } else {
+                    KeyboardBarView(baseOctave: $projectState.keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
+                }
+            }
+            .environment(\.canvasScale, 1.0)
+            .scaleEffect(scale)
+            .position(x: keyboardScreen.x, y: keyboardScreen.y)
+            .transition(.scale(scale: 0.8).combined(with: .opacity))
         }
     }
 
     // MARK: - Branch Actions
 
-    private func handleAddBranch(to parentID: UUID) {
+    private func handleAddBranch(to parentID: UUID, preset: NodePreset) {
         var newNode: Node!
         withAnimation(.spring(duration: 0.4, bounce: 0.15)) {
-            newNode = projectState.addChildNode(to: parentID)
+            newNode = projectState.addChildNode(to: parentID, preset: preset)
             projectState.selectNode(newNode.id)
         }
 
         // Hot-patch: add single node to live audio graph
         AudioEngine.shared.addNode(newNode)
-        if case .oscillator(let config) = newNode.patch.soundType {
+        switch newNode.patch.soundType {
+        case .oscillator(let config):
             let waveformIndex: Int
             switch config.waveform {
             case .sine: waveformIndex = 0
@@ -223,7 +301,26 @@ struct CanopyCanvasView: View {
                 volume: newNode.patch.volume,
                 nodeID: newNode.id
             )
+        case .drumKit(let kitConfig):
+            for (i, voiceConfig) in kitConfig.voices.enumerated() {
+                AudioEngine.shared.configureDrumVoice(index: i, config: voiceConfig, nodeID: newNode.id)
+            }
+            AudioEngine.shared.configurePatch(
+                waveform: 0, detune: 0,
+                attack: 0, decay: 0, sustain: 0, release: 0,
+                volume: newNode.patch.volume,
+                nodeID: newNode.id
+            )
+        default:
+            break
         }
+        // Configure filter from preset
+        AudioEngine.shared.configureFilter(
+            enabled: newNode.patch.filter.enabled,
+            cutoff: newNode.patch.filter.cutoff,
+            resonance: newNode.patch.filter.resonance,
+            nodeID: newNode.id
+        )
         let events = newNode.sequence.notes.map { event in
             SequencerEvent(
                 pitch: event.pitch, velocity: event.velocity,
@@ -306,6 +403,8 @@ struct CanopyCanvasView: View {
         withAnimation(.spring(duration: 0.2)) {
             projectState.selectNode(nil)
         }
+        showPresetPicker = false
+        editingNodeID = nil
         // Dismiss LFO popover on canvas background tap
         projectState.selectedLFOID = nil
     }
@@ -320,7 +419,12 @@ private struct TreeContentView: View {
     let allNodes: [Node]
     let selectedNode: Node?
     let selectedNodeID: UUID?
+    let showPresetPicker: Bool
     let onAddBranch: (UUID) -> Void
+    let onPresetSelected: (NodePreset) -> Void
+    let onPickerDismiss: () -> Void
+    let onNodeTap: (UUID) -> Void
+    let onDoubleTap: (UUID) -> Void
 
     var body: some View {
         ZStack {
@@ -341,15 +445,33 @@ private struct TreeContentView: View {
                     node: node,
                     isSelected: selectedNodeID == node.id
                 )
+                .onTapGesture(count: 2) {
+                    onDoubleTap(node.id)
+                }
+                .onTapGesture {
+                    onNodeTap(node.id)
+                }
             }
 
-            // Add branch button for selected node
+            // Add branch button or preset picker for selected node
             if let selectedNode {
-                AddBranchButton(
-                    parentPosition: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y),
-                    children: selectedNode.children
-                ) {
-                    onAddBranch(selectedNode.id)
+                if showPresetPicker {
+                    let pickerPos = AddBranchButton.buttonPosition(
+                        parentPosition: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y),
+                        children: selectedNode.children
+                    )
+                    PresetPickerView(
+                        onSelect: onPresetSelected,
+                        onDismiss: onPickerDismiss
+                    )
+                    .position(pickerPos)
+                } else {
+                    AddBranchButton(
+                        parentPosition: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y),
+                        children: selectedNode.children
+                    ) {
+                        onAddBranch(selectedNode.id)
+                    }
                 }
             }
         }
@@ -427,6 +549,38 @@ struct BloomConnectors: View {
             )
         }
         .allowsHitTesting(false)
+    }
+}
+
+// MARK: - Inline Rename Field
+
+/// TextField overlay for double-click node rename.
+private struct InlineRenameField: View {
+    @Binding var name: String
+    let onCommit: () -> Void
+    let onCancel: () -> Void
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        TextField("", text: $name)
+            .font(.system(size: 13, weight: .regular, design: .monospaced))
+            .foregroundColor(CanopyColors.chromeTextBright)
+            .multilineTextAlignment(.center)
+            .textFieldStyle(.plain)
+            .frame(width: 100, height: 22)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(CanopyColors.bloomPanelBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(CanopyColors.glowColor.opacity(0.5), lineWidth: 1)
+            )
+            .focused($isFocused)
+            .onAppear { isFocused = true }
+            .onSubmit { onCommit() }
+            .onExitCommand { onCancel() }
     }
 }
 

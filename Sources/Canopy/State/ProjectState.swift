@@ -192,6 +192,35 @@ class ProjectState: ObservableObject {
         return newNode
     }
 
+    /// Add a child node using a preset for name, type, patch, sequence, and color.
+    @discardableResult
+    func addChildNode(to parentID: UUID, preset: NodePreset) -> Node {
+        let parentPos = findNode(id: parentID)?.position ?? NodePosition()
+
+        let newNode = Node(
+            name: preset.name,
+            type: preset.nodeType,
+            sequence: NoteSequence(
+                lengthInBeats: preset.defaultLengthInBeats,
+                pitchRange: preset.defaultPitchRange
+            ),
+            patch: preset.defaultPatch,
+            position: parentPos,
+            presetID: preset.id
+        )
+
+        updateNode(id: parentID) { parent in
+            parent.children.append(newNode)
+        }
+
+        if project.trees.count > 0 {
+            recomputeLayout(root: &project.trees[0].rootNode, x: 0, y: 0, depth: 0)
+        }
+
+        isDirty = true
+        return newNode
+    }
+
     /// Remove a node by ID. Cannot remove the root node.
     func removeNode(id: UUID) {
         guard project.trees.count > 0 else { return }
@@ -200,6 +229,32 @@ class ProjectState: ObservableObject {
 
         removeNodeRecursive(id: id, from: &project.trees[0].rootNode)
         recomputeLayout(root: &project.trees[0].rootNode, x: 0, y: 0, depth: 0)
+        isDirty = true
+    }
+
+    // MARK: - Module Swapping
+
+    /// Swap the sound engine on a node. Rebuilds the audio subgraph.
+    func swapEngine(nodeID: UUID, to soundType: SoundType) {
+        AudioEngine.shared.removeNode(nodeID)
+        updateNode(id: nodeID) { node in
+            node.patch.soundType = soundType
+        }
+        if let node = findNode(id: nodeID) {
+            AudioEngine.shared.addNode(node)
+        }
+        isDirty = true
+    }
+
+    /// Swap the sequencer UI type (pitched grid vs drum grid).
+    func swapSequencer(nodeID: UUID, to type: SequencerType) {
+        updateNode(id: nodeID) { $0.sequencerType = type }
+        isDirty = true
+    }
+
+    /// Swap the input mode (keyboard vs pad grid).
+    func swapInput(nodeID: UUID, to mode: InputMode) {
+        updateNode(id: nodeID) { $0.inputMode = mode }
         isDirty = true
     }
 

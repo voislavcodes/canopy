@@ -27,7 +27,7 @@ final class NodeAudioUnit {
 
     private static let logger = Logger(subsystem: "com.canopy", category: "NodeAudioUnit")
 
-    init(nodeID: UUID, sampleRate: Double) {
+    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false) {
         self.nodeID = nodeID
         self.commandBuffer = AudioCommandRingBuffer(capacity: 256)
 
@@ -35,16 +35,41 @@ final class NodeAudioUnit {
         _isPlaying.initialize(to: false)
         _pan.initialize(to: 0)
 
-        // Audio-thread owned state — captured by render closure
+        let cmdBuffer = self.commandBuffer
+        let beatPtr = self._currentBeat
+        let playingPtr = self._isPlaying
+        let panPtr = self._pan
+
+        if isDrumKit {
+            self.sourceNode = Self.makeDrumKitSourceNode(
+                cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
+                panPtr: panPtr, sampleRate: sampleRate
+            )
+        } else {
+            self.sourceNode = Self.makeOscillatorSourceNode(
+                cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
+                panPtr: panPtr, sampleRate: sampleRate
+            )
+        }
+    }
+
+    // MARK: - Oscillator Render Path
+
+    private static func makeOscillatorSourceNode(
+        cmdBuffer: AudioCommandRingBuffer,
+        beatPtr: UnsafeMutablePointer<Double>,
+        playingPtr: UnsafeMutablePointer<Bool>,
+        panPtr: UnsafeMutablePointer<Float>,
+        sampleRate: Double
+    ) -> AVAudioSourceNode {
         var voices = VoiceManager(voiceCount: 8)
         var seq = Sequencer()
         var filter = MoogLadderFilter()
         var lfoBank = LFOBank()
         var volume: Double = 0.8
-        var volumeSmoothed: Double = 0.8 // smoothed to prevent clicks
+        var volumeSmoothed: Double = 0.8
         var detune: Double = 0
         let sr = sampleRate
-        // One-pole smoothing coefficient: ~5ms at 44.1kHz
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
 
         voices.configurePatch(
@@ -53,12 +78,7 @@ final class NodeAudioUnit {
             sampleRate: sr
         )
 
-        let cmdBuffer = self.commandBuffer
-        let beatPtr = self._currentBeat
-        let playingPtr = self._isPlaying
-        let panPtr = self._pan
-
-        self.sourceNode = AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
+        return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
             let pan = panPtr.pointee
             // Equal-power pan law: L = cos(angle), R = sin(angle)
@@ -143,6 +163,9 @@ final class NodeAudioUnit {
 
                 case .setLFOSlotCount(let count):
                     lfoBank.slotCount = count
+
+                case .setDrumVoice:
+                    break // ignored in oscillator path
                 }
             }
 
@@ -151,7 +174,7 @@ final class NodeAudioUnit {
             if lfoBank.slotCount > 0 {
                 // MODULATED PATH
                 for frame in 0..<Int(frameCount) {
-                    seq.advanceOneSample(sampleRate: sr, voices: &voices, detune: detune)
+                    seq.advanceOneSample(sampleRate: sr, receiver: &voices, detune: detune)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod // reserved for future per-sample resonance modulation
 
@@ -186,7 +209,7 @@ final class NodeAudioUnit {
             } else {
                 // UNMODIFIED PATH (existing behavior, zero LFO overhead)
                 for frame in 0..<Int(frameCount) {
-                    seq.advanceOneSample(sampleRate: sr, voices: &voices, detune: detune)
+                    seq.advanceOneSample(sampleRate: sr, receiver: &voices, detune: detune)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
@@ -207,6 +230,163 @@ final class NodeAudioUnit {
             }
 
             // Update shared state for UI polling
+            beatPtr.pointee = seq.currentBeat
+            playingPtr.pointee = seq.isPlaying
+
+            return noErr
+        }
+    }
+
+    // MARK: - Drum Kit Render Path
+
+    private static func makeDrumKitSourceNode(
+        cmdBuffer: AudioCommandRingBuffer,
+        beatPtr: UnsafeMutablePointer<Double>,
+        playingPtr: UnsafeMutablePointer<Bool>,
+        panPtr: UnsafeMutablePointer<Float>,
+        sampleRate: Double
+    ) -> AVAudioSourceNode {
+        var drumKit = FMDrumKit.defaultKit()
+        var seq = Sequencer()
+        var filter = MoogLadderFilter()
+        var lfoBank = LFOBank()
+        var volume: Double = 0.8
+        var volumeSmoothed: Double = 0.8
+        let sr = sampleRate
+        let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+
+        return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            let pan = panPtr.pointee
+            let angle = Double((pan + 1) * 0.5) * .pi * 0.5
+            let gainL = Float(cos(angle))
+            let gainR = Float(sin(angle))
+
+            // Drain command buffer
+            while let cmd = cmdBuffer.pop() {
+                switch cmd {
+                case .noteOn(let pitch, let velocity):
+                    drumKit.trigger(pitch: pitch, velocity: velocity)
+
+                case .noteOff:
+                    break // drums are one-shot
+
+                case .allNotesOff:
+                    drumKit.allNotesOff()
+
+                case .setPatch(_, _, _, _, _, _, let newVolume):
+                    volume = newVolume
+
+                case .sequencerStart(let bpm):
+                    seq.start(bpm: bpm)
+
+                case .sequencerStop:
+                    seq.stop()
+                    drumKit.allNotesOff()
+
+                case .sequencerSetBPM(let bpm):
+                    seq.bpm = bpm
+
+                case .sequencerLoad(let events, let lengthInBeats,
+                                    let direction, let mutationAmount, let mutationRange,
+                                    let scaleRootSemitone, let scaleIntervals,
+                                    let accumulatorConfig):
+                    drumKit.allNotesOff()
+                    seq.load(events: events, lengthInBeats: lengthInBeats,
+                             direction: direction,
+                             mutationAmount: mutationAmount, mutationRange: mutationRange,
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
+                             accumulatorConfig: accumulatorConfig)
+
+                case .sequencerSetGlobalProbability(let prob):
+                    seq.globalProbability = prob
+
+                case .sequencerSetMutation(let amount, let range, let rootSemitone, let intervals):
+                    seq.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
+
+                case .sequencerResetMutation:
+                    seq.resetMutation()
+
+                case .sequencerFreezeMutation:
+                    seq.freezeMutation()
+
+                case .setFilter(let enabled, let cutoff, let reso):
+                    filter.enabled = enabled
+                    filter.cutoffHz = cutoff
+                    filter.resonance = reso
+                    filter.updateCoefficients(sampleRate: sr)
+
+                case .setLFOSlot(let slotIndex, let enabled, let waveform,
+                                 let rateHz, let initialPhase, let depth, let parameter):
+                    lfoBank.configureSlot(slotIndex, enabled: enabled, waveform: waveform,
+                                          rateHz: rateHz, initialPhase: initialPhase,
+                                          depth: depth, parameter: parameter)
+
+                case .setLFOSlotCount(let count):
+                    lfoBank.slotCount = count
+
+                case .setDrumVoice(let index, let carrierFreq, let modulatorRatio,
+                                   let fmDepth, let noiseMix, let ampDecay,
+                                   let pitchEnvAmount, let pitchDecay, let level):
+                    drumKit.configureVoice(index: index, carrierFreq: carrierFreq,
+                                          modulatorRatio: modulatorRatio, fmDepth: fmDepth,
+                                          noiseMix: noiseMix, ampDecay: ampDecay,
+                                          pitchEnvAmount: pitchEnvAmount, pitchDecay: pitchDecay,
+                                          level: level)
+                }
+            }
+
+            // Render loop — same LFO branching as oscillator path
+            if lfoBank.slotCount > 0 {
+                for frame in 0..<Int(frameCount) {
+                    seq.advanceOneSample(sampleRate: sr, receiver: &drumKit, detune: 0)
+                    let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
+                    _ = resMod
+
+                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
+                    let raw = drumKit.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+
+                    let sample: Float
+                    if cutMod != 0 {
+                        sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
+                    } else {
+                        sample = filter.process(raw)
+                    }
+
+                    let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
+                    let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
+                    let modGainL = Float(cos(modAngle))
+                    let modGainR = Float(sin(modAngle))
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                        }
+                    }
+                }
+            } else {
+                for frame in 0..<Int(frameCount) {
+                    seq.advanceOneSample(sampleRate: sr, receiver: &drumKit, detune: 0)
+
+                    volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                    let raw = drumKit.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+                    let sample = filter.process(raw)
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                        }
+                    }
+                }
+            }
+
             beatPtr.pointee = seq.currentBeat
             playingPtr.pointee = seq.isPlaying
 
@@ -308,5 +488,15 @@ final class NodeAudioUnit {
 
     func setLFOSlotCount(_ count: Int) {
         commandBuffer.push(.setLFOSlotCount(count))
+    }
+
+    func configureDrumVoice(index: Int, config: DrumVoiceConfig) {
+        commandBuffer.push(.setDrumVoice(
+            index: index, carrierFreq: config.carrierFreq,
+            modulatorRatio: config.modulatorRatio, fmDepth: config.fmDepth,
+            noiseMix: config.noiseMix, ampDecay: config.ampDecay,
+            pitchEnvAmount: config.pitchEnvAmount, pitchDecay: config.pitchDecay,
+            level: config.level
+        ))
     }
 }
