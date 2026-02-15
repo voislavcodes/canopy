@@ -836,11 +836,12 @@ struct StepSequencerPanel: View {
 
     private func toggleNote(pitch: Int, step: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let stepBeat = Double(step) * NoteSequence.stepDuration
+        let sd = NoteSequence.stepDuration
+        let stepBeat = Double(step) * sd
 
         projectState.updateNode(id: nodeID) { node in
             if let existingIndex = node.sequence.notes.firstIndex(where: {
-                $0.pitch == pitch && abs($0.startBeat - stepBeat) < 0.01
+                $0.pitch == pitch && Int(round($0.startBeat / sd)) == step
             }) {
                 node.sequence.notes.remove(at: existingIndex)
             } else {
