@@ -64,7 +64,7 @@ struct KeyboardBarView: View {
 
                 if scaleAwareEnabled {
                     foldedKeyboardView
-                        .frame(height: whiteKeyHeight)
+                        .frame(height: whiteKeyHeight + 10 * cs)
                         .clipped()
                 } else {
                     // Piano — fixed-size container so ZStack layers stay together
@@ -81,10 +81,6 @@ struct KeyboardBarView: View {
                 }
                 .buttonStyle(.plain)
             }
-
-            Text("play into focused node")
-                .font(.system(size: 11 * cs, weight: .regular, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText.opacity(0.35))
         }
         .padding(.horizontal, 12 * cs)
         .padding(.vertical, 10 * cs)
