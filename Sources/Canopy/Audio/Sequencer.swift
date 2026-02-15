@@ -159,7 +159,11 @@ struct Sequencer {
     private var arpActive: Bool = false
     private var arpPoolPitches: [Int]
     private var arpPoolVelocities: [Double]
+    private var arpPoolStartBeats: [Double]
+    private var arpPoolEndBeats: [Double]
     private var arpPoolCount: Int = 0
+    private var arpActiveIndices: [Int]
+    private var arpActiveCount: Int = 0
     private var arpCurrentIndex: Int = 0
     private var arpSamplesPerStep: Int = 0
     private var arpSampleCounter: Int = 0
@@ -191,6 +195,9 @@ struct Sequencer {
         scaleIntervals = Array(repeating: 0, count: Sequencer.maxScaleIntervals)
         arpPoolPitches = Array(repeating: 0, count: ArpNotePool.maxSize)
         arpPoolVelocities = Array(repeating: 0, count: ArpNotePool.maxSize)
+        arpPoolStartBeats = Array(repeating: 0, count: ArpNotePool.maxSize)
+        arpPoolEndBeats = Array(repeating: 0, count: ArpNotePool.maxSize)
+        arpActiveIndices = Array(repeating: 0, count: ArpNotePool.maxSize)
     }
 
     /// Load a sequence of events into pre-allocated storage. Zero heap allocations.
@@ -384,18 +391,21 @@ struct Sequencer {
         self.arpCurrentNotePitch = -1
     }
 
-    /// Set arp pool data (pitches and velocities).
-    mutating func setArpPool(pitches: [Int], velocities: [Double]) {
+    /// Set arp pool data (pitches, velocities, and timing spans).
+    mutating func setArpPool(pitches: [Int], velocities: [Double], startBeats: [Double], endBeats: [Double]) {
         let count = min(pitches.count, ArpNotePool.maxSize)
         self.arpPoolCount = count
         for i in 0..<count {
             arpPoolPitches[i] = pitches[i]
             arpPoolVelocities[i] = velocities[i]
+            arpPoolStartBeats[i] = startBeats[i]
+            arpPoolEndBeats[i] = endBeats[i]
         }
         self.arpCurrentIndex = 0
         self.arpSampleCounter = 0
         self.arpGateSamplesRemaining = 0
         self.arpCurrentNotePitch = -1
+        self.arpActiveCount = 0
     }
 
     /// Freeze: copy current mutations to inactive buffer and swap.
@@ -498,6 +508,21 @@ struct Sequencer {
         }
     }
 
+    // MARK: - Arp Active Set
+
+    /// Rebuild the set of pool indices whose time span covers the current beat.
+    /// Called once per arp step (not per sample). Cost: max 128 comparisons.
+    private mutating func rebuildArpActiveSet() {
+        arpActiveCount = 0
+        let beat = currentBeat
+        for i in 0..<arpPoolCount {
+            if beat >= arpPoolStartBeats[i] && beat < arpPoolEndBeats[i] {
+                arpActiveIndices[arpActiveCount] = i
+                arpActiveCount += 1
+            }
+        }
+    }
+
     // MARK: - Arp Playback
 
     private mutating func advanceOneSampleArp<R: NoteReceiver>(sampleRate: Double, receiver: inout R, detune: Double) {
@@ -517,25 +542,45 @@ struct Sequencer {
         guard arpSampleCounter >= arpSamplesPerStep else { return }
         arpSampleCounter = 0
 
-        // Pick next pitch
-        let nextIndex: Int
-        if arpMode == .random {
-            nextIndex = Int(prng.next() % UInt64(arpPoolCount))
-        } else {
-            nextIndex = arpCurrentIndex
+        // Rebuild active set at each arp step
+        rebuildArpActiveSet()
+
+        // If no notes are active at this beat position, silence and skip
+        guard arpActiveCount > 0 else {
+            if arpCurrentNotePitch >= 0 {
+                receiver.noteOff(pitch: arpCurrentNotePitch)
+                arpCurrentNotePitch = -1
+            }
+            return
         }
+
+        // Clamp arpCurrentIndex to active count
+        if arpCurrentIndex >= arpActiveCount {
+            arpCurrentIndex = 0
+        }
+
+        // Pick next from active subset
+        let activeIdx: Int
+        if arpMode == .random {
+            activeIdx = Int(prng.next() % UInt64(arpActiveCount))
+        } else {
+            activeIdx = arpCurrentIndex
+        }
+
+        // Map active index → pool index
+        let poolIdx = arpActiveIndices[activeIdx]
 
         // Roll probability
         let effectiveProb = globalProbability
         let roll = prng.nextDouble()
         guard roll < effectiveProb else {
             // Advance index even on skip
-            arpCurrentIndex = (arpCurrentIndex + 1) % arpPoolCount
+            arpCurrentIndex = (arpCurrentIndex + 1) % arpActiveCount
             return
         }
 
-        let pitch = arpPoolPitches[nextIndex]
-        let velocity = arpPoolVelocities[nextIndex]
+        let pitch = arpPoolPitches[poolIdx]
+        let velocity = arpPoolVelocities[poolIdx]
         let accPitch = applyAccumulatorToPitch(pitch)
         let accVelocity = applyAccumulatorToVelocity(velocity)
 
@@ -557,7 +602,7 @@ struct Sequencer {
 
         // Advance index for ordered modes
         if arpMode != .random {
-            arpCurrentIndex = (arpCurrentIndex + 1) % arpPoolCount
+            arpCurrentIndex = (arpCurrentIndex + 1) % arpActiveCount
         }
     }
 

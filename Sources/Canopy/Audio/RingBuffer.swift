@@ -26,7 +26,7 @@ enum AudioCommand {
 
     // Arp
     case sequencerSetArp(active: Bool, samplesPerStep: Int, gateLength: Double, mode: ArpMode)
-    case sequencerSetArpPool(pitches: [Int], velocities: [Double])
+    case sequencerSetArpPool(pitches: [Int], velocities: [Double], startBeats: [Double], endBeats: [Double])
 
     // Filter
     case setFilter(enabled: Bool, cutoff: Double, resonance: Double)

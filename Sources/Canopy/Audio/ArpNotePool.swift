@@ -5,6 +5,8 @@ import Foundation
 struct ArpNotePool {
     var pitches: [Int]
     var velocities: [Double]
+    var startBeats: [Double]
+    var endBeats: [Double]
     var count: Int
 
     /// Maximum pool size (matches Sequencer.maxEvents for pre-allocation).
@@ -12,71 +14,86 @@ struct ArpNotePool {
 
     /// Build an arp pool from a NoteSequence and ArpConfig.
     ///
-    /// 1. Collect unique pitches (highest velocity wins on duplicates)
+    /// 1. Keep every NoteEvent as a separate pool entry with its timing
     /// 2. Sort by mode
-    /// 3. Expand across octave range
+    /// 3. Expand across octave range (expanded notes inherit base note's timing)
     /// 4. For upDown/downUp: append reverse minus peaks (ping-pong)
     static func build(from sequence: NoteSequence, config: ArpConfig) -> ArpNotePool {
         guard !sequence.notes.isEmpty else {
-            return ArpNotePool(pitches: [], velocities: [], count: 0)
+            return ArpNotePool(pitches: [], velocities: [], startBeats: [], endBeats: [], count: 0)
         }
 
-        // 1. Collect unique pitches — highest velocity wins
-        var pitchVelocity: [Int: Double] = [:]
-        var appearanceOrder: [Int] = []
+        // 1. Collect all notes — no de-duplication. Each NoteEvent is a separate entry.
+        struct PoolEntry {
+            let pitch: Int
+            let velocity: Double
+            let startBeat: Double
+            let endBeat: Double
+        }
+
+        var entries: [PoolEntry] = []
+        entries.reserveCapacity(sequence.notes.count)
         for note in sequence.notes {
-            if let existing = pitchVelocity[note.pitch] {
-                if note.velocity > existing {
-                    pitchVelocity[note.pitch] = note.velocity
-                }
-            } else {
-                pitchVelocity[note.pitch] = note.velocity
-                appearanceOrder.append(note.pitch)
-            }
+            entries.append(PoolEntry(
+                pitch: note.pitch,
+                velocity: note.velocity,
+                startBeat: note.startBeat,
+                endBeat: note.startBeat + note.duration
+            ))
         }
 
         // 2. Sort by mode
-        var basePitches: [Int]
         switch config.mode {
         case .up, .upDown:
-            basePitches = pitchVelocity.keys.sorted()
+            entries.sort { $0.pitch < $1.pitch }
         case .down, .downUp:
-            basePitches = pitchVelocity.keys.sorted(by: >)
+            entries.sort { $0.pitch > $1.pitch }
         case .asPlayed:
-            basePitches = appearanceOrder
+            break // keep insertion order
         case .random:
-            basePitches = pitchVelocity.keys.sorted() // order doesn't matter for random
+            entries.sort { $0.pitch < $1.pitch } // order doesn't matter for random
         }
 
         // 3. Expand across octave range
         var expandedPitches: [Int] = []
         var expandedVelocities: [Double] = []
+        var expandedStartBeats: [Double] = []
+        var expandedEndBeats: [Double] = []
 
         for octave in 0..<config.octaveRange {
             let transpose = octave * 12
-            for pitch in basePitches {
-                let expanded = pitch + transpose
+            for entry in entries {
+                let expanded = entry.pitch + transpose
                 guard expanded <= 127 else { continue }
                 guard expandedPitches.count < ArpNotePool.maxSize else { break }
                 expandedPitches.append(expanded)
-                expandedVelocities.append(pitchVelocity[pitch] ?? 0.8)
+                expandedVelocities.append(entry.velocity)
+                expandedStartBeats.append(entry.startBeat)
+                expandedEndBeats.append(entry.endBeat)
             }
         }
 
         // 4. For upDown/downUp: append reverse minus endpoints (ping-pong)
         if (config.mode == .upDown || config.mode == .downUp) && expandedPitches.count > 2 {
-            let reversed = Array(expandedPitches[1..<(expandedPitches.count - 1)].reversed())
-            let reversedVel = Array(expandedVelocities[1..<(expandedVelocities.count - 1)].reversed())
-            for i in 0..<reversed.count {
+            let innerRange = 1..<(expandedPitches.count - 1)
+            let reversedPitches = Array(expandedPitches[innerRange].reversed())
+            let reversedVel = Array(expandedVelocities[innerRange].reversed())
+            let reversedStart = Array(expandedStartBeats[innerRange].reversed())
+            let reversedEnd = Array(expandedEndBeats[innerRange].reversed())
+            for i in 0..<reversedPitches.count {
                 guard expandedPitches.count < ArpNotePool.maxSize else { break }
-                expandedPitches.append(reversed[i])
+                expandedPitches.append(reversedPitches[i])
                 expandedVelocities.append(reversedVel[i])
+                expandedStartBeats.append(reversedStart[i])
+                expandedEndBeats.append(reversedEnd[i])
             }
         }
 
         return ArpNotePool(
             pitches: expandedPitches,
             velocities: expandedVelocities,
+            startBeats: expandedStartBeats,
+            endBeats: expandedEndBeats,
             count: expandedPitches.count
         )
     }
@@ -88,8 +105,8 @@ struct ArpNotePool {
 
         let uniqueCount = Set(sequence.notes.map { $0.pitch }).count
         let noteNames = pool.pitches.prefix(6).map { MIDIUtilities.noteName(forNote: $0) }
-        var result = noteNames.joined(separator: " → ")
-        if pool.count > 6 { result += " …" }
+        var result = noteNames.joined(separator: " \u{2192} ")
+        if pool.count > 6 { result += " \u{2026}" }
         result += " (\(uniqueCount) notes, \(config.octaveRange) oct)"
         return result
     }

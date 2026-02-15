@@ -328,6 +328,8 @@ class ProjectState: ObservableObject {
         AudioEngine.shared.setArpPool(
             pitches: Array(pool.pitches.prefix(pool.count)),
             velocities: Array(pool.velocities.prefix(pool.count)),
+            startBeats: Array(pool.startBeats.prefix(pool.count)),
+            endBeats: Array(pool.endBeats.prefix(pool.count)),
             nodeID: nodeID
         )
     }

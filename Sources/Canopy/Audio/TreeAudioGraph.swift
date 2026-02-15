@@ -173,7 +173,9 @@ final class TreeAudioGraph {
 
             let pool = ArpNotePool.build(from: seq, config: arpConfig)
             unit.setArpPool(pitches: Array(pool.pitches.prefix(pool.count)),
-                           velocities: Array(pool.velocities.prefix(pool.count)))
+                           velocities: Array(pool.velocities.prefix(pool.count)),
+                           startBeats: Array(pool.startBeats.prefix(pool.count)),
+                           endBeats: Array(pool.endBeats.prefix(pool.count)))
         }
 
         for child in node.children {

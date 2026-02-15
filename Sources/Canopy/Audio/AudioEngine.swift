@@ -142,8 +142,8 @@ final class AudioEngine {
     }
 
     /// Set arp pool data on a specific node's sequencer.
-    func setArpPool(pitches: [Int], velocities: [Double], nodeID: UUID) {
-        graph.unit(for: nodeID)?.setArpPool(pitches: pitches, velocities: velocities)
+    func setArpPool(pitches: [Int], velocities: [Double], startBeats: [Double], endBeats: [Double], nodeID: UUID) {
+        graph.unit(for: nodeID)?.setArpPool(pitches: pitches, velocities: velocities, startBeats: startBeats, endBeats: endBeats)
     }
 
     /// Configure a single drum voice on a specific node.

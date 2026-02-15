@@ -31,6 +31,7 @@ struct StepSequencerPanel: View {
     @State private var localAccAmount: Double = 1.0
     @State private var localAccLimit: Double = 12.0
     @State private var localArpGate: Double = 0.5
+    @State private var spanDragState: (pitch: Int, startStep: Int, currentEndStep: Int)?
 
     private var node: Node? {
         projectState.selectedNode
@@ -133,10 +134,16 @@ struct StepSequencerPanel: View {
                     // Note labels
                     noteLabels
 
-                    // Grid + velocity bars + playhead
+                    // Grid + span overlay + velocity bars + playhead
                     ZStack(alignment: .topLeading) {
                         VStack(spacing: 2 * cs) {
-                            gridView(sequence: node.sequence)
+                            ZStack(alignment: .topLeading) {
+                                gridView(sequence: node.sequence)
+
+                                if isArpActive {
+                                    spanOverlay(sequence: node.sequence)
+                                }
+                            }
                             velocityBars(sequence: node.sequence)
                         }
                         .drawingGroup()
@@ -899,6 +906,15 @@ struct StepSequencerPanel: View {
                 node.sequence.arpConfig = nil
             } else {
                 node.sequence.arpConfig = ArpConfig()
+                // Auto-extend existing short-duration notes to span to end of sequence
+                let len = node.sequence.lengthInBeats
+                for i in 0..<node.sequence.notes.count {
+                    let note = node.sequence.notes[i]
+                    let remaining = len - note.startBeat
+                    if note.duration < remaining {
+                        node.sequence.notes[i].duration = remaining
+                    }
+                }
             }
         }
         if let node = projectState.findNode(id: nodeID) {
@@ -965,6 +981,14 @@ struct StepSequencerPanel: View {
         let newLengthBeats = Double(newStepCount) * sd
         projectState.updateNode(id: nodeID) { node in
             node.sequence.notes.removeAll { $0.startBeat >= newLengthBeats }
+            // Clamp durations that extend past the new length
+            for i in 0..<node.sequence.notes.count {
+                let note = node.sequence.notes[i]
+                let endBeat = note.startBeat + note.duration
+                if endBeat > newLengthBeats {
+                    node.sequence.notes[i].duration = newLengthBeats - note.startBeat
+                }
+            }
             node.sequence.lengthInBeats = newLengthBeats
         }
         reloadSequence()
@@ -1078,6 +1102,97 @@ struct StepSequencerPanel: View {
         reloadSequence()
     }
 
+    // MARK: - Span Overlay (arp mode)
+
+    /// Build span lookup: for each pitch row, collect (startStep, endStep, NoteEvent index).
+    private func spanOverlay(sequence: NoteSequence) -> some View {
+        let sd = NoteSequence.stepDuration
+        let pitches = visiblePitches
+        let stride = cellSize + cellSpacing
+
+        // Build lookup: pitch → [(startStep, endStep, noteIndex)]
+        var spansByPitch: [Int: [(startStep: Int, endStep: Int, noteIndex: Int)]] = [:]
+        for (idx, note) in sequence.notes.enumerated() {
+            let startStep = Int(round(note.startBeat / sd))
+            let endStep: Int
+            if let drag = spanDragState, drag.pitch == note.pitch && drag.startStep == startStep {
+                endStep = drag.currentEndStep
+            } else {
+                endStep = max(startStep + 1, Int(round((note.startBeat + note.duration) / sd)))
+            }
+            spansByPitch[note.pitch, default: []].append((startStep: startStep, endStep: endStep, noteIndex: idx))
+        }
+
+        let arpCyan = Color(red: 0.2, green: 0.7, blue: 0.8)
+
+        return ZStack(alignment: .topLeading) {
+            ForEach(pitches, id: \.self) { pitch in
+                let rowIndex = pitches.firstIndex(of: pitch) ?? 0
+                let y = CGFloat(rowIndex) * stride
+
+                if let spans = spansByPitch[pitch] {
+                    ForEach(spans, id: \.startStep) { span in
+                        let visibleStart = span.startStep
+                        let visibleEnd = min(span.endStep, columns)
+                        let spanWidth = CGFloat(visibleEnd - visibleStart) * stride - cellSpacing
+
+                        if spanWidth > 0 && visibleStart < columns {
+                            // Span bar
+                            ZStack(alignment: .trailing) {
+                                RoundedRectangle(cornerRadius: cellCornerRadius)
+                                    .fill(arpCyan.opacity(0.2))
+                                    .frame(width: spanWidth, height: cellSize)
+
+                                RoundedRectangle(cornerRadius: cellCornerRadius)
+                                    .stroke(arpCyan.opacity(0.5), lineWidth: 1)
+                                    .frame(width: spanWidth, height: cellSize)
+
+                                // Drag handle on right edge
+                                Rectangle()
+                                    .fill(arpCyan.opacity(0.6))
+                                    .frame(width: 3 * cs, height: cellSize * 0.6)
+                                    .clipShape(RoundedRectangle(cornerRadius: 1 * cs))
+                                    .padding(.trailing, 1 * cs)
+                                    .gesture(
+                                        DragGesture(minimumDistance: 2)
+                                            .onChanged { drag in
+                                                let dragSteps = Int(round(drag.translation.width / stride))
+                                                let newEnd = max(visibleStart + 1, min(columns, span.endStep + dragSteps))
+                                                spanDragState = (pitch: pitch, startStep: span.startStep, currentEndStep: newEnd)
+                                            }
+                                            .onEnded { _ in
+                                                if let drag = spanDragState {
+                                                    commitSpanDrag(pitch: drag.pitch, startStep: drag.startStep, newEndStep: drag.currentEndStep)
+                                                }
+                                                spanDragState = nil
+                                            }
+                                    )
+                            }
+                            .offset(x: CGFloat(visibleStart) * stride, y: y)
+                            .allowsHitTesting(true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Commit a span drag: update the NoteEvent duration to match the new end step.
+    private func commitSpanDrag(pitch: Int, startStep: Int, newEndStep: Int) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        let sd = NoteSequence.stepDuration
+
+        projectState.updateNode(id: nodeID) { node in
+            if let idx = node.sequence.notes.firstIndex(where: {
+                $0.pitch == pitch && Int(round($0.startBeat / sd)) == startStep
+            }) {
+                let newDuration = Double(newEndStep - startStep) * sd
+                node.sequence.notes[idx].duration = max(sd, newDuration)
+            }
+        }
+        reloadSequence()
+    }
+
     // MARK: - Note Logic
 
     private func toggleNote(pitch: Int, step: Int) {
@@ -1091,11 +1206,15 @@ struct StepSequencerPanel: View {
             }) {
                 node.sequence.notes.remove(at: existingIndex)
             } else {
+                // In arp mode, extend duration to end of sequence
+                let dur = node.sequence.arpConfig != nil
+                    ? node.sequence.lengthInBeats - stepBeat
+                    : NoteSequence.stepDuration
                 let event = NoteEvent(
                     pitch: pitch,
                     velocity: 0.8,
                     startBeat: stepBeat,
-                    duration: NoteSequence.stepDuration
+                    duration: dur
                 )
                 node.sequence.notes.append(event)
             }

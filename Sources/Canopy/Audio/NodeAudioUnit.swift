@@ -153,8 +153,8 @@ final class NodeAudioUnit {
                     seq.setArpConfig(active: active, samplesPerStep: samplesPerStep,
                                      gateLength: gateLength, mode: mode)
 
-                case .sequencerSetArpPool(let pitches, let velocities):
-                    seq.setArpPool(pitches: pitches, velocities: velocities)
+                case .sequencerSetArpPool(let pitches, let velocities, let startBeats, let endBeats):
+                    seq.setArpPool(pitches: pitches, velocities: velocities, startBeats: startBeats, endBeats: endBeats)
 
                 case .setFilter(let enabled, let cutoff, let reso):
                     filter.enabled = enabled
@@ -321,8 +321,8 @@ final class NodeAudioUnit {
                     seq.setArpConfig(active: active, samplesPerStep: samplesPerStep,
                                      gateLength: gateLength, mode: mode)
 
-                case .sequencerSetArpPool(let pitches, let velocities):
-                    seq.setArpPool(pitches: pitches, velocities: velocities)
+                case .sequencerSetArpPool(let pitches, let velocities, let startBeats, let endBeats):
+                    seq.setArpPool(pitches: pitches, velocities: velocities, startBeats: startBeats, endBeats: endBeats)
 
                 case .setFilter(let enabled, let cutoff, let reso):
                     filter.enabled = enabled
@@ -509,8 +509,8 @@ final class NodeAudioUnit {
                                             gateLength: gateLength, mode: mode))
     }
 
-    func setArpPool(pitches: [Int], velocities: [Double]) {
-        commandBuffer.push(.sequencerSetArpPool(pitches: pitches, velocities: velocities))
+    func setArpPool(pitches: [Int], velocities: [Double], startBeats: [Double], endBeats: [Double]) {
+        commandBuffer.push(.sequencerSetArpPool(pitches: pitches, velocities: velocities, startBeats: startBeats, endBeats: endBeats))
     }
 
     func configureDrumVoice(index: Int, config: DrumVoiceConfig) {
