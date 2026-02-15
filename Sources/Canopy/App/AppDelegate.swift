@@ -17,6 +17,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         "p": 15,
     ]
 
+    /// Scale-aware mapping: home row keys map to consecutive scale degrees.
+    private static let keyToScaleDegree: [String: Int] = [
+        "a": 0, "s": 1, "d": 2, "f": 3, "g": 4,
+        "h": 5, "j": 6, "k": 7, "l": 8,
+    ]
+
     /// Track which character → MIDI note is currently held for correct noteOff.
     private var heldKeyNotes: [String: Int] = [:]
 
@@ -46,15 +52,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         window.setFrameAutosaveName("CanopyMainWindow")
 
-        // Wire key event handlers on the window
-        NSLog("[AppDelegate] Setting up keyboard handlers on window: %@", String(describing: type(of: window!)))
         window.keyDownHandler = { [weak self] event in
             self?.handleKeyDown(event) ?? false
         }
         window.keyUpHandler = { [weak self] event in
             self?.handleKeyUp(event) ?? false
         }
-        NSLog("[AppDelegate] Keyboard handlers installed")
 
         setupMenuBar()
 
@@ -117,7 +120,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleKeyDown(_ event: NSEvent) -> Bool {
         let isEditing = isEditingTextField()
         let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        NSLog("[AppDelegate] handleKeyDown: chars='%@' isEditing=%d kbEnabled=%d selectedNode=%@", chars, isEditing ? 1 : 0, projectState.computerKeyboardEnabled ? 1 : 0, projectState.selectedNodeID?.uuidString ?? "nil")
 
         // Spacebar → transport toggle (always, unless editing text)
         if event.keyCode == 49 && !isEditing {
@@ -144,14 +146,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Note input
-        if let semitone = Self.keyToSemitone[chars],
-           let nodeID = projectState.selectedNodeID {
-            let midiNote = (projectState.keyboardOctave + 1) * 12 + semitone
-            guard midiNote >= 0 && midiNote <= 127 else { return false }
-            heldKeyNotes[chars] = midiNote
-            projectState.computerKeyPressedNotes.insert(midiNote)
-            AudioEngine.shared.noteOn(pitch: midiNote, velocity: 0.8, nodeID: nodeID)
-            return true
+        if let nodeID = projectState.selectedNodeID {
+            let midiNote: Int?
+
+            if projectState.project.scaleAwareEnabled {
+                // Scale-aware: home row keys → consecutive scale degrees
+                if let degree = Self.keyToScaleDegree[chars] {
+                    let key = resolvedKey()
+                    let intervals = key.mode.intervals
+                    let octaveShift = degree / intervals.count
+                    let degreeInScale = degree % intervals.count
+                    midiNote = (projectState.keyboardOctave + 1) * 12 + key.root.semitone + octaveShift * 12 + intervals[degreeInScale]
+                } else {
+                    midiNote = nil
+                }
+            } else {
+                // Chromatic: two-row layout
+                if let semitone = Self.keyToSemitone[chars] {
+                    midiNote = (projectState.keyboardOctave + 1) * 12 + semitone
+                } else {
+                    midiNote = nil
+                }
+            }
+
+            if let midiNote, midiNote >= 0, midiNote <= 127 {
+                heldKeyNotes[chars] = midiNote
+                projectState.computerKeyPressedNotes.insert(midiNote)
+                AudioEngine.shared.noteOn(pitch: midiNote, velocity: 0.8, nodeID: nodeID)
+                return true
+            }
         }
 
         return false
@@ -176,6 +199,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return false
+    }
+
+    private func resolvedKey() -> MusicalKey {
+        guard let node = projectState.selectedNode else { return projectState.project.globalKey }
+        if let override = node.scaleOverride { return override }
+        if let tree = projectState.project.trees.first, let treeScale = tree.scale { return treeScale }
+        return projectState.project.globalKey
     }
 
     private func isEditingTextField() -> Bool {
