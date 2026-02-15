@@ -35,6 +35,31 @@ struct StepSequencerPanel: View {
         projectState.selectedNode
     }
 
+    private var scaleAwareEnabled: Bool {
+        projectState.project.scaleAwareEnabled
+    }
+
+    /// The MIDI pitches to show as rows, highest first.
+    /// When scale-aware: only in-scale pitches starting from baseNote, take `rows` count.
+    /// When off: baseNote ..< baseNote + rows (current behavior).
+    private var visiblePitches: [Int] {
+        if scaleAwareEnabled {
+            let key = resolveKey()
+            var pitches: [Int] = []
+            var p = baseNote
+            while pitches.count < rows && p <= 127 {
+                let pc = ((p % 12) - key.root.semitone + 12) % 12
+                if key.mode.intervals.contains(pc) {
+                    pitches.append(p)
+                }
+                p += 1
+            }
+            return pitches.reversed()
+        } else {
+            return ((0..<rows).map { baseNote + $0 }).reversed()
+        }
+    }
+
     /// Active step count from the sequence length.
     private var columns: Int {
         let beats = node?.sequence.lengthInBeats ?? 2.0
@@ -98,7 +123,7 @@ struct StepSequencerPanel: View {
                             nodeID: node.id,
                             lengthInBeats: node.sequence.lengthInBeats,
                             columns: columns,
-                            rows: rows,
+                            rows: visiblePitches.count,
                             cellSize: cellSize,
                             cellSpacing: cellSpacing,
                             cellCornerRadius: cellCornerRadius,
@@ -222,7 +247,8 @@ struct StepSequencerPanel: View {
 
     /// Ableton Push-style vertical touch strip for scrolling the visible pitch range.
     private var pitchTouchStrip: some View {
-        let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
+        let visibleCount = visiblePitches.count
+        let gridHeight = CGFloat(visibleCount) * (cellSize + cellSpacing) - cellSpacing
         let totalRange = midiHigh - midiLow - rows
         let normalizedPos = totalRange > 0
             ? CGFloat(baseNote - midiLow) / CGFloat(totalRange)
@@ -263,15 +289,18 @@ struct StepSequencerPanel: View {
 
     /// Shows pitch names for each visible row, to the left of the grid.
     private var noteLabels: some View {
-        let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
+        let pitches = visiblePitches
+        let gridHeight = CGFloat(pitches.count) * (cellSize + cellSpacing) - cellSpacing
+        let rootSemitone = resolveKey().root.semitone
         return VStack(spacing: cellSpacing) {
-            ForEach((0..<rows).reversed(), id: \.self) { row in
-                let pitch = baseNote + row
+            ForEach(pitches, id: \.self) { pitch in
                 let name = MIDIUtilities.noteName(forNote: pitch)
+                let isRoot = ((pitch % 12) - rootSemitone + 12) % 12 == 0
                 let isC = pitch % 12 == 0
+                let highlight = scaleAwareEnabled ? isRoot : isC
                 Text(name)
-                    .font(.system(size: 7 * cs, weight: isC ? .bold : .regular, design: .monospaced))
-                    .foregroundColor(isC ? CanopyColors.glowColor.opacity(0.7) : CanopyColors.chromeText.opacity(0.35))
+                    .font(.system(size: 7 * cs, weight: highlight ? .bold : .regular, design: .monospaced))
+                    .foregroundColor(highlight ? CanopyColors.glowColor.opacity(0.7) : CanopyColors.chromeText.opacity(0.35))
                     .frame(width: 22 * cs, height: cellSize, alignment: .trailing)
             }
         }
@@ -294,11 +323,11 @@ struct StepSequencerPanel: View {
 
     private func gridView(sequence: NoteSequence) -> some View {
         let lookup = noteEventLookup(for: sequence)
+        let pitches = visiblePitches
         return VStack(spacing: cellSpacing) {
-            ForEach((0..<rows).reversed(), id: \.self) { row in
+            ForEach(pitches, id: \.self) { pitch in
                 HStack(spacing: cellSpacing) {
                     ForEach(0..<displayColumns, id: \.self) { col in
-                        let pitch = baseNote + row
                         let enabled = col < columns
                         let noteEvent = enabled ? lookup[pitch &* 1000 &+ col] : nil
                         stepCell(pitch: pitch, step: col, noteEvent: noteEvent, sequence: sequence, enabled: enabled)

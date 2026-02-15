@@ -183,7 +183,7 @@ struct CanopyCanvasView: View {
                 .position(x: promptScreen.x, y: promptScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
-            KeyboardBarView(baseOctave: $keyboardOctave, selectedNodeID: projectState.selectedNodeID)
+            KeyboardBarView(baseOctave: $keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState)
                 .environment(\.canvasScale, 1.0)
                 .scaleEffect(scale)
                 .position(x: keyboardScreen.x, y: keyboardScreen.y)

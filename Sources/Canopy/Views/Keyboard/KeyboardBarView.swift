@@ -7,6 +7,7 @@ struct KeyboardBarView: View {
     @Binding var baseOctave: Int
     /// The currently selected node ID — keyboard plays into this node.
     var selectedNodeID: UUID?
+    @ObservedObject var projectState: ProjectState
 
     @State private var pressedNotes: Set<Int> = []
 
@@ -28,6 +29,23 @@ struct KeyboardBarView: View {
         (octave + 1) * 12 + semitone
     }
 
+    private var scaleAwareEnabled: Bool {
+        projectState.project.scaleAwareEnabled
+    }
+
+    private var resolvedKey: MusicalKey {
+        guard let node = projectState.selectedNode else { return projectState.project.globalKey }
+        if let override = node.scaleOverride { return override }
+        if let tree = projectState.project.trees.first, let treeScale = tree.scale { return treeScale }
+        return projectState.project.globalKey
+    }
+
+    /// Whether a MIDI note is a black key in chromatic terms.
+    private func isBlackKey(_ midiNote: Int) -> Bool {
+        let pc = midiNote % 12
+        return [1, 3, 6, 8, 10].contains(pc)
+    }
+
     var body: some View {
         VStack(spacing: 6 * cs) {
             HStack(spacing: 0) {
@@ -39,10 +57,16 @@ struct KeyboardBarView: View {
                 }
                 .buttonStyle(.plain)
 
-                // Piano — fixed-size container so ZStack layers stay together
-                keyboardView
-                    .frame(width: totalKeysWidth, height: whiteKeyHeight)
-                    .clipped()
+                if scaleAwareEnabled {
+                    foldedKeyboardView
+                        .frame(height: whiteKeyHeight)
+                        .clipped()
+                } else {
+                    // Piano — fixed-size container so ZStack layers stay together
+                    keyboardView
+                        .frame(width: totalKeysWidth, height: whiteKeyHeight)
+                        .clipped()
+                }
 
                 Button(action: { if baseOctave < 7 { baseOctave += 1 } }) {
                     Image(systemName: "chevron.right")
@@ -69,6 +93,8 @@ struct KeyboardBarView: View {
         .contentShape(Rectangle())
         .onTapGesture { }
     }
+
+    // MARK: - Standard Keyboard
 
     private var keyboardView: some View {
         ZStack(alignment: .topLeading) {
@@ -157,5 +183,58 @@ struct KeyboardBarView: View {
                         }
                     }
             )
+    }
+
+    // MARK: - Folded Keyboard (scale-aware, equal-width keys)
+
+    private var foldedKeyboardView: some View {
+        let key = resolvedKey
+        let low = midiNote(octave: baseOctave, semitone: 0)
+        let high = midiNote(octave: baseOctave + octaveCount, semitone: 0) - 1
+        let scaleNotes = key.notesInRange(low: low, high: high)
+
+        return HStack(spacing: 1 * cs) {
+            ForEach(scaleNotes, id: \.self) { note in
+                foldedKey(note: note, isAccidental: isBlackKey(note))
+            }
+        }
+    }
+
+    private func foldedKey(note: Int, isAccidental: Bool) -> some View {
+        let isPressed = pressedNotes.contains(note)
+        let baseColor = isAccidental
+            ? Color(red: 0.35, green: 0.38, blue: 0.36)
+            : Color(red: 0.55, green: 0.58, blue: 0.55)
+        let pressedColor = isAccidental
+            ? Color(red: 0.3, green: 0.45, blue: 0.35)
+            : Color(red: 0.4, green: 0.6, blue: 0.45)
+
+        return VStack(spacing: 0) {
+            RoundedRectangle(cornerRadius: 2 * cs)
+                .fill(isPressed ? pressedColor : baseColor)
+                .frame(width: whiteKeyWidth, height: whiteKeyHeight)
+
+            Text(MIDIUtilities.noteName(forNote: note))
+                .font(.system(size: 7 * cs, weight: .regular, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.4))
+                .frame(height: 10 * cs)
+        }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !pressedNotes.contains(note) {
+                        pressedNotes.insert(note)
+                        if let nodeID = selectedNodeID {
+                            AudioEngine.shared.noteOn(pitch: note, velocity: 0.8, nodeID: nodeID)
+                        }
+                    }
+                }
+                .onEnded { _ in
+                    pressedNotes.remove(note)
+                    if let nodeID = selectedNodeID {
+                        AudioEngine.shared.noteOff(pitch: note, nodeID: nodeID)
+                    }
+                }
+        )
     }
 }

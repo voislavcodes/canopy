@@ -11,6 +11,7 @@ struct CanopyProject: Codable, Equatable {
     var modifiedAt: Date
     var lfos: [LFODefinition]
     var modulationRoutings: [ModulationRouting]
+    var scaleAwareEnabled: Bool
 
     init(
         id: UUID = UUID(),
@@ -22,7 +23,8 @@ struct CanopyProject: Codable, Equatable {
         createdAt: Date = Date(),
         modifiedAt: Date = Date(),
         lfos: [LFODefinition] = [],
-        modulationRoutings: [ModulationRouting] = []
+        modulationRoutings: [ModulationRouting] = [],
+        scaleAwareEnabled: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -34,6 +36,7 @@ struct CanopyProject: Codable, Equatable {
         self.modifiedAt = Date(timeIntervalSince1970: modifiedAt.timeIntervalSince1970.rounded(.down))
         self.lfos = lfos
         self.modulationRoutings = modulationRoutings
+        self.scaleAwareEnabled = scaleAwareEnabled
     }
 
     // Custom decoder for backward compatibility with projects saved before LFO support.
@@ -51,5 +54,6 @@ struct CanopyProject: Codable, Equatable {
         modifiedAt = Date(timeIntervalSince1970: rawModified.timeIntervalSince1970.rounded(.down))
         lfos = try container.decodeIfPresent([LFODefinition].self, forKey: .lfos) ?? []
         modulationRoutings = try container.decodeIfPresent([ModulationRouting].self, forKey: .modulationRoutings) ?? []
+        scaleAwareEnabled = try container.decodeIfPresent(Bool.self, forKey: .scaleAwareEnabled) ?? false
     }
 }

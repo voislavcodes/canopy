@@ -282,6 +282,43 @@ final class ModelCodableTests: XCTestCase {
         XCTAssertEqual(decoded.modulationRoutings.count, 0, "Missing modulationRoutings should default to empty array")
     }
 
+    func testOldProjectDecodesWithScaleAwareDisabled() throws {
+        // Simulate old project JSON without scaleAwareEnabled field
+        let json = """
+        {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "name": "Old Project",
+            "bpm": 120.0,
+            "globalKey": { "root": "C", "mode": "minor" },
+            "trees": [],
+            "arrangements": [],
+            "createdAt": 1700000000,
+            "modifiedAt": 1700000000
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let decoded = try decoder.decode(CanopyProject.self, from: data)
+
+        XCTAssertFalse(decoded.scaleAwareEnabled, "Missing scaleAwareEnabled should default to false")
+    }
+
+    func testScaleAwareEnabledRoundTrip() throws {
+        var project = ProjectFactory.newProject()
+        project.scaleAwareEnabled = true
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        let data = try encoder.encode(project)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let decoded = try decoder.decode(CanopyProject.self, from: data)
+
+        XCTAssertTrue(decoded.scaleAwareEnabled)
+    }
+
     func testNewScaleModesEncodeDecode() throws {
         let modes: [ScaleMode] = [.harmonicMinor, .melodicMinor, .phrygian, .lydian,
                                    .locrian, .pentatonicMajor, .pentatonicMinor, .wholeTone]

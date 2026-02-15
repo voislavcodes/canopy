@@ -73,6 +73,28 @@ struct ToolbarView: View {
                 .foregroundColor(CanopyColors.chromeText.opacity(0.4))
                 .padding(.trailing, 4)
 
+            // Scale-aware toggle
+            Button(action: {
+                projectState.project.scaleAwareEnabled.toggle()
+                projectState.isDirty = true
+            }) {
+                let enabled = projectState.project.scaleAwareEnabled
+                Image(systemName: "music.note")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(enabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
+                    .frame(width: 22, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(enabled ? CanopyColors.glowColor.opacity(0.1) : Color.clear)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(enabled ? CanopyColors.glowColor.opacity(0.3) : CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Scale-aware mode")
+
             // Root note picker
             Button(action: { showRootPicker.toggle() }) {
                 Text(globalKey.root.displayName)
