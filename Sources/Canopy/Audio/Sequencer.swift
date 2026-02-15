@@ -154,6 +154,20 @@ struct Sequencer {
     // Cycle counter for loop wrap detection
     private var loopCount: Int = 0
 
+    // MARK: - Arp state (pre-allocated, zero-alloc on audio thread)
+
+    private var arpActive: Bool = false
+    private var arpPoolPitches: [Int]
+    private var arpPoolVelocities: [Double]
+    private var arpPoolCount: Int = 0
+    private var arpCurrentIndex: Int = 0
+    private var arpSamplesPerStep: Int = 0
+    private var arpSampleCounter: Int = 0
+    private var arpGateLength: Double = 0.5
+    private var arpGateSamplesRemaining: Int = 0
+    private var arpCurrentNotePitch: Int = -1
+    private var arpMode: ArpMode = .up
+
     /// Sentinel event used for unused pre-allocated slots.
     private static let emptyEvent = SequencerEvent(pitch: 0, velocity: 0, startBeat: 0, endBeat: 0)
 
@@ -175,6 +189,8 @@ struct Sequencer {
         mutatedPitchesA = Array(repeating: 0, count: cap)
         mutatedPitchesB = Array(repeating: 0, count: cap)
         scaleIntervals = Array(repeating: 0, count: Sequencer.maxScaleIntervals)
+        arpPoolPitches = Array(repeating: 0, count: ArpNotePool.maxSize)
+        arpPoolVelocities = Array(repeating: 0, count: ArpNotePool.maxSize)
     }
 
     /// Load a sequence of events into pre-allocated storage. Zero heap allocations.
@@ -354,6 +370,34 @@ struct Sequencer {
         }
     }
 
+    // MARK: - Arp Configuration (called from audio thread via commands)
+
+    /// Set arp config parameters.
+    mutating func setArpConfig(active: Bool, samplesPerStep: Int, gateLength: Double, mode: ArpMode) {
+        self.arpActive = active
+        self.arpSamplesPerStep = samplesPerStep
+        self.arpGateLength = gateLength
+        self.arpMode = mode
+        self.arpSampleCounter = 0
+        self.arpCurrentIndex = 0
+        self.arpGateSamplesRemaining = 0
+        self.arpCurrentNotePitch = -1
+    }
+
+    /// Set arp pool data (pitches and velocities).
+    mutating func setArpPool(pitches: [Int], velocities: [Double]) {
+        let count = min(pitches.count, ArpNotePool.maxSize)
+        self.arpPoolCount = count
+        for i in 0..<count {
+            arpPoolPitches[i] = pitches[i]
+            arpPoolVelocities[i] = velocities[i]
+        }
+        self.arpCurrentIndex = 0
+        self.arpSampleCounter = 0
+        self.arpGateSamplesRemaining = 0
+        self.arpCurrentNotePitch = -1
+    }
+
     /// Freeze: copy current mutations to inactive buffer and swap.
     /// After this, the main thread can read the inactive buffer safely.
     mutating func freezeMutation() {
@@ -383,21 +427,30 @@ struct Sequencer {
 
         // Check for loop wrap
         if currentBeat >= lengthInBeats {
-            // Trigger any remaining note-offs before wrapping
-            for i in 0..<eventCount {
-                if triggeredOnFlags[i] && !triggeredOffFlags[i] {
-                    receiver.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
-                    triggeredOffFlags[i] = true
+            if arpActive {
+                // Arp mode: noteOff current arp note
+                if arpCurrentNotePitch >= 0 {
+                    receiver.noteOff(pitch: arpCurrentNotePitch)
+                    arpCurrentNotePitch = -1
+                    arpGateSamplesRemaining = 0
                 }
-            }
-            // Clear pending ratchets
-            for i in 0..<pendingRatchets.count {
-                if pendingRatchets[i].isActive && !pendingRatchets[i].hasTriggeredOff {
-                    receiver.noteOff(pitch: applyAccumulatorToPitch(pendingRatchets[i].pitch))
+            } else {
+                // Normal mode: trigger remaining note-offs
+                for i in 0..<eventCount {
+                    if triggeredOnFlags[i] && !triggeredOffFlags[i] {
+                        receiver.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
+                        triggeredOffFlags[i] = true
+                    }
                 }
-                pendingRatchets[i].isActive = false
+                // Clear pending ratchets
+                for i in 0..<pendingRatchets.count {
+                    if pendingRatchets[i].isActive && !pendingRatchets[i].hasTriggeredOff {
+                        receiver.noteOff(pitch: applyAccumulatorToPitch(pendingRatchets[i].pitch))
+                    }
+                    pendingRatchets[i].isActive = false
+                }
+                activeRatchetCount = 0
             }
-            activeRatchetCount = 0
 
             currentBeat -= lengthInBeats
             loopCount += 1
@@ -427,16 +480,84 @@ struct Sequencer {
             resetFlags()
         }
 
-        // Process ratchets (short-circuit when none active)
-        if activeRatchetCount > 0 {
-            processRatchets(receiver: &receiver, detune: detune)
+        // Branch: arp mode vs normal mode
+        if arpActive && arpPoolCount > 0 {
+            advanceOneSampleArp(sampleRate: sampleRate, receiver: &receiver, detune: detune)
+        } else if !arpActive {
+            // Process ratchets (short-circuit when none active)
+            if activeRatchetCount > 0 {
+                processRatchets(receiver: &receiver, detune: detune)
+            }
+
+            // Forward direction uses cursor-based scanning
+            if direction == .forward {
+                advanceForward(sampleRate: sampleRate, receiver: &receiver, detune: detune)
+            } else {
+                advanceDirectional(sampleRate: sampleRate, receiver: &receiver, detune: detune)
+            }
+        }
+    }
+
+    // MARK: - Arp Playback
+
+    private mutating func advanceOneSampleArp<R: NoteReceiver>(sampleRate: Double, receiver: inout R, detune: Double) {
+        // Gate-off countdown
+        if arpGateSamplesRemaining > 0 {
+            arpGateSamplesRemaining -= 1
+            if arpGateSamplesRemaining == 0 && arpCurrentNotePitch >= 0 {
+                receiver.noteOff(pitch: arpCurrentNotePitch)
+                arpCurrentNotePitch = -1
+            }
         }
 
-        // Forward direction uses cursor-based scanning
-        if direction == .forward {
-            advanceForward(sampleRate: sampleRate, receiver: &receiver, detune: detune)
+        // Advance sample counter
+        arpSampleCounter += 1
+
+        // Time for next arp step?
+        guard arpSampleCounter >= arpSamplesPerStep else { return }
+        arpSampleCounter = 0
+
+        // Pick next pitch
+        let nextIndex: Int
+        if arpMode == .random {
+            nextIndex = Int(prng.next() % UInt64(arpPoolCount))
         } else {
-            advanceDirectional(sampleRate: sampleRate, receiver: &receiver, detune: detune)
+            nextIndex = arpCurrentIndex
+        }
+
+        // Roll probability
+        let effectiveProb = globalProbability
+        let roll = prng.nextDouble()
+        guard roll < effectiveProb else {
+            // Advance index even on skip
+            arpCurrentIndex = (arpCurrentIndex + 1) % arpPoolCount
+            return
+        }
+
+        let pitch = arpPoolPitches[nextIndex]
+        let velocity = arpPoolVelocities[nextIndex]
+        let accPitch = applyAccumulatorToPitch(pitch)
+        let accVelocity = applyAccumulatorToVelocity(velocity)
+
+        // Note-off previous if still sounding
+        if arpCurrentNotePitch >= 0 {
+            receiver.noteOff(pitch: arpCurrentNotePitch)
+        }
+
+        // Note-on new
+        let freq = MIDIUtilities.detunedFrequency(
+            base: MIDIUtilities.frequency(forNote: accPitch),
+            cents: detune
+        )
+        receiver.noteOn(pitch: accPitch, velocity: accVelocity, frequency: freq)
+        arpCurrentNotePitch = accPitch
+
+        // Schedule gate-off
+        arpGateSamplesRemaining = max(1, Int(Double(arpSamplesPerStep) * arpGateLength))
+
+        // Advance index for ordered modes
+        if arpMode != .random {
+            arpCurrentIndex = (arpCurrentIndex + 1) % arpPoolCount
         }
     }
 

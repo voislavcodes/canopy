@@ -118,6 +118,56 @@ struct AccumulatorConfig: Codable, Equatable {
     }
 }
 
+// MARK: - Arp Config
+
+enum ArpMode: String, Codable, Equatable, CaseIterable {
+    case up
+    case down
+    case upDown
+    case downUp
+    case random
+    case asPlayed
+}
+
+enum ArpRate: String, Codable, Equatable, CaseIterable {
+    case whole
+    case half
+    case quarter
+    case eighth
+    case sixteenth
+    case thirtySecond
+    case tripletEighth
+    case tripletSixteenth
+
+    /// How many beats each arp step lasts.
+    var beatsPerStep: Double {
+        switch self {
+        case .whole: return 4.0
+        case .half: return 2.0
+        case .quarter: return 1.0
+        case .eighth: return 0.5
+        case .sixteenth: return 0.25
+        case .thirtySecond: return 0.125
+        case .tripletEighth: return 1.0 / 3.0
+        case .tripletSixteenth: return 1.0 / 6.0
+        }
+    }
+}
+
+struct ArpConfig: Codable, Equatable {
+    var mode: ArpMode
+    var rate: ArpRate
+    var octaveRange: Int
+    var gateLength: Double
+
+    init(mode: ArpMode = .up, rate: ArpRate = .sixteenth, octaveRange: Int = 1, gateLength: Double = 0.5) {
+        self.mode = mode
+        self.rate = rate
+        self.octaveRange = octaveRange
+        self.gateLength = gateLength
+    }
+}
+
 // MARK: - Note Sequence
 
 struct NoteSequence: Codable, Equatable {
@@ -138,6 +188,8 @@ struct NoteSequence: Codable, Equatable {
     var mutation: MutationConfig?
     /// Per-cycle accumulator. nil = no accumulation.
     var accumulator: AccumulatorConfig?
+    /// Arpeggiator configuration. nil = normal step sequencer, non-nil = arp mode.
+    var arpConfig: ArpConfig?
 
     init(
         notes: [NoteEvent] = [],
@@ -147,7 +199,8 @@ struct NoteSequence: Codable, Equatable {
         pitchRange: PitchRange? = nil,
         playbackDirection: PlaybackDirection? = nil,
         mutation: MutationConfig? = nil,
-        accumulator: AccumulatorConfig? = nil
+        accumulator: AccumulatorConfig? = nil,
+        arpConfig: ArpConfig? = nil
     ) {
         self.notes = notes
         self.lengthInBeats = lengthInBeats
@@ -157,6 +210,7 @@ struct NoteSequence: Codable, Equatable {
         self.playbackDirection = playbackDirection
         self.mutation = mutation
         self.accumulator = accumulator
+        self.arpConfig = arpConfig
     }
 
     // Backward-compatible decoding
@@ -170,5 +224,6 @@ struct NoteSequence: Codable, Equatable {
         playbackDirection = try container.decodeIfPresent(PlaybackDirection.self, forKey: .playbackDirection)
         mutation = try container.decodeIfPresent(MutationConfig.self, forKey: .mutation)
         accumulator = try container.decodeIfPresent(AccumulatorConfig.self, forKey: .accumulator)
+        arpConfig = try container.decodeIfPresent(ArpConfig.self, forKey: .arpConfig)
     }
 }

@@ -149,6 +149,13 @@ final class NodeAudioUnit {
                 case .sequencerFreezeMutation:
                     seq.freezeMutation()
 
+                case .sequencerSetArp(let active, let samplesPerStep, let gateLength, let mode):
+                    seq.setArpConfig(active: active, samplesPerStep: samplesPerStep,
+                                     gateLength: gateLength, mode: mode)
+
+                case .sequencerSetArpPool(let pitches, let velocities):
+                    seq.setArpPool(pitches: pitches, velocities: velocities)
+
                 case .setFilter(let enabled, let cutoff, let reso):
                     filter.enabled = enabled
                     filter.cutoffHz = cutoff
@@ -309,6 +316,13 @@ final class NodeAudioUnit {
 
                 case .sequencerFreezeMutation:
                     seq.freezeMutation()
+
+                case .sequencerSetArp(let active, let samplesPerStep, let gateLength, let mode):
+                    seq.setArpConfig(active: active, samplesPerStep: samplesPerStep,
+                                     gateLength: gateLength, mode: mode)
+
+                case .sequencerSetArpPool(let pitches, let velocities):
+                    seq.setArpPool(pitches: pitches, velocities: velocities)
 
                 case .setFilter(let enabled, let cutoff, let reso):
                     filter.enabled = enabled
@@ -488,6 +502,15 @@ final class NodeAudioUnit {
 
     func setLFOSlotCount(_ count: Int) {
         commandBuffer.push(.setLFOSlotCount(count))
+    }
+
+    func setArpConfig(active: Bool, samplesPerStep: Int, gateLength: Double, mode: ArpMode) {
+        commandBuffer.push(.sequencerSetArp(active: active, samplesPerStep: samplesPerStep,
+                                            gateLength: gateLength, mode: mode))
+    }
+
+    func setArpPool(pitches: [Int], velocities: [Double]) {
+        commandBuffer.push(.sequencerSetArpPool(pitches: pitches, velocities: velocities))
     }
 
     func configureDrumVoice(index: Int, config: DrumVoiceConfig) {

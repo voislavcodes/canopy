@@ -135,6 +135,17 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.setPan(pan)
     }
 
+    /// Set arp config on a specific node's sequencer.
+    func setArpConfig(active: Bool, samplesPerStep: Int, gateLength: Double, mode: ArpMode, nodeID: UUID) {
+        graph.unit(for: nodeID)?.setArpConfig(active: active, samplesPerStep: samplesPerStep,
+                                               gateLength: gateLength, mode: mode)
+    }
+
+    /// Set arp pool data on a specific node's sequencer.
+    func setArpPool(pitches: [Int], velocities: [Double], nodeID: UUID) {
+        graph.unit(for: nodeID)?.setArpPool(pitches: pitches, velocities: velocities)
+    }
+
     /// Configure a single drum voice on a specific node.
     func configureDrumVoice(index: Int, config: DrumVoiceConfig, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureDrumVoice(index: index, config: config)

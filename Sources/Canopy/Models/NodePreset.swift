@@ -21,6 +21,7 @@ struct NodePreset: Identifiable, Equatable {
     let defaultPatch: SoundPatch
     let defaultLengthInBeats: Double
     let defaultPitchRange: PitchRange
+    let defaultArpConfig: ArpConfig?
 
     /// All built-in presets.
     static let builtIn: [NodePreset] = [
@@ -37,7 +38,8 @@ struct NodePreset: Identifiable, Equatable {
                 filter: FilterConfig(enabled: true, cutoff: 4000, resonance: 0.0)
             ),
             defaultLengthInBeats: 4,
-            defaultPitchRange: PitchRange(low: 60, high: 84) // C4–C6
+            defaultPitchRange: PitchRange(low: 60, high: 84), // C4–C6
+            defaultArpConfig: nil
         ),
         NodePreset(
             id: "bass",
@@ -52,7 +54,8 @@ struct NodePreset: Identifiable, Equatable {
                 filter: FilterConfig(enabled: true, cutoff: 800, resonance: 0.0)
             ),
             defaultLengthInBeats: 4,
-            defaultPitchRange: PitchRange(low: 28, high: 48) // E1–C3
+            defaultPitchRange: PitchRange(low: 28, high: 48), // E1–C3
+            defaultArpConfig: nil
         ),
         NodePreset(
             id: "drums",
@@ -66,7 +69,8 @@ struct NodePreset: Identifiable, Equatable {
                 envelope: EnvelopeConfig(attack: 0.001, decay: 0.1, sustain: 0.0, release: 0.05)
             ),
             defaultLengthInBeats: 4,
-            defaultPitchRange: PitchRange(low: 36, high: 52) // C2–E3
+            defaultPitchRange: PitchRange(low: 36, high: 52), // C2–E3
+            defaultArpConfig: nil
         ),
         NodePreset(
             id: "pad",
@@ -80,7 +84,8 @@ struct NodePreset: Identifiable, Equatable {
                 envelope: EnvelopeConfig(attack: 0.8, decay: 0.3, sustain: 0.7, release: 1.5)
             ),
             defaultLengthInBeats: 8,
-            defaultPitchRange: PitchRange(low: 48, high: 72) // C3–C5
+            defaultPitchRange: PitchRange(low: 48, high: 72), // C3–C5
+            defaultArpConfig: nil
         ),
         NodePreset(
             id: "arp",
@@ -95,7 +100,8 @@ struct NodePreset: Identifiable, Equatable {
                 filter: FilterConfig(enabled: true, cutoff: 6000, resonance: 0.0)
             ),
             defaultLengthInBeats: 4,
-            defaultPitchRange: PitchRange(low: 48, high: 84) // C3–C6
+            defaultPitchRange: PitchRange(low: 48, high: 84), // C3–C6
+            defaultArpConfig: ArpConfig(mode: .up, rate: .sixteenth, octaveRange: 1, gateLength: 0.5)
         ),
         NodePreset(
             id: "fx",
@@ -110,7 +116,8 @@ struct NodePreset: Identifiable, Equatable {
                 filter: FilterConfig(enabled: true, cutoff: 3000, resonance: 0.0)
             ),
             defaultLengthInBeats: 8,
-            defaultPitchRange: PitchRange(low: 24, high: 96) // C2–C7
+            defaultPitchRange: PitchRange(low: 24, high: 96), // C2–C7
+            defaultArpConfig: nil
         ),
     ]
 

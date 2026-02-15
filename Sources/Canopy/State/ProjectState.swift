@@ -91,6 +91,12 @@ class ProjectState: ObservableObject {
         }
 
         captureBuffer.clear()
+
+        // Rebuild arp pool if this node has arp enabled
+        if findNode(id: nodeID)?.sequence.arpConfig != nil {
+            rebuildArpPool(for: nodeID)
+        }
+
         return true
     }
 
@@ -234,7 +240,8 @@ class ProjectState: ObservableObject {
             type: preset.nodeType,
             sequence: NoteSequence(
                 lengthInBeats: preset.defaultLengthInBeats,
-                pitchRange: preset.defaultPitchRange
+                pitchRange: preset.defaultPitchRange,
+                arpConfig: preset.defaultArpConfig
             ),
             patch: preset.defaultPatch,
             position: parentPos,
@@ -288,6 +295,48 @@ class ProjectState: ObservableObject {
     func swapInput(nodeID: UUID, to mode: InputMode) {
         updateNode(id: nodeID) { $0.inputMode = mode }
         markDirty()
+    }
+
+    // MARK: - Arp Pool
+
+    /// Rebuild and send arp pool data to the audio engine for a node.
+    /// Call after any edit that changes the note pool (toggle, fill, capture, mode/octave change).
+    func rebuildArpPool(for nodeID: UUID) {
+        guard let node = findNode(id: nodeID),
+              let arpConfig = node.sequence.arpConfig else { return }
+
+        let sampleRate = AudioEngine.shared.sampleRate
+        guard sampleRate > 0 else { return }
+
+        // Calculate samples per arp step
+        let bpm = project.bpm
+        let beatsPerSecond = bpm / 60.0
+        let secondsPerStep = arpConfig.rate.beatsPerStep / beatsPerSecond
+        let samplesPerStep = max(1, Int(secondsPerStep * sampleRate))
+
+        // Send config
+        AudioEngine.shared.setArpConfig(
+            active: true,
+            samplesPerStep: samplesPerStep,
+            gateLength: arpConfig.gateLength,
+            mode: arpConfig.mode,
+            nodeID: nodeID
+        )
+
+        // Build and send pool
+        let pool = ArpNotePool.build(from: node.sequence, config: arpConfig)
+        AudioEngine.shared.setArpPool(
+            pitches: Array(pool.pitches.prefix(pool.count)),
+            velocities: Array(pool.velocities.prefix(pool.count)),
+            nodeID: nodeID
+        )
+    }
+
+    /// Disable arp on a node's audio engine sequencer.
+    func disableArp(for nodeID: UUID) {
+        AudioEngine.shared.setArpConfig(
+            active: false, samplesPerStep: 1, gateLength: 0.5, mode: .up, nodeID: nodeID
+        )
     }
 
     /// Compute the LCM of all nodes' sequence lengths (the natural polyrhythmic cycle).

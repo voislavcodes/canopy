@@ -161,6 +161,21 @@ final class TreeAudioGraph {
         )
         unit.setGlobalProbability(seq.globalProbability)
 
+        // Send arp config if present (uses default 120 BPM; recalculated on transport start)
+        if let arpConfig = seq.arpConfig {
+            let sampleRate = AudioEngine.shared.sampleRate
+            let bpm = 120.0
+            let beatsPerSecond = bpm / 60.0
+            let secondsPerStep = arpConfig.rate.beatsPerStep / beatsPerSecond
+            let samplesPerStep = max(1, Int(secondsPerStep * sampleRate))
+            unit.setArpConfig(active: true, samplesPerStep: samplesPerStep,
+                              gateLength: arpConfig.gateLength, mode: arpConfig.mode)
+
+            let pool = ArpNotePool.build(from: seq, config: arpConfig)
+            unit.setArpPool(pitches: Array(pool.pitches.prefix(pool.count)),
+                           velocities: Array(pool.velocities.prefix(pool.count)))
+        }
+
         for child in node.children {
             loadNodeSequenceRecursive(child)
         }

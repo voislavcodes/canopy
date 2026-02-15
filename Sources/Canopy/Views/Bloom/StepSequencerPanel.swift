@@ -30,6 +30,7 @@ struct StepSequencerPanel: View {
     @State private var localMutationAmount: Double = 0.0
     @State private var localAccAmount: Double = 1.0
     @State private var localAccLimit: Double = 12.0
+    @State private var localArpGate: Double = 0.5
 
     private var node: Node? {
         projectState.selectedNode
@@ -37,6 +38,10 @@ struct StepSequencerPanel: View {
 
     private var scaleAwareEnabled: Bool {
         projectState.project.scaleAwareEnabled
+    }
+
+    private var isArpActive: Bool {
+        node?.sequence.arpConfig != nil
     }
 
     /// The MIDI pitches to show as rows, highest first.
@@ -88,11 +93,11 @@ struct StepSequencerPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {
-            // Header: title, direction, S/E/R controls
+            // Header: title, direction/arp mode, S/E/R/arp controls
             HStack(spacing: 6 * cs) {
-                Text("SEQUENCE")
+                Text(isArpActive ? "ARP" : "SEQUENCE")
                     .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText)
+                    .foregroundColor(isArpActive ? CanopyColors.glowColor : CanopyColors.chromeText)
 
                 ModuleSwapButton(
                     options: [("Pitched", SequencerType.pitched), ("Drum", SequencerType.drum)],
@@ -104,12 +109,20 @@ struct StepSequencerPanel: View {
                 )
 
                 if node != nil {
-                    directionPicker
+                    if isArpActive {
+                        arpModePicker
+                    } else {
+                        directionPicker
+                    }
                 }
 
                 Spacer()
 
-                headerControls
+                if isArpActive {
+                    arpHeaderControls
+                } else {
+                    headerControls
+                }
             }
 
             if let node {
@@ -142,6 +155,11 @@ struct StepSequencerPanel: View {
                 }
             }
 
+            // Arp controls (rate, octave, gate) when arp active
+            if isArpActive {
+                arpDetailControls
+            }
+
             // Probability slider
             probabilitySlider
 
@@ -158,6 +176,7 @@ struct StepSequencerPanel: View {
             .buttonStyle(.plain)
 
             if showAdvanced {
+                arpToggleControl
                 mutationControls
                 accumulatorControls
             }
@@ -184,6 +203,7 @@ struct StepSequencerPanel: View {
         localMutationAmount = node.sequence.mutation?.amount ?? 0
         localAccAmount = node.sequence.accumulator?.amount ?? 1.0
         localAccLimit = node.sequence.accumulator?.limit ?? 12.0
+        localArpGate = node.sequence.arpConfig?.gateLength ?? 0.5
     }
 
     // MARK: - Header Controls (S / E / R / dice)
@@ -333,13 +353,17 @@ struct StepSequencerPanel: View {
     private func gridView(sequence: NoteSequence) -> some View {
         let lookup = noteEventLookup(for: sequence)
         let pitches = visiblePitches
+        let arpPitches: Set<Int> = isArpActive
+            ? Set(sequence.notes.map { $0.pitch })
+            : []
         return VStack(spacing: cellSpacing) {
             ForEach(pitches, id: \.self) { pitch in
+                let rowInPool = arpPitches.contains(pitch)
                 HStack(spacing: cellSpacing) {
                     ForEach(0..<displayColumns, id: \.self) { col in
                         let enabled = col < columns
                         let noteEvent = enabled ? lookup[pitch &* 1000 &+ col] : nil
-                        stepCell(pitch: pitch, step: col, noteEvent: noteEvent, sequence: sequence, enabled: enabled)
+                        stepCell(pitch: pitch, step: col, noteEvent: noteEvent, sequence: sequence, enabled: enabled, arpRowHighlight: rowInPool)
                     }
                 }
             }
@@ -375,7 +399,7 @@ struct StepSequencerPanel: View {
         .frame(height: 5 * cs, alignment: .bottom)
     }
 
-    private func stepCell(pitch: Int, step: Int, noteEvent: NoteEvent?, sequence: NoteSequence, enabled: Bool = true) -> some View {
+    private func stepCell(pitch: Int, step: Int, noteEvent: NoteEvent?, sequence: NoteSequence, enabled: Bool = true, arpRowHighlight: Bool = false) -> some View {
         let isActive = noteEvent != nil
         let isEuclidean = sequence.euclidean != nil && isActive
         let probability = noteEvent?.probability ?? 1.0
@@ -383,15 +407,19 @@ struct StepSequencerPanel: View {
         let dimFactor: Double = enabled ? 1.0 : 0.25
 
         let euclideanGreen = Color(red: 0.2, green: 0.7, blue: 0.4)
-        let baseColor = isEuclidean ? euclideanGreen : CanopyColors.gridCellActive
+        let arpCyan = Color(red: 0.2, green: 0.7, blue: 0.8)
+        let baseColor = isArpActive && isActive ? arpCyan : (isEuclidean ? euclideanGreen : CanopyColors.gridCellActive)
 
         let strokeColor: Color = isActive
             ? baseColor.opacity((probability * 0.8 + 0.2) * dimFactor)
             : CanopyColors.bloomPanelBorder.opacity(0.3 * dimFactor)
         let strokeWidth: CGFloat = isActive ? 1.5 : 0.5
+        let inactiveFill: Color = arpRowHighlight
+            ? arpCyan.opacity(0.04 * dimFactor)
+            : CanopyColors.gridCellInactive.opacity(dimFactor)
         let fillColor: Color = isActive
             ? baseColor.opacity(0.1 * dimFactor)
-            : CanopyColors.gridCellInactive.opacity(dimFactor)
+            : inactiveFill
 
         return ZStack {
             RoundedRectangle(cornerRadius: cellCornerRadius)
@@ -675,6 +703,215 @@ struct StepSequencerPanel: View {
         }
     }
 
+    // MARK: - Arp Mode Picker
+
+    private var arpModePicker: some View {
+        let currentMode = node?.sequence.arpConfig?.mode ?? .up
+        let modes: [(ArpMode, String, String)] = [
+            (.up, "\u{2191}", "Up"),
+            (.down, "\u{2193}", "Down"),
+            (.upDown, "\u{2195}", "Up-Down"),
+            (.downUp, "\u{21F5}", "Down-Up"),
+            (.random, "?", "Random"),
+            (.asPlayed, "\u{2192}", "As Played"),
+        ]
+
+        return HStack(spacing: 3 * cs) {
+            ForEach(modes, id: \.0) { mode, symbol, tooltip in
+                let isActive = currentMode == mode
+                Button(action: { setArpMode(mode) }) {
+                    Text(symbol)
+                        .font(.system(size: 11 * cs, weight: .medium, design: .monospaced))
+                        .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.4))
+                        .frame(width: 22 * cs, height: 18 * cs)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .fill(isActive ? CanopyColors.glowColor.opacity(0.15) : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .stroke(isActive ? CanopyColors.glowColor.opacity(0.3) : CanopyColors.bloomPanelBorder.opacity(0.15), lineWidth: 0.5)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(tooltip)
+            }
+        }
+    }
+
+    // MARK: - Arp Header Controls (replaces S/E/R when arp active)
+
+    private var arpHeaderControls: some View {
+        let arpConfig = node?.sequence.arpConfig ?? ArpConfig()
+        let octave = arpConfig.octaveRange
+
+        return HStack(spacing: 6 * cs) {
+            // Octave range
+            dragValue(label: "Oct", value: octave, range: 1...4,
+                      color: CanopyColors.glowColor.opacity(0.7)) { setArpOctave($0) }
+
+            // Steps (still useful for sequence length)
+            dragValue(label: "S", value: columns, range: 1...32) { changeLength(to: $0) }
+
+            Button(action: { randomFill() }) {
+                Image(systemName: "dice")
+                    .font(.system(size: 12 * cs))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                    .frame(width: 22 * cs, height: 18 * cs)
+            }
+            .buttonStyle(.plain)
+            .help("Random scale fill")
+        }
+    }
+
+    // MARK: - Arp Detail Controls (rate, gate)
+
+    private var arpDetailControls: some View {
+        let arpConfig = node?.sequence.arpConfig ?? ArpConfig()
+        let rates: [(ArpRate, String)] = [
+            (.whole, "1"), (.half, "1/2"), (.quarter, "1/4"),
+            (.eighth, "1/8"), (.sixteenth, "1/16"), (.thirtySecond, "1/32"),
+        ]
+
+        return VStack(alignment: .leading, spacing: 4 * cs) {
+            // Rate picker
+            HStack(spacing: 4 * cs) {
+                Text("RATE")
+                    .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+                ForEach(rates, id: \.0) { rate, label in
+                    let isActive = arpConfig.rate == rate
+                    Button(action: { setArpRate(rate) }) {
+                        Text(label)
+                            .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
+                            .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.4))
+                            .padding(.horizontal, 4 * cs)
+                            .padding(.vertical, 2 * cs)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3 * cs)
+                                    .fill(isActive ? CanopyColors.glowColor.opacity(0.15) : Color.clear)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Gate slider
+            HStack(spacing: 6 * cs) {
+                Text("GATE")
+                    .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+                seqSlider(value: $localArpGate, range: 0.05...1.0, onCommit: {
+                    commitArpGate()
+                }, onDrag: {
+                    guard let nodeID = projectState.selectedNodeID else { return }
+                    // Push gate change to audio engine during drag
+                    let arp = node?.sequence.arpConfig ?? ArpConfig()
+                    let sampleRate = AudioEngine.shared.sampleRate
+                    let bpm = projectState.project.bpm
+                    let beatsPerSecond = bpm / 60.0
+                    let secondsPerStep = arp.rate.beatsPerStep / beatsPerSecond
+                    let samplesPerStep = max(1, Int(secondsPerStep * sampleRate))
+                    AudioEngine.shared.setArpConfig(
+                        active: true, samplesPerStep: samplesPerStep,
+                        gateLength: localArpGate, mode: arp.mode, nodeID: nodeID
+                    )
+                })
+                    .frame(width: 100 * cs)
+
+                Text("\(Int(localArpGate * 100))%")
+                    .font(.system(size: 9 * cs, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.6))
+                    .frame(width: 30 * cs, alignment: .trailing)
+            }
+
+            // Pool preview
+            if let sequence = node?.sequence, let config = sequence.arpConfig {
+                Text(ArpNotePool.previewString(from: sequence, config: config))
+                    .font(.system(size: 8 * cs, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.4))
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    // MARK: - Arp Toggle (in Advanced section)
+
+    private var arpToggleControl: some View {
+        let enabled = isArpActive
+
+        return HStack(spacing: 6 * cs) {
+            Text("ARPEGGIATOR")
+                .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+            Spacer()
+
+            Button(action: { toggleArp() }) {
+                Image(systemName: enabled ? "checkmark.square" : "square")
+                    .font(.system(size: 10 * cs))
+                    .foregroundColor(enabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.5))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Arp Actions
+
+    private func setArpMode(_ mode: ArpMode) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.arpConfig?.mode = mode
+        }
+        projectState.rebuildArpPool(for: nodeID)
+    }
+
+    private func setArpRate(_ rate: ArpRate) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.arpConfig?.rate = rate
+        }
+        projectState.rebuildArpPool(for: nodeID)
+    }
+
+    private func setArpOctave(_ octave: Int) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.arpConfig?.octaveRange = octave
+        }
+        projectState.rebuildArpPool(for: nodeID)
+    }
+
+    private func commitArpGate() {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.arpConfig?.gateLength = localArpGate
+        }
+        projectState.rebuildArpPool(for: nodeID)
+    }
+
+    private func toggleArp() {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            if node.sequence.arpConfig != nil {
+                node.sequence.arpConfig = nil
+            } else {
+                node.sequence.arpConfig = ArpConfig()
+            }
+        }
+        if let node = projectState.findNode(id: nodeID) {
+            if node.sequence.arpConfig != nil {
+                projectState.rebuildArpPool(for: nodeID)
+            } else {
+                projectState.disableArp(for: nodeID)
+            }
+        }
+        syncSeqFromModel()
+        reloadSequence()
+    }
+
     // MARK: - Commit Helpers (write to ProjectState once on drag end)
 
     private func commitGlobalProbability() {
@@ -894,6 +1131,11 @@ struct StepSequencerPanel: View {
             scaleIntervals: key.mode.intervals,
             accumulatorConfig: seq.accumulator
         )
+
+        // Rebuild arp pool if arp is active
+        if seq.arpConfig != nil {
+            projectState.rebuildArpPool(for: nodeID)
+        }
     }
 
     // MARK: - Helpers
