@@ -8,6 +8,7 @@ struct KeyboardBarView: View {
     /// The currently selected node ID — keyboard plays into this node.
     var selectedNodeID: UUID?
     @ObservedObject var projectState: ProjectState
+    var transportState: TransportState
 
     @State private var pressedNotes: Set<Int> = []
 
@@ -81,6 +82,10 @@ struct KeyboardBarView: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            if selectedNodeID != nil {
+                captureControlsView
+            }
         }
         .padding(.horizontal, 12 * cs)
         .padding(.vertical, 10 * cs)
@@ -149,6 +154,8 @@ struct KeyboardBarView: View {
                             if let nodeID = selectedNodeID {
                                 AudioEngine.shared.noteOn(pitch: note, velocity: 0.8, nodeID: nodeID)
                             }
+                            let beat = projectState.currentCaptureBeat(bpm: transportState.bpm)
+                            projectState.captureBuffer.noteOn(pitch: note, velocity: 0.8, atBeat: beat)
                         }
                     }
                     .onEnded { _ in
@@ -156,6 +163,8 @@ struct KeyboardBarView: View {
                         if let nodeID = selectedNodeID {
                             AudioEngine.shared.noteOff(pitch: note, nodeID: nodeID)
                         }
+                        let beat = projectState.currentCaptureBeat(bpm: transportState.bpm)
+                        projectState.captureBuffer.noteOff(pitch: note, atBeat: beat)
                     }
             )
     }
@@ -175,6 +184,8 @@ struct KeyboardBarView: View {
                             if let nodeID = selectedNodeID {
                                 AudioEngine.shared.noteOn(pitch: note, velocity: 0.8, nodeID: nodeID)
                             }
+                            let beat = projectState.currentCaptureBeat(bpm: transportState.bpm)
+                            projectState.captureBuffer.noteOn(pitch: note, velocity: 0.8, atBeat: beat)
                         }
                     }
                     .onEnded { _ in
@@ -182,6 +193,8 @@ struct KeyboardBarView: View {
                         if let nodeID = selectedNodeID {
                             AudioEngine.shared.noteOff(pitch: note, nodeID: nodeID)
                         }
+                        let beat = projectState.currentCaptureBeat(bpm: transportState.bpm)
+                        projectState.captureBuffer.noteOff(pitch: note, atBeat: beat)
                     }
             )
     }
@@ -228,6 +241,8 @@ struct KeyboardBarView: View {
                         if let nodeID = selectedNodeID {
                             AudioEngine.shared.noteOn(pitch: note, velocity: 0.8, nodeID: nodeID)
                         }
+                        let beat = projectState.currentCaptureBeat(bpm: transportState.bpm)
+                        projectState.captureBuffer.noteOn(pitch: note, velocity: 0.8, atBeat: beat)
                     }
                 }
                 .onEnded { _ in
@@ -235,7 +250,99 @@ struct KeyboardBarView: View {
                     if let nodeID = selectedNodeID {
                         AudioEngine.shared.noteOff(pitch: note, nodeID: nodeID)
                     }
+                    let beat = projectState.currentCaptureBeat(bpm: transportState.bpm)
+                    projectState.captureBuffer.noteOff(pitch: note, atBeat: beat)
                 }
+        )
+    }
+
+    // MARK: - Capture Controls
+
+    private var captureControlsView: some View {
+        let hasContent = !projectState.captureBuffer.isEmpty
+
+        return HStack(spacing: 8) {
+            // Capture button
+            Button(action: {
+                if projectState.capturePerformance() {
+                    reloadSequenceAfterCapture()
+                }
+            }) {
+                Circle()
+                    .fill(hasContent
+                          ? Color(red: 0.7, green: 0.2, blue: 0.2)
+                          : Color(red: 0.3, green: 0.3, blue: 0.3))
+                    .frame(width: 20, height: 20)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            // Quantize strength
+            Text("Q")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+            Slider(value: $projectState.captureQuantizeStrength, in: 0...1)
+                .frame(width: 60)
+                .tint(Color(red: 0.4, green: 0.6, blue: 0.45))
+
+            Text("\(Int(projectState.captureQuantizeStrength * 100))%")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                .frame(width: 28, alignment: .trailing)
+
+            // Mode toggle
+            HStack(spacing: 2) {
+                modeButton(label: "R", mode: .replace)
+                modeButton(label: "M", mode: .merge)
+            }
+        }
+    }
+
+    private func modeButton(label: String, mode: CaptureMode) -> some View {
+        let isActive = projectState.captureMode == mode
+        return Button(action: { projectState.captureMode = mode }) {
+            Text(label)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(isActive ? Color.white : CanopyColors.chromeText.opacity(0.4))
+                .frame(width: 18, height: 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(isActive
+                              ? Color(red: 0.3, green: 0.5, blue: 0.35)
+                              : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func reloadSequenceAfterCapture() {
+        guard let node = projectState.selectedNode,
+              let nodeID = projectState.selectedNodeID else { return }
+        let seq = node.sequence
+        let events = seq.notes.map { event in
+            SequencerEvent(
+                pitch: event.pitch,
+                velocity: event.velocity,
+                startBeat: event.startBeat,
+                endBeat: event.startBeat + event.duration,
+                probability: event.probability,
+                ratchetCount: event.ratchetCount
+            )
+        }
+        let key = resolvedKey
+        let mutation = seq.mutation
+        AudioEngine.shared.loadSequence(
+            events, lengthInBeats: seq.lengthInBeats, nodeID: nodeID,
+            direction: seq.playbackDirection ?? .forward,
+            mutationAmount: mutation?.amount ?? 0,
+            mutationRange: mutation?.range ?? 0,
+            scaleRootSemitone: key.root.semitone,
+            scaleIntervals: key.mode.intervals,
+            accumulatorConfig: seq.accumulator
         )
     }
 }

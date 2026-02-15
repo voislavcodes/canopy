@@ -28,6 +28,11 @@ struct MainContentView: View {
         .onChange(of: projectState.selectedNodeID) { _ in
             handleNodeSelectionChange()
         }
+        .onChange(of: transportState.isPlaying) { isPlaying in
+            if !isPlaying {
+                projectState.resetFreeRunningClock()
+            }
+        }
     }
 
     // MARK: - Audio Graph Sync

@@ -22,6 +22,81 @@ class ProjectState: ObservableObject {
     /// When true, the computer keyboard acts as a MIDI piano input.
     @Published var computerKeyboardEnabled: Bool = false
 
+    // MARK: - MIDI Capture state (not persisted)
+
+    /// Always-listening circular buffer that records keyboard note events.
+    let captureBuffer = MIDICaptureBuffer()
+    /// Quantize strength for capture (0.0 = raw, 1.0 = snap to grid).
+    @Published var captureQuantizeStrength: Double = 0.75
+    /// How captured notes are written into the sequence.
+    @Published var captureMode: CaptureMode = .replace
+    /// Wall-clock reference for free-running beat calculation.
+    private var freeRunningBeatRef: Date = Date()
+
+    /// Compute current beat position from wall-clock time (avoids audio engine loop wrapping).
+    func currentCaptureBeat(bpm: Double) -> Double {
+        let elapsed = Date().timeIntervalSince(freeRunningBeatRef)
+        return elapsed * bpm / 60.0
+    }
+
+    /// Reset the free-running clock reference (called when transport stops).
+    func resetFreeRunningClock() {
+        freeRunningBeatRef = Date()
+    }
+
+    /// Capture the current buffer contents into the focused node's sequence.
+    /// Adjusts the sequence length to fit the performance (up to 32 steps / 8 beats).
+    /// Returns false if buffer is empty or no node is selected.
+    func capturePerformance() -> Bool {
+        guard !captureBuffer.isEmpty,
+              let nodeID = selectedNodeID,
+              let node = findNode(id: nodeID) else {
+            return false
+        }
+
+        let key = resolveKeyForNode(node)
+        let sd = NoteSequence.stepDuration
+        let maxBeats = 32.0 * sd  // 8 beats = 32 steps
+
+        // Compute target length from the buffer span
+        let targetLength = PhraseDetector.spanLength(from: captureBuffer, maxBeats: maxBeats)
+        guard targetLength > 0 else { return false }
+
+        // Extract phrase fitted to the computed length
+        let phrase = PhraseDetector.extractPhrase(from: captureBuffer, lengthInBeats: targetLength)
+        guard !phrase.isEmpty else { return false }
+
+        // Quantize to grid and scale
+        let quantized = CaptureQuantizer.quantize(
+            events: phrase,
+            strength: captureQuantizeStrength,
+            key: key,
+            lengthInBeats: targetLength
+        )
+        guard !quantized.isEmpty else { return false }
+
+        // Write to node — update both notes and sequence length
+        updateNode(id: nodeID) { node in
+            node.sequence.lengthInBeats = targetLength
+            switch self.captureMode {
+            case .replace:
+                node.sequence.notes = quantized
+            case .merge:
+                node.sequence.notes.append(contentsOf: quantized)
+            }
+        }
+
+        captureBuffer.clear()
+        return true
+    }
+
+    /// Resolve the musical key for a node (node override → tree scale → global key).
+    private func resolveKeyForNode(_ node: Node) -> MusicalKey {
+        if let override = node.scaleOverride { return override }
+        if let tree = project.trees.first, let treeScale = tree.scale { return treeScale }
+        return project.globalKey
+    }
+
     // MARK: - Cached computations (invalidated on project mutation)
 
     private var _cachedAllNodes: [Node]?

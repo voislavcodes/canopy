@@ -173,6 +173,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 heldKeyNotes[chars] = midiNote
                 projectState.computerKeyPressedNotes.insert(midiNote)
                 AudioEngine.shared.noteOn(pitch: midiNote, velocity: 0.8, nodeID: nodeID)
+                let beat = projectState.currentCaptureBeat(bpm: transportState.bpm)
+                projectState.captureBuffer.noteOn(pitch: midiNote, velocity: 0.8, atBeat: beat)
                 return true
             }
         }
@@ -191,6 +193,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let nodeID = projectState.selectedNodeID {
                 AudioEngine.shared.noteOff(pitch: midiNote, nodeID: nodeID)
             }
+            let beat = projectState.currentCaptureBeat(bpm: transportState.bpm)
+            projectState.captureBuffer.noteOff(pitch: midiNote, atBeat: beat)
             return true
         }
 
