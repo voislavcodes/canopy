@@ -83,45 +83,25 @@ struct ModulatorStripView: View {
         }
         .coordinateSpace(name: stripCoordSpace)
         .onPreferenceChange(ChipFramePreferenceKey.self) { chipFrames = $0 }
-        // Popover anchored above the selected chip
-        .overlayPreferenceValue(ChipFramePreferenceKey.self) { _ in
+        // Popover: GeometryReader overlay so we get the full strip coordinate space.
+        // position() places the popover center at (chipMidX, -measuredHeight/2 - 4),
+        // which puts the popover's bottom edge 4px above the strip's top border.
+        .overlay {
             if let lfoID = projectState.selectedLFOID,
                let lfo = projectState.project.lfos.first(where: { $0.id == lfoID }),
                let chipFrame = chipFrames[lfoID] {
-                LFOPopoverPanel(lfo: lfo, projectState: projectState)
+                LFOPopoverPanel(lfo: lfo, projectState: projectState, measuredHeight: $popoverHeight)
                     .fixedSize()
-                    .alignmentGuide(HorizontalAlignment.center) { d in d.width / 2 }
                     .position(
                         x: chipFrame.midX,
-                        y: -4  // 4px above the strip top edge
+                        y: -(popoverHeight / 2) - 4
                     )
-                    .anchorPopoverBottom()
                     .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
             }
         }
     }
-}
 
-/// Helper to measure the popover height and offset it so its bottom edge is at the position point.
-private struct BottomAnchoredModifier: ViewModifier {
-    @State private var height: CGFloat = 0
-
-    func body(content: Content) -> some View {
-        content
-            .background(
-                GeometryReader { geo in
-                    Color.clear.onAppear { height = geo.size.height }
-                        .onChange(of: geo.size.height) { height = $0 }
-                }
-            )
-            .offset(y: -height / 2)
-    }
-}
-
-private extension View {
-    func anchorPopoverBottom() -> some View {
-        modifier(BottomAnchoredModifier())
-    }
+    @State private var popoverHeight: CGFloat = 300
 }
 
 // MARK: - LFO Chip
@@ -178,6 +158,7 @@ private struct LFOChipView: View {
 private struct LFOPopoverPanel: View {
     let lfo: LFODefinition
     @ObservedObject var projectState: ProjectState
+    @Binding var measuredHeight: CGFloat
 
     @State private var localRate: Double = 1.0
     @State private var localPhase: Double = 0.0
@@ -295,6 +276,13 @@ private struct LFOPopoverPanel: View {
                 .stroke(lfoColor(lfo.colorIndex).opacity(0.3), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { measuredHeight = geo.size.height }
+                    .onChange(of: geo.size.height) { measuredHeight = $0 }
+            }
+        )
         .contentShape(Rectangle())
         .onTapGesture { } // Prevent tap-through
         .onAppear { syncFromLFO() }
