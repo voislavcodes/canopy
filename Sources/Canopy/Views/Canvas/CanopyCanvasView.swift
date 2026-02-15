@@ -13,7 +13,13 @@ struct CanopyCanvasView: View {
     private let canvasCornerRadius: CGFloat = 16
 
     private func centerOffset(viewSize: CGSize) -> CGSize {
-        CGSize(width: viewSize.width / 2, height: viewSize.height * 0.7)
+        // Adapt vertical centering to tree depth: lone seed sits at 0.5 (center),
+        // deep trees shift root down toward 0.7 so upward branches stay visible.
+        let minY = projectState.allNodes().map(\.position.y).min() ?? 0
+        let depth = abs(minY)  // how far up the tree extends
+        let t = min(1, depth / 500)  // normalize: 0 for single node, 1 at ~3 levels deep
+        let verticalFraction = 0.5 + 0.2 * t  // 0.5 → 0.7
+        return CGSize(width: viewSize.width / 2, height: viewSize.height * verticalFraction)
     }
 
     var body: some View {
