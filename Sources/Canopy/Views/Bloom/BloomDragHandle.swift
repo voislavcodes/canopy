@@ -34,9 +34,11 @@ struct BloomDragHandle: View {
         }
         .frame(height: 22)
         .background(
-            CanopyColors.bloomPanelBackground.opacity(0.9)
-                .overlay(isHovering ? CanopyColors.chromeText.opacity(0.06) : Color.clear)
+            isHovering
+                ? CanopyColors.chromeText.opacity(0.06)
+                : Color.clear
         )
+        .clipShape(TopRoundedRect(radius: 10))
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
@@ -110,5 +112,26 @@ struct DraggableBloomPanel<Content: View>: View {
                 )
                 bloomState.panelOffsets[nodeID] = current
             }
+    }
+}
+
+/// Rectangle with only the top two corners rounded. macOS 13 compatible.
+private struct TopRoundedRect: Shape {
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY),
+                    tangent2End: CGPoint(x: rect.minX + radius, y: rect.minY),
+                    radius: radius)
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
+                    tangent2End: CGPoint(x: rect.maxX, y: rect.minY + radius),
+                    radius: radius)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
