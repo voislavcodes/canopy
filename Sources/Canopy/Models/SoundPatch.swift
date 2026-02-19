@@ -118,9 +118,112 @@ struct DrumKitConfig: Codable, Equatable {
     }
 }
 
+/// West Coast primary oscillator waveform (sine or triangle only).
+enum WCWaveform: String, Codable, Equatable {
+    case sine
+    case triangle
+}
+
+/// Low-pass gate operating mode.
+enum LPGMode: String, Codable, Equatable {
+    case filter
+    case vca
+    case both
+}
+
+/// Function generator shape (rise/fall curve).
+enum FuncShape: String, Codable, Equatable {
+    case linear
+    case exponential
+    case logarithmic
+}
+
+/// West Coast complex oscillator configuration.
+/// Signal chain: primary osc → FM/ring mod → wavefolder → LPG → output.
+struct WestCoastConfig: Codable, Equatable {
+    // Primary oscillator
+    var primaryWaveform: WCWaveform
+    var modulatorRatio: Double      // freq multiplier (0.1–16.0)
+    var modulatorFineTune: Double   // cents (-100 to +100)
+
+    // FM synthesis
+    var fmDepth: Double             // modulation index (0–20)
+    var envToFM: Double             // function gen → FM depth (0–1)
+
+    // Ring modulation
+    var ringModMix: Double          // 0–1
+
+    // Wavefolder
+    var foldAmount: Double          // 0–1 (0 = bypass)
+    var foldStages: Int             // 1–6
+    var foldSymmetry: Double        // 0–1 (0.5 = symmetric)
+    var modToFold: Double           // modulator → fold amount (0–1)
+
+    // Low Pass Gate (vactrol model)
+    var lpgMode: LPGMode
+    var strike: Double              // attack intensity (0–1)
+    var damp: Double                // decay time control (0–1, maps to 50ms–2000ms)
+    var color: Double               // filter brightness (0–1)
+
+    // Function generator (replaces ADSR)
+    var rise: Double                // rise time in seconds (0.001–5.0)
+    var fall: Double                // fall time in seconds (0.01–10.0)
+    var funcShape: FuncShape
+    var funcLoop: Bool              // true = LFO mode
+
+    // Output
+    var volume: Double              // 0–1
+    var pan: Double                 // -1 to +1
+
+    init(
+        primaryWaveform: WCWaveform = .sine,
+        modulatorRatio: Double = 1.0,
+        modulatorFineTune: Double = 0,
+        fmDepth: Double = 3.0,
+        envToFM: Double = 0.5,
+        ringModMix: Double = 0.0,
+        foldAmount: Double = 0.3,
+        foldStages: Int = 2,
+        foldSymmetry: Double = 0.5,
+        modToFold: Double = 0.0,
+        lpgMode: LPGMode = .both,
+        strike: Double = 0.7,
+        damp: Double = 0.4,
+        color: Double = 0.6,
+        rise: Double = 0.005,
+        fall: Double = 0.3,
+        funcShape: FuncShape = .exponential,
+        funcLoop: Bool = false,
+        volume: Double = 0.8,
+        pan: Double = 0.0
+    ) {
+        self.primaryWaveform = primaryWaveform
+        self.modulatorRatio = modulatorRatio
+        self.modulatorFineTune = modulatorFineTune
+        self.fmDepth = fmDepth
+        self.envToFM = envToFM
+        self.ringModMix = ringModMix
+        self.foldAmount = foldAmount
+        self.foldStages = foldStages
+        self.foldSymmetry = foldSymmetry
+        self.modToFold = modToFold
+        self.lpgMode = lpgMode
+        self.strike = strike
+        self.damp = damp
+        self.color = color
+        self.rise = rise
+        self.fall = fall
+        self.funcShape = funcShape
+        self.funcLoop = funcLoop
+        self.volume = volume
+        self.pan = pan
+    }
+}
+
 enum SoundType: Codable, Equatable {
     case oscillator(OscillatorConfig)
     case drumKit(DrumKitConfig)
+    case westCoast(WestCoastConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }

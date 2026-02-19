@@ -210,6 +210,11 @@ struct CanopyCanvasView: View {
             return false
         }()
 
+        let isWestCoastEngine: Bool = {
+            if case .westCoast = node.patch.soundType { return true }
+            return false
+        }()
+
         // Resolve effective module types (override or derive from SoundType)
         let effectiveSeqType = node.sequencerType ?? (isDrumEngine ? .drum : .pitched)
         let effectiveInputMode = node.inputMode ?? (isDrumEngine ? .padGrid : .keyboard)
@@ -230,6 +235,8 @@ struct CanopyCanvasView: View {
             Group {
                 if isDrumEngine {
                     DrumVoicePanel(projectState: projectState)
+                } else if isWestCoastEngine {
+                    WestCoastPanel(projectState: projectState)
                 } else {
                     SynthControlsPanel(projectState: projectState)
                 }
@@ -311,6 +318,8 @@ struct CanopyCanvasView: View {
                 volume: newNode.patch.volume,
                 nodeID: newNode.id
             )
+        case .westCoast(let config):
+            AudioEngine.shared.configureWestCoast(config, nodeID: newNode.id)
         default:
             break
         }

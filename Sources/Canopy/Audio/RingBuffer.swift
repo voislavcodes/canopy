@@ -40,6 +40,16 @@ enum AudioCommand {
     case setDrumVoice(index: Int, carrierFreq: Double, modulatorRatio: Double,
                       fmDepth: Double, noiseMix: Double, ampDecay: Double,
                       pitchEnvAmount: Double, pitchDecay: Double, level: Double)
+
+    // West Coast complex oscillator configuration
+    // All enums encoded as Int: primaryWaveform (0=sine,1=tri), lpgMode (0=filter,1=vca,2=both), funcShape (0=lin,1=exp,2=log)
+    case setWestCoast(primaryWaveform: Int, modulatorRatio: Double, modulatorFineTune: Double,
+                      fmDepth: Double, envToFM: Double,
+                      ringModMix: Double,
+                      foldAmount: Double, foldStages: Int, foldSymmetry: Double, modToFold: Double,
+                      lpgMode: Int, strike: Double, damp: Double, color: Double,
+                      rise: Double, fall: Double, funcShape: Int, funcLoop: Bool,
+                      volume: Double)
 }
 
 /// Lock-free single-producer single-consumer ring buffer for AudioCommands.

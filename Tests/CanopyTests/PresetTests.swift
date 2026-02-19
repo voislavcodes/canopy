@@ -6,7 +6,7 @@ final class PresetTests: XCTestCase {
     // MARK: - Built-in Presets
 
     func testAllBuiltInPresetsExist() {
-        XCTAssertEqual(NodePreset.builtIn.count, 6)
+        XCTAssertEqual(NodePreset.builtIn.count, 7)
         let ids = NodePreset.builtIn.map(\.id)
         XCTAssertTrue(ids.contains("melody"))
         XCTAssertTrue(ids.contains("bass"))
@@ -14,6 +14,7 @@ final class PresetTests: XCTestCase {
         XCTAssertTrue(ids.contains("pad"))
         XCTAssertTrue(ids.contains("arp"))
         XCTAssertTrue(ids.contains("fx"))
+        XCTAssertTrue(ids.contains("west"))
     }
 
     func testMelodyPresetDefaults() {

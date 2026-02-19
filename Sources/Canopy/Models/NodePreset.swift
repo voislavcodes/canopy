@@ -8,6 +8,7 @@ enum PresetColor: String, Codable, CaseIterable, Equatable {
     case green
     case cyan
     case pink
+    case indigo
 }
 
 /// Static preset definitions that give each branch a character.
@@ -117,6 +118,20 @@ struct NodePreset: Identifiable, Equatable {
             ),
             defaultLengthInBeats: 8,
             defaultPitchRange: PitchRange(low: 24, high: 96), // C2–C7
+            defaultArpConfig: nil
+        ),
+        NodePreset(
+            id: "west",
+            name: "West",
+            icon: "waveform.path.ecg.rectangle",
+            color: .indigo,
+            nodeType: .melodic,
+            defaultPatch: SoundPatch(
+                name: "West",
+                soundType: .westCoast(WestCoastConfig())
+            ),
+            defaultLengthInBeats: 8,
+            defaultPitchRange: PitchRange(low: 48, high: 84), // C3–C6
             defaultArpConfig: nil
         ),
     ]

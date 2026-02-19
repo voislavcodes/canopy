@@ -151,6 +151,11 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.configureDrumVoice(index: index, config: config)
     }
 
+    /// Configure West Coast parameters on a specific node.
+    func configureWestCoast(_ config: WestCoastConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureWestCoast(config)
+    }
+
     /// Update the filter on a specific node.
     func configureFilter(enabled: Bool, cutoff: Double, resonance: Double, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureFilter(enabled: enabled, cutoff: cutoff, resonance: resonance)

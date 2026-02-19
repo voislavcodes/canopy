@@ -38,12 +38,14 @@ struct DrumVoicePanel: View {
                     .foregroundColor(CanopyColors.chromeText)
 
                 ModuleSwapButton(
-                    options: [("Oscillator", "osc"), ("Drum Kit", "drum")],
-                    current: drumKitConfig != nil ? "drum" : "osc",
+                    options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west")],
+                    current: "drum",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
                         if type == "osc" {
                             projectState.swapEngine(nodeID: nodeID, to: .oscillator(OscillatorConfig()))
+                        } else if type == "west" {
+                            projectState.swapEngine(nodeID: nodeID, to: .westCoast(WestCoastConfig()))
                         }
                     }
                 )

@@ -27,7 +27,7 @@ final class NodeAudioUnit {
 
     private static let logger = Logger(subsystem: "com.canopy", category: "NodeAudioUnit")
 
-    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false) {
+    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false) {
         self.nodeID = nodeID
         self.commandBuffer = AudioCommandRingBuffer(capacity: 256)
 
@@ -40,7 +40,12 @@ final class NodeAudioUnit {
         let playingPtr = self._isPlaying
         let panPtr = self._pan
 
-        if isDrumKit {
+        if isWestCoast {
+            self.sourceNode = Self.makeWestCoastSourceNode(
+                cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
+                panPtr: panPtr, sampleRate: sampleRate
+            )
+        } else if isDrumKit {
             self.sourceNode = Self.makeDrumKitSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, sampleRate: sampleRate
@@ -172,6 +177,9 @@ final class NodeAudioUnit {
                     lfoBank.slotCount = count
 
                 case .setDrumVoice:
+                    break // ignored in oscillator path
+
+                case .setWestCoast:
                     break // ignored in oscillator path
                 }
             }
@@ -347,6 +355,9 @@ final class NodeAudioUnit {
                                           noiseMix: noiseMix, ampDecay: ampDecay,
                                           pitchEnvAmount: pitchEnvAmount, pitchDecay: pitchDecay,
                                           level: level)
+
+                case .setWestCoast:
+                    break // ignored in drum kit path
                 }
             }
 
@@ -388,6 +399,183 @@ final class NodeAudioUnit {
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = drumKit.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+                    let sample = filter.process(raw)
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                        }
+                    }
+                }
+            }
+
+            beatPtr.pointee = seq.currentBeat
+            playingPtr.pointee = seq.isPlaying
+
+            return noErr
+        }
+    }
+
+    // MARK: - West Coast Render Path
+
+    private static func makeWestCoastSourceNode(
+        cmdBuffer: AudioCommandRingBuffer,
+        beatPtr: UnsafeMutablePointer<Double>,
+        playingPtr: UnsafeMutablePointer<Bool>,
+        panPtr: UnsafeMutablePointer<Float>,
+        sampleRate: Double
+    ) -> AVAudioSourceNode {
+        var westCoast = WestCoastVoiceManager()
+        var seq = Sequencer()
+        var filter = MoogLadderFilter()
+        var lfoBank = LFOBank()
+        var volume: Double = 0.8
+        var volumeSmoothed: Double = 0.8
+        let sr = sampleRate
+        let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+
+        return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            let pan = panPtr.pointee
+            let angle = Double((pan + 1) * 0.5) * .pi * 0.5
+            let gainL = Float(cos(angle))
+            let gainR = Float(sin(angle))
+
+            // Drain command buffer
+            while let cmd = cmdBuffer.pop() {
+                switch cmd {
+                case .noteOn(let pitch, let velocity):
+                    westCoast.noteOn(pitch: pitch, velocity: velocity, frequency: 0)
+
+                case .noteOff(let pitch):
+                    westCoast.noteOff(pitch: pitch)
+
+                case .allNotesOff:
+                    westCoast.allNotesOff()
+
+                case .setPatch(_, _, _, _, _, _, let newVolume):
+                    volume = newVolume
+
+                case .sequencerStart(let bpm):
+                    seq.start(bpm: bpm)
+
+                case .sequencerStop:
+                    seq.stop()
+                    westCoast.allNotesOff()
+
+                case .sequencerSetBPM(let bpm):
+                    seq.bpm = bpm
+
+                case .sequencerLoad(let events, let lengthInBeats,
+                                    let direction, let mutationAmount, let mutationRange,
+                                    let scaleRootSemitone, let scaleIntervals,
+                                    let accumulatorConfig):
+                    westCoast.allNotesOff()
+                    seq.load(events: events, lengthInBeats: lengthInBeats,
+                             direction: direction,
+                             mutationAmount: mutationAmount, mutationRange: mutationRange,
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
+                             accumulatorConfig: accumulatorConfig)
+
+                case .sequencerSetGlobalProbability(let prob):
+                    seq.globalProbability = prob
+
+                case .sequencerSetMutation(let amount, let range, let rootSemitone, let intervals):
+                    seq.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
+
+                case .sequencerResetMutation:
+                    seq.resetMutation()
+
+                case .sequencerFreezeMutation:
+                    seq.freezeMutation()
+
+                case .sequencerSetArp(let active, let samplesPerStep, let gateLength, let mode):
+                    seq.setArpConfig(active: active, samplesPerStep: samplesPerStep,
+                                     gateLength: gateLength, mode: mode)
+
+                case .sequencerSetArpPool(let pitches, let velocities, let startBeats, let endBeats):
+                    seq.setArpPool(pitches: pitches, velocities: velocities, startBeats: startBeats, endBeats: endBeats)
+
+                case .setFilter(let enabled, let cutoff, let reso):
+                    filter.enabled = enabled
+                    filter.cutoffHz = cutoff
+                    filter.resonance = reso
+                    filter.updateCoefficients(sampleRate: sr)
+
+                case .setLFOSlot(let slotIndex, let enabled, let waveform,
+                                 let rateHz, let initialPhase, let depth, let parameter):
+                    lfoBank.configureSlot(slotIndex, enabled: enabled, waveform: waveform,
+                                          rateHz: rateHz, initialPhase: initialPhase,
+                                          depth: depth, parameter: parameter)
+
+                case .setLFOSlotCount(let count):
+                    lfoBank.slotCount = count
+
+                case .setDrumVoice:
+                    break // ignored in west coast path
+
+                case .setWestCoast(let primaryWaveform, let modulatorRatio, let modulatorFineTune,
+                                   let fmDepth, let envToFM,
+                                   let ringModMix,
+                                   let foldAmount, let foldStages, let foldSymmetry, let modToFold,
+                                   let lpgMode, let strike, let damp, let color,
+                                   let rise, let fall, let funcShape, let funcLoop,
+                                   let newVolume):
+                    volume = newVolume
+                    westCoast.configureWestCoast(
+                        primaryWaveform: primaryWaveform, modulatorRatio: modulatorRatio,
+                        modulatorFineTune: modulatorFineTune,
+                        fmDepth: fmDepth, envToFM: envToFM,
+                        ringModMix: ringModMix,
+                        foldAmount: foldAmount, foldStages: foldStages,
+                        foldSymmetry: foldSymmetry, modToFold: modToFold,
+                        lpgMode: lpgMode, strike: strike, damp: damp, color: color,
+                        rise: rise, fall: fall, funcShape: funcShape, funcLoop: funcLoop
+                    )
+                }
+            }
+
+            // Render loop — same LFO branching as other paths
+            if lfoBank.slotCount > 0 {
+                for frame in 0..<Int(frameCount) {
+                    seq.advanceOneSample(sampleRate: sr, receiver: &westCoast, detune: 0)
+                    let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
+                    _ = resMod
+
+                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
+                    let raw = westCoast.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+
+                    let sample: Float
+                    if cutMod != 0 {
+                        sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
+                    } else {
+                        sample = filter.process(raw)
+                    }
+
+                    let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
+                    let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
+                    let modGainL = Float(cos(modAngle))
+                    let modGainR = Float(sin(modAngle))
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                        }
+                    }
+                }
+            } else {
+                for frame in 0..<Int(frameCount) {
+                    seq.advanceOneSample(sampleRate: sr, receiver: &westCoast, detune: 0)
+
+                    volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                    let raw = westCoast.renderSample(sampleRate: sr) * Float(volumeSmoothed)
                     let sample = filter.process(raw)
 
                     if ablPointer.count >= 2 {
@@ -520,6 +708,37 @@ final class NodeAudioUnit {
             noiseMix: config.noiseMix, ampDecay: config.ampDecay,
             pitchEnvAmount: config.pitchEnvAmount, pitchDecay: config.pitchDecay,
             level: config.level
+        ))
+    }
+
+    func configureWestCoast(_ config: WestCoastConfig) {
+        let wfInt: Int
+        switch config.primaryWaveform {
+        case .sine: wfInt = 0
+        case .triangle: wfInt = 1
+        }
+        let lpgInt: Int
+        switch config.lpgMode {
+        case .filter: lpgInt = 0
+        case .vca: lpgInt = 1
+        case .both: lpgInt = 2
+        }
+        let shapeInt: Int
+        switch config.funcShape {
+        case .linear: shapeInt = 0
+        case .exponential: shapeInt = 1
+        case .logarithmic: shapeInt = 2
+        }
+        commandBuffer.push(.setWestCoast(
+            primaryWaveform: wfInt, modulatorRatio: config.modulatorRatio,
+            modulatorFineTune: config.modulatorFineTune,
+            fmDepth: config.fmDepth, envToFM: config.envToFM,
+            ringModMix: config.ringModMix,
+            foldAmount: config.foldAmount, foldStages: config.foldStages,
+            foldSymmetry: config.foldSymmetry, modToFold: config.modToFold,
+            lpgMode: lpgInt, strike: config.strike, damp: config.damp, color: config.color,
+            rise: config.rise, fall: config.fall, funcShape: shapeInt, funcLoop: config.funcLoop,
+            volume: config.volume
         ))
     }
 }
