@@ -267,16 +267,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Spacebar → transport toggle (always, unless editing text)
         if event.keyCode == 49 && !isEditing {
-            transportState.togglePlayback()
+            if !event.isARepeat {
+                transportState.togglePlayback()
+            }
             return true
         }
 
         // Everything below requires computer keyboard mode ON
         guard projectState.computerKeyboardEnabled,
               !isEditing,
-              !chars.isEmpty,
-              !event.isARepeat else {
+              !chars.isEmpty else {
             return false
+        }
+
+        // Consume key-repeat events to prevent macOS error sound,
+        // but don't re-trigger noteOn or repeat octave/other actions.
+        if event.isARepeat {
+            return heldKeyNotes[chars] != nil || chars == ";" || chars == "'"
+                || Self.keyToSemitone[chars] != nil || Self.keyToScaleDegree[chars] != nil
         }
 
         // Octave control
