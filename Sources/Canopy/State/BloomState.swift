@@ -43,6 +43,15 @@ class BloomState: ObservableObject {
         focusedPanel = nil
     }
 
+    /// Cycle focused panel by direction (-1 = left, +1 = right). Wraps around.
+    func cycleFocusedPanel(direction: Int) {
+        guard let current = focusedPanel else { return }
+        let panels = BloomPanel.allCases
+        guard let idx = panels.firstIndex(of: current) else { return }
+        let next = (idx + direction + panels.count) % panels.count
+        focusedPanel = panels[next]
+    }
+
     // MARK: - Smart Initial Positioning
 
     /// Compute push-apart offsets for panels that overlap tree nodes.

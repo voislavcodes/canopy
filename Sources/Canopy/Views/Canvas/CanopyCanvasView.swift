@@ -508,16 +508,33 @@ struct CanopyCanvasView: View {
     private func installKeyMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak bloomState] event in
             guard let bloomState = bloomState else { return event }
-            // Esc key (keyCode 53) exits focus mode
-            if event.keyCode == 53, bloomState.focusedPanel != nil {
+            guard bloomState.focusedPanel != nil else { return event }
+
+            switch event.keyCode {
+            case 53: // Esc — exit focus mode
                 DispatchQueue.main.async {
                     withAnimation(.spring(duration: 0.3)) {
                         bloomState.unfocus()
                     }
                 }
-                return nil // consume the event
+                return nil
+            case 123: // Left arrow — previous panel
+                DispatchQueue.main.async {
+                    withAnimation(.spring(duration: 0.3)) {
+                        bloomState.cycleFocusedPanel(direction: -1)
+                    }
+                }
+                return nil
+            case 124: // Right arrow — next panel
+                DispatchQueue.main.async {
+                    withAnimation(.spring(duration: 0.3)) {
+                        bloomState.cycleFocusedPanel(direction: 1)
+                    }
+                }
+                return nil
+            default:
+                return event
             }
-            return event
         }
     }
 
