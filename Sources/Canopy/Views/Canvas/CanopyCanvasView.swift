@@ -166,13 +166,13 @@ struct CanopyCanvasView: View {
     /// Single source of truth for bloom panel layout offsets (canvas points).
     private enum BloomLayout {
         // Default offsets from node center (canvas points)
-        static let synthOffset = CGPoint(x: -260, y: 20)
+        static let synthOffset = CGPoint(x: -330, y: 20)
         static let seqOffset = CGPoint(x: 260, y: 20)
         static let promptOffset = CGPoint(x: 0, y: 180)
         static let keyboardOffset = CGPoint(x: 0, y: 280)
 
         // Approximate bounding box sizes for hit-testing
-        static let synthSize = CGSize(width: 230, height: 230)
+        static let synthSize = CGSize(width: 370, height: 230)
         static let seqSize = CGSize(width: 320, height: 340)
         static let promptSize = CGSize(width: 350, height: 55)
         static let keyboardSize = CGSize(width: 400, height: 110)
@@ -269,7 +269,7 @@ struct CanopyCanvasView: View {
             ZStack {
                 BloomConnectors(
                     nodeCenter: nodeScreen,
-                    synthCenter: canvasToScreen(CGPoint(x: synthCanvas.x + 110, y: synthCanvas.y - 50), viewSize: viewSize),
+                    synthCenter: canvasToScreen(CGPoint(x: synthCanvas.x + 180, y: synthCanvas.y - 50), viewSize: viewSize),
                     seqCenter: canvasToScreen(CGPoint(x: seqCanvas.x - 120, y: seqCanvas.y - 50), viewSize: viewSize),
                     promptCenter: canvasToScreen(CGPoint(x: promptCanvas.x, y: promptCanvas.y - 20), viewSize: viewSize)
                 )

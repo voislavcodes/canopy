@@ -77,7 +77,8 @@ struct WestCoastPanel: View {
             }
 
             if westCoastConfig != nil {
-                ScrollView(.vertical, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 10 * cs) {
+                    // Left column: Timbre path
                     VStack(alignment: .leading, spacing: 8 * cs) {
                         oscillatorSection
                         sectionDivider
@@ -86,20 +87,29 @@ struct WestCoastPanel: View {
                         ringModSection
                         sectionDivider
                         waveFolderSection
-                        sectionDivider
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    // Vertical divider
+                    CanopyColors.bloomPanelBorder.opacity(0.3)
+                        .frame(width: 1)
+
+                    // Right column: Dynamics path
+                    VStack(alignment: .leading, spacing: 8 * cs) {
                         lpgSection
                         sectionDivider
                         funcGenSection
                         sectionDivider
                         outputSection
                     }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxHeight: 500 * cs)
             }
         }
         .padding(.top, 36 * cs)
         .padding([.leading, .bottom, .trailing], 14 * cs)
-        .frame(width: 220 * cs)
+        .frame(width: 360 * cs)
+        .fixedSize(horizontal: false, vertical: true)
         .background(CanopyColors.bloomPanelBackground.opacity(0.9))
         .clipShape(RoundedRectangle(cornerRadius: 10 * cs))
         .overlay(
@@ -241,7 +251,7 @@ struct WestCoastPanel: View {
                 Text("STAGES")
                     .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                    .frame(width: 42 * cs, alignment: .trailing)
+                    .frame(width: 38 * cs, alignment: .trailing)
 
                 ForEach(1...6, id: \.self) { n in
                     Button(action: {
@@ -251,7 +261,7 @@ struct WestCoastPanel: View {
                         Text("\(n)")
                             .font(.system(size: 9 * cs, weight: .bold, design: .monospaced))
                             .foregroundColor(localFoldStages == n ? accentColor : CanopyColors.chromeText.opacity(0.5))
-                            .frame(width: 18 * cs, height: 18 * cs)
+                            .frame(width: 16 * cs, height: 16 * cs)
                             .background(
                                 RoundedRectangle(cornerRadius: 3 * cs)
                                     .fill(localFoldStages == n ? accentColor.opacity(0.15) : Color.clear)
