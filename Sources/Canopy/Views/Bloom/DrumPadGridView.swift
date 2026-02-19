@@ -49,8 +49,9 @@ struct DrumPadGridView: View {
                 captureControlsView
             }
         }
+        .padding(.top, 36 * cs)
         .padding(.horizontal, 12 * cs)
-        .padding(.vertical, 10 * cs)
+        .padding(.bottom, 10 * cs)
         .background(CanopyColors.bloomPanelBackground.opacity(0.9))
         .clipShape(RoundedRectangle(cornerRadius: 10 * cs))
         .overlay(

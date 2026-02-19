@@ -4,6 +4,7 @@ struct MainContentView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
     @StateObject private var canvasState = CanvasState()
+    @StateObject private var bloomState = BloomState()
 
     /// Tracks the previously selected node so we can send allNotesOff on deselect.
     @State private var previousSelectedNodeID: UUID?
@@ -16,6 +17,7 @@ struct MainContentView: View {
             CanopyCanvasView(
                 projectState: projectState,
                 canvasState: canvasState,
+                bloomState: bloomState,
                 transportState: transportState
             )
 
@@ -68,6 +70,9 @@ struct MainContentView: View {
     // MARK: - Node Selection Change
 
     private func handleNodeSelectionChange() {
+        // Exit focus mode when switching nodes
+        bloomState.focusedPanel = nil
+
         // Send allNotesOff only to the PREVIOUSLY selected node (keyboard cleanup)
         if let prevID = previousSelectedNodeID {
             AudioEngine.shared.allNotesOff(nodeID: prevID)

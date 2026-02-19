@@ -4,9 +4,11 @@ import AppKit
 struct CanopyCanvasView: View {
     @ObservedObject var projectState: ProjectState
     @ObservedObject var canvasState: CanvasState
+    @ObservedObject var bloomState: BloomState
     var transportState: TransportState
 
     @State private var scrollMonitor: Any?
+    @State private var keyMonitor: Any?
     @State private var showPresetPicker = false
     @State private var editingNodeID: UUID?
     @State private var editingName: String = ""
@@ -119,11 +121,12 @@ struct CanopyCanvasView: View {
             .onTapGesture { location in
                 handleTap(at: location, viewSize: viewSize)
             }
-            .onAppear { installScrollMonitor() }
-            .onDisappear { removeScrollMonitor() }
+            .onAppear { installScrollMonitor(); installKeyMonitor() }
+            .onDisappear { removeScrollMonitor(); removeKeyMonitor() }
             .onChange(of: projectState.selectedNodeID) { _ in
                 showPresetPicker = false
                 editingNodeID = nil
+                bloomState.focusedPanel = nil
             }
         }
     }
@@ -173,6 +176,16 @@ struct CanopyCanvasView: View {
         static let seqSize = CGSize(width: 320, height: 340)
         static let promptSize = CGSize(width: 350, height: 55)
         static let keyboardSize = CGSize(width: 400, height: 110)
+
+        // Dictionary versions for smart positioning algorithm
+        static let defaultOffsets: [BloomPanel: CGPoint] = [
+            .synth: synthOffset, .sequencer: seqOffset,
+            .prompt: promptOffset, .input: keyboardOffset
+        ]
+        static let panelSizes: [BloomPanel: CGSize] = [
+            .synth: synthSize, .sequencer: seqSize,
+            .prompt: promptSize, .input: keyboardSize
+        ]
     }
 
     /// Convert a canvas point to screen coordinates (inverse of screenToCanvas).
@@ -189,12 +202,33 @@ struct CanopyCanvasView: View {
     /// `.scaleEffect()`. This avoids re-rendering 256+ grid cells, sliders, and
     /// keyboard keys on every zoom frame — SwiftUI applies the transform without
     /// re-running any child body.
+    @ViewBuilder
     private func bloomContentScreen(node: Node, viewSize: CGSize) -> some View {
-        // Canvas-space positions
-        let synthCanvas = CGPoint(x: node.position.x + BloomLayout.synthOffset.x, y: node.position.y + BloomLayout.synthOffset.y)
-        let seqCanvas = CGPoint(x: node.position.x + BloomLayout.seqOffset.x, y: node.position.y + BloomLayout.seqOffset.y)
-        let promptCanvas = CGPoint(x: node.position.x + BloomLayout.promptOffset.x, y: node.position.y + BloomLayout.promptOffset.y)
-        let keyboardCanvas = CGPoint(x: node.position.x + BloomLayout.keyboardOffset.x, y: node.position.y + BloomLayout.keyboardOffset.y)
+        // Smart initial positioning: compute push-apart offsets if none exist for this node
+        let _ = ensureInitialOffsets(for: node)
+
+        // Canvas-space positions (default + user drag offsets)
+        let synthUserOffset = bloomState.effectiveOffset(panel: .synth, nodeID: node.id)
+        let seqUserOffset = bloomState.effectiveOffset(panel: .sequencer, nodeID: node.id)
+        let promptUserOffset = bloomState.effectiveOffset(panel: .prompt, nodeID: node.id)
+        let keyboardUserOffset = bloomState.effectiveOffset(panel: .input, nodeID: node.id)
+
+        let synthCanvas = CGPoint(
+            x: node.position.x + BloomLayout.synthOffset.x + synthUserOffset.width,
+            y: node.position.y + BloomLayout.synthOffset.y + synthUserOffset.height
+        )
+        let seqCanvas = CGPoint(
+            x: node.position.x + BloomLayout.seqOffset.x + seqUserOffset.width,
+            y: node.position.y + BloomLayout.seqOffset.y + seqUserOffset.height
+        )
+        let promptCanvas = CGPoint(
+            x: node.position.x + BloomLayout.promptOffset.x + promptUserOffset.width,
+            y: node.position.y + BloomLayout.promptOffset.y + promptUserOffset.height
+        )
+        let keyboardCanvas = CGPoint(
+            x: node.position.x + BloomLayout.keyboardOffset.x + keyboardUserOffset.width,
+            y: node.position.y + BloomLayout.keyboardOffset.y + keyboardUserOffset.height
+        )
 
         // Convert to screen coordinates
         let nodeScreen = canvasToScreen(CGPoint(x: node.position.x, y: node.position.y), viewSize: viewSize)
@@ -219,64 +253,190 @@ struct CanopyCanvasView: View {
         let effectiveSeqType = node.sequencerType ?? (isDrumEngine ? .drum : .pitched)
         let effectiveInputMode = node.inputMode ?? (isDrumEngine ? .padGrid : .keyboard)
 
-        return ZStack {
-            BloomConnectors(
-                nodeCenter: nodeScreen,
-                synthCenter: canvasToScreen(CGPoint(x: synthCanvas.x + 110, y: synthCanvas.y - 50), viewSize: viewSize),
-                seqCenter: canvasToScreen(CGPoint(x: seqCanvas.x - 120, y: seqCanvas.y - 50), viewSize: viewSize),
-                promptCenter: canvasToScreen(CGPoint(x: promptCanvas.x, y: promptCanvas.y - 20), viewSize: viewSize)
+        // Focus mode: show dimming overlay + single centered panel
+        if let focused = bloomState.focusedPanel {
+            bloomFocusOverlay(
+                focused: focused,
+                node: node,
+                viewSize: viewSize,
+                isDrumEngine: isDrumEngine,
+                isWestCoastEngine: isWestCoastEngine,
+                effectiveSeqType: effectiveSeqType,
+                effectiveInputMode: effectiveInputMode
             )
+        } else {
+            // Normal bloom layout
+            ZStack {
+                BloomConnectors(
+                    nodeCenter: nodeScreen,
+                    synthCenter: canvasToScreen(CGPoint(x: synthCanvas.x + 110, y: synthCanvas.y - 50), viewSize: viewSize),
+                    seqCenter: canvasToScreen(CGPoint(x: seqCanvas.x - 120, y: seqCanvas.y - 50), viewSize: viewSize),
+                    promptCenter: canvasToScreen(CGPoint(x: promptCanvas.x, y: promptCanvas.y - 20), viewSize: viewSize)
+                )
 
-            // Bloom panels render at base size (cs=1.0) — their body only
-            // re-runs when projectState changes, NOT on zoom/pan gestures.
-            // The geometric scaleEffect handles zoom visually.
-
-            // Left panel: voice/synth controls (always follows engine type)
-            Group {
-                if isDrumEngine {
-                    DrumVoicePanel(projectState: projectState)
-                } else if isWestCoastEngine {
-                    WestCoastPanel(projectState: projectState)
-                } else {
-                    SynthControlsPanel(projectState: projectState)
+                // Left panel: voice/synth controls (always follows engine type)
+                Group {
+                    if isDrumEngine {
+                        DrumVoicePanel(projectState: projectState)
+                    } else if isWestCoastEngine {
+                        WestCoastPanel(projectState: projectState)
+                    } else {
+                        SynthControlsPanel(projectState: projectState)
+                    }
                 }
-            }
-            .environment(\.canvasScale, 1.0)
-            .scaleEffect(scale)
-            .position(x: synthScreen.x, y: synthScreen.y)
-            .transition(.scale(scale: 0.8).combined(with: .opacity))
-
-            // Right panel: sequencer (swappable)
-            Group {
-                if effectiveSeqType == .drum {
-                    DrumSequencerPanel(projectState: projectState, transportState: transportState)
-                } else {
-                    StepSequencerPanel(projectState: projectState, transportState: transportState)
+                .overlay(alignment: .top) {
+                    BloomDragHandle(panel: .synth, nodeID: node.id, bloomState: bloomState, canvasScale: scale)
                 }
-            }
-            .environment(\.canvasScale, 1.0)
-            .scaleEffect(scale)
-            .position(x: seqScreen.x, y: seqScreen.y)
-            .transition(.scale(scale: 0.8).combined(with: .opacity))
-
-            ClaudePromptPanel()
                 .environment(\.canvasScale, 1.0)
                 .scaleEffect(scale)
-                .position(x: promptScreen.x, y: promptScreen.y)
+                .position(x: synthScreen.x, y: synthScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
-            // Bottom: input (swappable)
+                // Right panel: sequencer (swappable)
+                Group {
+                    if effectiveSeqType == .drum {
+                        DrumSequencerPanel(projectState: projectState, transportState: transportState)
+                    } else {
+                        StepSequencerPanel(projectState: projectState, transportState: transportState)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    BloomDragHandle(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale)
+                }
+                .environment(\.canvasScale, 1.0)
+                .scaleEffect(scale)
+                .position(x: seqScreen.x, y: seqScreen.y)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
+
+                ClaudePromptPanel()
+                    .overlay(alignment: .top) {
+                        BloomDragHandle(panel: .prompt, nodeID: node.id, bloomState: bloomState, canvasScale: scale)
+                    }
+                    .environment(\.canvasScale, 1.0)
+                    .scaleEffect(scale)
+                    .position(x: promptScreen.x, y: promptScreen.y)
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+
+                // Bottom: input (swappable)
+                Group {
+                    if effectiveInputMode == .padGrid {
+                        DrumPadGridView(selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
+                    } else {
+                        KeyboardBarView(baseOctave: $projectState.keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    BloomDragHandle(panel: .input, nodeID: node.id, bloomState: bloomState, canvasScale: scale)
+                }
+                .environment(\.canvasScale, 1.0)
+                .scaleEffect(scale)
+                .position(x: keyboardScreen.x, y: keyboardScreen.y)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
+            }
+        }
+    }
+
+    // MARK: - Smart Initial Positioning
+
+    /// Lazily compute push-apart offsets on first selection of a node.
+    private func ensureInitialOffsets(for node: Node) {
+        guard bloomState.panelOffsets[node.id] == nil else { return }
+        let allNodes = projectState.allNodes()
+        let computed = BloomState.computeInitialOffsets(
+            nodePosition: CGPoint(x: node.position.x, y: node.position.y),
+            allNodes: allNodes,
+            selectedNodeID: node.id,
+            defaultOffsets: BloomLayout.defaultOffsets,
+            panelSizes: BloomLayout.panelSizes
+        )
+        // Only store if at least one panel got pushed
+        let hasNonZero = computed.offsets.values.contains { $0 != .zero }
+        if hasNonZero {
+            bloomState.panelOffsets[node.id] = computed
+        } else {
+            // Store empty to avoid re-computing every frame
+            bloomState.panelOffsets[node.id] = .zero
+        }
+    }
+
+    // MARK: - Focus Mode Overlay
+
+    @ViewBuilder
+    private func bloomFocusOverlay(
+        focused: BloomPanel,
+        node: Node,
+        viewSize: CGSize,
+        isDrumEngine: Bool,
+        isWestCoastEngine: Bool,
+        effectiveSeqType: SequencerType,
+        effectiveInputMode: InputMode
+    ) -> some View {
+        ZStack {
+            // Dimming backdrop
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.spring(duration: 0.3)) {
+                        bloomState.unfocus()
+                    }
+                }
+
+            // Focused panel at center
             Group {
-                if effectiveInputMode == .padGrid {
-                    DrumPadGridView(selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
-                } else {
-                    KeyboardBarView(baseOctave: $projectState.keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
+                switch focused {
+                case .synth:
+                    if isDrumEngine {
+                        DrumVoicePanel(projectState: projectState)
+                    } else if isWestCoastEngine {
+                        WestCoastPanel(projectState: projectState)
+                    } else {
+                        SynthControlsPanel(projectState: projectState)
+                    }
+                case .sequencer:
+                    if effectiveSeqType == .drum {
+                        DrumSequencerPanel(projectState: projectState, transportState: transportState)
+                    } else {
+                        StepSequencerPanel(projectState: projectState, transportState: transportState)
+                    }
+                case .prompt:
+                    ClaudePromptPanel()
+                case .input:
+                    if effectiveInputMode == .padGrid {
+                        DrumPadGridView(selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
+                    } else {
+                        KeyboardBarView(baseOctave: $projectState.keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
+                    }
                 }
             }
             .environment(\.canvasScale, 1.0)
-            .scaleEffect(scale)
-            .position(x: keyboardScreen.x, y: keyboardScreen.y)
-            .transition(.scale(scale: 0.8).combined(with: .opacity))
+            .scaleEffect(1.2)
+            .position(x: viewSize.width / 2, y: viewSize.height / 2)
+            .transition(.scale(scale: 0.9).combined(with: .opacity))
+
+            // Close button (top-right of viewport center area)
+            Button {
+                withAnimation(.spring(duration: 0.3)) {
+                    bloomState.unfocus()
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(CanopyColors.chromeText)
+                    .frame(width: 28, height: 28)
+                    .background(CanopyColors.bloomPanelBackground.opacity(0.9))
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .position(x: viewSize.width / 2 + 200, y: viewSize.height / 2 - 150)
+        }
+        .onExitCommand {
+            withAnimation(.spring(duration: 0.3)) {
+                bloomState.unfocus()
+            }
         }
     }
 
@@ -375,6 +535,29 @@ struct CanopyCanvasView: View {
         if let monitor = scrollMonitor {
             NSEvent.removeMonitor(monitor)
             scrollMonitor = nil
+        }
+    }
+
+    private func installKeyMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak bloomState] event in
+            guard let bloomState = bloomState else { return event }
+            // Esc key (keyCode 53) exits focus mode
+            if event.keyCode == 53, bloomState.focusedPanel != nil {
+                DispatchQueue.main.async {
+                    withAnimation(.spring(duration: 0.3)) {
+                        bloomState.unfocus()
+                    }
+                }
+                return nil // consume the event
+            }
+            return event
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
         }
     }
 
@@ -611,7 +794,8 @@ struct ClaudePromptPanel: View {
             Spacer()
         }
         .padding(.horizontal, 20 * cs)
-        .padding(.vertical, 14 * cs)
+        .padding(.top, 36 * cs)
+        .padding(.bottom, 14 * cs)
         .frame(width: 340 * cs)
         .background(CanopyColors.bloomPanelBackground.opacity(0.9))
         .clipShape(RoundedRectangle(cornerRadius: 10 * cs))

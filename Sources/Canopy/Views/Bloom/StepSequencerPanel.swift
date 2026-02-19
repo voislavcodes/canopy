@@ -188,7 +188,8 @@ struct StepSequencerPanel: View {
                 accumulatorControls
             }
         }
-        .padding(14 * cs)
+        .padding(.top, 36 * cs)
+        .padding([.leading, .bottom, .trailing], 14 * cs)
         .frame(width: panelWidth * cs)
         .background(CanopyColors.bloomPanelBackground.opacity(0.9))
         .clipShape(RoundedRectangle(cornerRadius: 10 * cs))
