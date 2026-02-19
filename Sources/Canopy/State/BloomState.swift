@@ -24,50 +24,18 @@ struct BloomPanelOffsets: Equatable {
     }
 }
 
-/// Tracks an in-progress drag gesture on a bloom panel.
-struct ActivePanelDrag: Equatable {
-    let panel: BloomPanel
-    var delta: CGSize
-}
-
 /// Ephemeral visual state for bloom panel positioning and focus.
 /// Follows the CanvasState pattern — not persisted to .canopy files.
 class BloomState: ObservableObject {
     /// Per-node custom offsets from dragging panels.
     @Published var panelOffsets: [UUID: BloomPanelOffsets] = [:]
 
-    /// In-progress drag delta (nil when no drag active).
-    @Published var activeDrag: ActivePanelDrag?
-
     /// Which panel is in focus mode (nil = normal bloom layout).
     @Published var focusedPanel: BloomPanel?
 
-    /// Combined stored offset + live drag delta for a panel.
-    func effectiveOffset(panel: BloomPanel, nodeID: UUID) -> CGSize {
-        let stored = panelOffsets[nodeID]?.offset(for: panel) ?? .zero
-        if let drag = activeDrag, drag.panel == panel {
-            return CGSize(
-                width: stored.width + drag.delta.width,
-                height: stored.height + drag.delta.height
-            )
-        }
-        return stored
-    }
-
-    /// Commit the active drag delta into stored offsets.
-    func commitDrag(nodeID: UUID) {
-        guard let drag = activeDrag else { return }
-        var current = panelOffsets[nodeID] ?? .zero
-        let stored = current.offset(for: drag.panel)
-        current.setOffset(
-            CGSize(
-                width: stored.width + drag.delta.width,
-                height: stored.height + drag.delta.height
-            ),
-            for: drag.panel
-        )
-        panelOffsets[nodeID] = current
-        activeDrag = nil
+    /// Stored offset for a panel (no live drag component).
+    func storedOffset(panel: BloomPanel, nodeID: UUID) -> CGSize {
+        panelOffsets[nodeID]?.offset(for: panel) ?? .zero
     }
 
     /// Exit focus mode.

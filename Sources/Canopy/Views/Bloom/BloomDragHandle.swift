@@ -1,13 +1,11 @@
 import SwiftUI
 
-/// Drag handle bar rendered above each bloom panel content.
-/// Uses the same background as the panel. Users recognize it as draggable
-/// from the hand cursor and hover highlight.
+/// Visual drag handle bar rendered at the top of each bloom panel.
+/// The drag gesture itself lives on the parent `DraggableBloomPanel` wrapper
+/// so it can use @GestureState for smooth, re-render-free offset updates.
 struct BloomDragHandle: View {
     let panel: BloomPanel
-    let nodeID: UUID
     @ObservedObject var bloomState: BloomState
-    let canvasScale: CGFloat
 
     @State private var isHovering = false
 
@@ -15,7 +13,7 @@ struct BloomDragHandle: View {
         HStack(spacing: 0) {
             Spacer()
 
-            // Focus/expand button
+            // Focus/expand button (X when focused)
             Button {
                 withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
                     if bloomState.focusedPanel == panel {
@@ -53,20 +51,64 @@ struct BloomDragHandle: View {
                 NSCursor.pop()
             }
         }
-        .gesture(
-            DragGesture(minimumDistance: 4)
-                .onChanged { value in
-                    // Convert screen-space drag delta to canvas-space
-                    let scale = max(canvasScale, 0.01)
-                    let canvasDelta = CGSize(
-                        width: value.translation.width / scale,
-                        height: value.translation.height / scale
-                    )
-                    bloomState.activeDrag = ActivePanelDrag(panel: panel, delta: canvasDelta)
-                }
-                .onEnded { _ in
-                    bloomState.commitDrag(nodeID: nodeID)
-                }
-        )
+    }
+}
+
+/// Wraps a bloom panel with a drag handle and smooth @GestureState-driven dragging.
+/// Owns `.position()` and `.scaleEffect()` so the drag translation can be applied
+/// directly to the screen position — keeping the hit area in sync with the visual.
+/// Uses global coordinate space so transforms don't distort the drag delta.
+struct DraggableBloomPanel<Content: View>: View {
+    let panel: BloomPanel
+    let nodeID: UUID
+    let bloomState: BloomState
+    let canvasScale: CGFloat
+    let screenPosition: CGPoint
+    let content: Content
+
+    @GestureState private var dragTranslation: CGSize = .zero
+
+    init(panel: BloomPanel, nodeID: UUID, bloomState: BloomState, canvasScale: CGFloat, screenPosition: CGPoint, @ViewBuilder content: () -> Content) {
+        self.panel = panel
+        self.nodeID = nodeID
+        self.bloomState = bloomState
+        self.canvasScale = canvasScale
+        self.screenPosition = screenPosition
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .overlay(alignment: .top) {
+                BloomDragHandle(panel: panel, bloomState: bloomState)
+                    .gesture(panelDrag)
+            }
+            .environment(\.canvasScale, 1.0)
+            .scaleEffect(canvasScale)
+            .position(
+                x: screenPosition.x + dragTranslation.width,
+                y: screenPosition.y + dragTranslation.height
+            )
+            .transaction { $0.animation = nil }
+    }
+
+    private var panelDrag: some Gesture {
+        DragGesture(coordinateSpace: .global)
+            .updating($dragTranslation) { value, state, _ in
+                state = value.translation
+            }
+            .onEnded { value in
+                let s = max(canvasScale, 0.01)
+                var current = bloomState.panelOffsets[nodeID] ?? .zero
+                let stored = current.offset(for: panel)
+                current.setOffset(
+                    CGSize(
+                        width: stored.width + value.translation.width / s,
+                        height: stored.height + value.translation.height / s
+                    ),
+                    for: panel
+                )
+                bloomState.panelOffsets[nodeID] = current
+            }
     }
 }

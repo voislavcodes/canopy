@@ -208,10 +208,10 @@ struct CanopyCanvasView: View {
         let _ = ensureInitialOffsets(for: node)
 
         // Canvas-space positions (default + user drag offsets)
-        let synthUserOffset = bloomState.effectiveOffset(panel: .synth, nodeID: node.id)
-        let seqUserOffset = bloomState.effectiveOffset(panel: .sequencer, nodeID: node.id)
-        let promptUserOffset = bloomState.effectiveOffset(panel: .prompt, nodeID: node.id)
-        let keyboardUserOffset = bloomState.effectiveOffset(panel: .input, nodeID: node.id)
+        let synthUserOffset = bloomState.storedOffset(panel: .synth, nodeID: node.id)
+        let seqUserOffset = bloomState.storedOffset(panel: .sequencer, nodeID: node.id)
+        let promptUserOffset = bloomState.storedOffset(panel: .prompt, nodeID: node.id)
+        let keyboardUserOffset = bloomState.storedOffset(panel: .input, nodeID: node.id)
 
         let synthCanvas = CGPoint(
             x: node.position.x + BloomLayout.synthOffset.x + synthUserOffset.width,
@@ -275,62 +275,46 @@ struct CanopyCanvasView: View {
                 )
 
                 // Left panel: voice/synth controls (always follows engine type)
-                Group {
-                    if isDrumEngine {
-                        DrumVoicePanel(projectState: projectState)
-                    } else if isWestCoastEngine {
-                        WestCoastPanel(projectState: projectState)
-                    } else {
-                        SynthControlsPanel(projectState: projectState)
+                DraggableBloomPanel(panel: .synth, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: synthScreen) {
+                    Group {
+                        if isDrumEngine {
+                            DrumVoicePanel(projectState: projectState)
+                        } else if isWestCoastEngine {
+                            WestCoastPanel(projectState: projectState)
+                        } else {
+                            SynthControlsPanel(projectState: projectState)
+                        }
                     }
                 }
-                .overlay(alignment: .top) {
-                    BloomDragHandle(panel: .synth, nodeID: node.id, bloomState: bloomState, canvasScale: scale)
-                }
-                .environment(\.canvasScale, 1.0)
-                .scaleEffect(scale)
-                .position(x: synthScreen.x, y: synthScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
                 // Right panel: sequencer (swappable)
-                Group {
-                    if effectiveSeqType == .drum {
-                        DrumSequencerPanel(projectState: projectState, transportState: transportState)
-                    } else {
-                        StepSequencerPanel(projectState: projectState, transportState: transportState)
+                DraggableBloomPanel(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: seqScreen) {
+                    Group {
+                        if effectiveSeqType == .drum {
+                            DrumSequencerPanel(projectState: projectState, transportState: transportState)
+                        } else {
+                            StepSequencerPanel(projectState: projectState, transportState: transportState)
+                        }
                     }
                 }
-                .overlay(alignment: .top) {
-                    BloomDragHandle(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale)
-                }
-                .environment(\.canvasScale, 1.0)
-                .scaleEffect(scale)
-                .position(x: seqScreen.x, y: seqScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
 
-                ClaudePromptPanel()
-                    .overlay(alignment: .top) {
-                        BloomDragHandle(panel: .prompt, nodeID: node.id, bloomState: bloomState, canvasScale: scale)
-                    }
-                    .environment(\.canvasScale, 1.0)
-                    .scaleEffect(scale)
-                    .position(x: promptScreen.x, y: promptScreen.y)
-                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                DraggableBloomPanel(panel: .prompt, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: promptScreen) {
+                    ClaudePromptPanel()
+                }
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
 
                 // Bottom: input (swappable)
-                Group {
-                    if effectiveInputMode == .padGrid {
-                        DrumPadGridView(selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
-                    } else {
-                        KeyboardBarView(baseOctave: $projectState.keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
+                DraggableBloomPanel(panel: .input, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: keyboardScreen) {
+                    Group {
+                        if effectiveInputMode == .padGrid {
+                            DrumPadGridView(selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
+                        } else {
+                            KeyboardBarView(baseOctave: $projectState.keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
+                        }
                     }
                 }
-                .overlay(alignment: .top) {
-                    BloomDragHandle(panel: .input, nodeID: node.id, bloomState: bloomState, canvasScale: scale)
-                }
-                .environment(\.canvasScale, 1.0)
-                .scaleEffect(scale)
-                .position(x: keyboardScreen.x, y: keyboardScreen.y)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
             }
         }
@@ -410,7 +394,7 @@ struct CanopyCanvasView: View {
                 }
             }
             .overlay(alignment: .top) {
-                BloomDragHandle(panel: focused, nodeID: node.id, bloomState: bloomState, canvasScale: 1.0)
+                BloomDragHandle(panel: focused, bloomState: bloomState)
             }
             .environment(\.canvasScale, min(focusScale, 2.5))
             .position(x: viewSize.width / 2, y: viewSize.height / 2)
