@@ -35,7 +35,9 @@ final class TreeAudioGraph {
         if case .drumKit = node.patch.soundType { isDrum = true } else { isDrum = false }
         let isWest: Bool
         if case .westCoast = node.patch.soundType { isWest = true } else { isWest = false }
-        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest)
+        let isFlow: Bool
+        if case .flow = node.patch.soundType { isFlow = true } else { isFlow = false }
+        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow)
         engine.attach(unit.sourceNode)
         // Connect directly to main mixer — same pattern as Phase 2.
         // AVAudioSourceNode uses the engine's native format when no format is specified.
@@ -127,6 +129,8 @@ final class TreeAudioGraph {
                                volume: node.patch.volume)
         case .westCoast(let config):
             unit.configureWestCoast(config)
+        case .flow(let config):
+            unit.configureFlow(config)
         default:
             break
         }

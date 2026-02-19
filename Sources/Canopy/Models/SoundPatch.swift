@@ -220,10 +220,65 @@ struct WestCoastConfig: Codable, Equatable {
     }
 }
 
+/// FLOW engine: 64 sine partials in a simulated fluid.
+/// Reynolds number (derived from 5 controls) drives phase transitions
+/// between laminar purity, vortex shedding rhythm, and turbulence.
+struct FlowConfig: Codable, Equatable {
+    var current: Double     // 0–1: flow velocity / Reynolds number driver
+    var viscosity: Double   // 0–1: damping / dissipation
+    var obstacle: Double    // 0–1: obstacle diameter (affects vortex shedding freq)
+    var channel: Double     // 0–1: channel width (confinement)
+    var density: Double     // 0–1: fluid density (affects inertia)
+    var volume: Double      // 0–1
+    var pan: Double         // -1 to +1
+
+    init(
+        current: Double = 0.2,
+        viscosity: Double = 0.5,
+        obstacle: Double = 0.3,
+        channel: Double = 0.5,
+        density: Double = 0.5,
+        volume: Double = 0.8,
+        pan: Double = 0.0
+    ) {
+        self.current = current
+        self.viscosity = viscosity
+        self.obstacle = obstacle
+        self.channel = channel
+        self.density = density
+        self.volume = volume
+        self.pan = pan
+    }
+
+    // MARK: - Preset Seeds
+
+    /// Still water: near-zero flow, pure harmonics.
+    static let stillWater = FlowConfig(current: 0.02, viscosity: 0.9, obstacle: 0.1, channel: 0.5, density: 0.5)
+    /// Gentle stream: subtle laminar drift.
+    static let gentleStream = FlowConfig(current: 0.1, viscosity: 0.7, obstacle: 0.2, channel: 0.4, density: 0.4)
+    /// River: moderate flow, entering transition regime.
+    static let river = FlowConfig(current: 0.35, viscosity: 0.4, obstacle: 0.4, channel: 0.5, density: 0.6)
+    /// Rapids: strong vortex shedding.
+    static let rapids = FlowConfig(current: 0.55, viscosity: 0.25, obstacle: 0.6, channel: 0.6, density: 0.7)
+    /// Waterfall: fully turbulent cascade.
+    static let waterfall = FlowConfig(current: 0.9, viscosity: 0.1, obstacle: 0.5, channel: 0.8, density: 0.8)
+    /// Lava: high density, high viscosity, slow turbulence.
+    static let lava = FlowConfig(current: 0.5, viscosity: 0.8, obstacle: 0.7, channel: 0.3, density: 1.0)
+    /// Steam: low density, high current, fast dissipation.
+    static let steam = FlowConfig(current: 0.7, viscosity: 0.6, obstacle: 0.2, channel: 0.9, density: 0.1)
+    /// Whirlpool: high obstacle, strong vortex shedding.
+    static let whirlpool = FlowConfig(current: 0.45, viscosity: 0.3, obstacle: 0.9, channel: 0.4, density: 0.6)
+    /// Breath: gentle, organic, periodic flow.
+    static let breath = FlowConfig(current: 0.15, viscosity: 0.5, obstacle: 0.3, channel: 0.3, density: 0.3)
+    /// Jet: narrow channel, high velocity, turbulent.
+    static let jet = FlowConfig(current: 0.85, viscosity: 0.15, obstacle: 0.3, channel: 1.0, density: 0.5)
+}
+
 enum SoundType: Codable, Equatable {
     case oscillator(OscillatorConfig)
     case drumKit(DrumKitConfig)
     case westCoast(WestCoastConfig)
+    case flow(FlowConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }

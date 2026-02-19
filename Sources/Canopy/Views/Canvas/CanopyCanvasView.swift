@@ -249,6 +249,11 @@ struct CanopyCanvasView: View {
             return false
         }()
 
+        let isFlowEngine: Bool = {
+            if case .flow = node.patch.soundType { return true }
+            return false
+        }()
+
         // Resolve effective module types (override or derive from SoundType)
         let effectiveSeqType = node.sequencerType ?? (isDrumEngine ? .drum : .pitched)
         let effectiveInputMode = node.inputMode ?? (isDrumEngine ? .padGrid : .keyboard)
@@ -261,6 +266,7 @@ struct CanopyCanvasView: View {
                 viewSize: viewSize,
                 isDrumEngine: isDrumEngine,
                 isWestCoastEngine: isWestCoastEngine,
+                isFlowEngine: isFlowEngine,
                 effectiveSeqType: effectiveSeqType,
                 effectiveInputMode: effectiveInputMode
             )
@@ -281,6 +287,8 @@ struct CanopyCanvasView: View {
                             DrumVoicePanel(projectState: projectState)
                         } else if isWestCoastEngine {
                             WestCoastPanel(projectState: projectState)
+                        } else if isFlowEngine {
+                            FlowPanel(projectState: projectState)
                         } else {
                             SynthControlsPanel(projectState: projectState)
                         }
@@ -352,6 +360,7 @@ struct CanopyCanvasView: View {
         viewSize: CGSize,
         isDrumEngine: Bool,
         isWestCoastEngine: Bool,
+        isFlowEngine: Bool = false,
         effectiveSeqType: SequencerType,
         effectiveInputMode: InputMode
     ) -> some View {
@@ -374,6 +383,8 @@ struct CanopyCanvasView: View {
                         DrumVoicePanel(projectState: projectState)
                     } else if isWestCoastEngine {
                         WestCoastPanel(projectState: projectState)
+                    } else if isFlowEngine {
+                        FlowPanel(projectState: projectState)
                     } else {
                         SynthControlsPanel(projectState: projectState)
                     }
@@ -447,6 +458,8 @@ struct CanopyCanvasView: View {
             )
         case .westCoast(let config):
             AudioEngine.shared.configureWestCoast(config, nodeID: newNode.id)
+        case .flow(let config):
+            AudioEngine.shared.configureFlow(config, nodeID: newNode.id)
         default:
             break
         }

@@ -156,6 +156,11 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.configureWestCoast(config)
     }
 
+    /// Configure FLOW parameters on a specific node.
+    func configureFlow(_ config: FlowConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureFlow(config)
+    }
+
     /// Update the filter on a specific node.
     func configureFilter(enabled: Bool, cutoff: Double, resonance: Double, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureFilter(enabled: enabled, cutoff: cutoff, resonance: resonance)

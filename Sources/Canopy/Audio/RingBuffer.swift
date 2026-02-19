@@ -50,6 +50,10 @@ enum AudioCommand {
                       lpgMode: Int, strike: Double, damp: Double, color: Double,
                       rise: Double, fall: Double, funcShape: Int, funcLoop: Bool,
                       volume: Double)
+
+    // FLOW engine: 64-partial fluid simulation
+    case setFlow(current: Double, viscosity: Double, obstacle: Double,
+                 channel: Double, density: Double, volume: Double)
 }
 
 /// Lock-free single-producer single-consumer ring buffer for AudioCommands.
