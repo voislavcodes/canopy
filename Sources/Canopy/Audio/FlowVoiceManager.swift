@@ -17,21 +17,53 @@ struct FlowVoiceManager {
         voices = (FlowVoice(), FlowVoice(), FlowVoice(), FlowVoice(),
                   FlowVoice(), FlowVoice(), FlowVoice(), FlowVoice())
         pitches = (-1, -1, -1, -1, -1, -1, -1, -1)
+
+        // Unique noise seeds per voice — decorrelates turbulence across voices.
+        voices.0.noiseState = 0x1234_5678
+        voices.1.noiseState = 0x8765_4321
+        voices.2.noiseState = 0xDEAD_BEEF
+        voices.3.noiseState = 0xCAFE_BABE
+        voices.4.noiseState = 0xFACE_FEED
+        voices.5.noiseState = 0xBAAD_F00D
+        voices.6.noiseState = 0xD00D_BEAD
+        voices.7.noiseState = 0xC0DE_F00D
     }
 
     // MARK: - Voice Access Helpers
+    //
+    // CRITICAL: No voiceAt() that returns FlowVoice by value.
+    // Copying a FlowVoice copies its [FlowPartial] array reference,
+    // bumping the refcount to 2. If the copy is alive when triggerVoiceAt
+    // mutates partials[], Swift triggers CoW — a heap allocation on the
+    // audio thread. Instead, read specific properties directly from the tuple.
 
-    private func voiceAt(_ i: Int) -> FlowVoice {
+    /// Read isActive without copying the entire FlowVoice (avoids CoW on [FlowPartial]).
+    private func isVoiceActive(_ i: Int) -> Bool {
         switch i {
-        case 0: return voices.0
-        case 1: return voices.1
-        case 2: return voices.2
-        case 3: return voices.3
-        case 4: return voices.4
-        case 5: return voices.5
-        case 6: return voices.6
-        case 7: return voices.7
-        default: return voices.0
+        case 0: return voices.0.isActive
+        case 1: return voices.1.isActive
+        case 2: return voices.2.isActive
+        case 3: return voices.3.isActive
+        case 4: return voices.4.isActive
+        case 5: return voices.5.isActive
+        case 6: return voices.6.isActive
+        case 7: return voices.7.isActive
+        default: return false
+        }
+    }
+
+    /// Read envelopeLevel without copying the entire FlowVoice.
+    private func voiceEnvelopeLevel(_ i: Int) -> Float {
+        switch i {
+        case 0: return voices.0.envelopeLevel
+        case 1: return voices.1.envelopeLevel
+        case 2: return voices.2.envelopeLevel
+        case 3: return voices.3.envelopeLevel
+        case 4: return voices.4.envelopeLevel
+        case 5: return voices.5.envelopeLevel
+        case 6: return voices.6.envelopeLevel
+        case 7: return voices.7.envelopeLevel
+        default: return 0
         }
     }
 
@@ -75,20 +107,20 @@ struct FlowVoiceManager {
             }
         }
 
-        // Second: find an idle voice
+        // Second: find an idle voice (reads Bool directly, no FlowVoice copy)
         for i in 0..<Self.voiceCount {
-            if !voiceAt(i).isActive {
+            if !isVoiceActive(i) {
                 setPitch(i, pitch)
                 triggerVoiceAt(i, pitch: pitch, velocity: velocity, sampleRate: sampleRate)
                 return
             }
         }
 
-        // Third: steal the quietest voice
+        // Third: steal the quietest voice (reads Float directly, no FlowVoice copy)
         var quietest = 0
-        var lowestLevel = voiceAt(0).envelopeLevel
+        var lowestLevel = voiceEnvelopeLevel(0)
         for i in 1..<Self.voiceCount {
-            let level = voiceAt(i).envelopeLevel
+            let level = voiceEnvelopeLevel(i)
             if level < lowestLevel {
                 lowestLevel = level
                 quietest = i
@@ -155,10 +187,10 @@ struct FlowVoiceManager {
         voice.densityTarget = density
     }
 
-    /// Render one sample: sum all 8 voices, scale down, and soft-clip.
-    /// Each voice outputs ~[-1,1] after its own tanh, so raw sum clips with polyphony.
-    /// Fixed 0.25 gain means 4 voices at full blast hit the tanh knee; 8 voices
-    /// get gentle compression. Single voice is quieter but that's what volume is for.
+    /// Render one sample: sum all 8 voices, then soft-limit once.
+    /// Single tanh at the sum — NOT per-voice. Per-voice tanh creates odd harmonics
+    /// that intermodulate when summed, producing distortion that scales with voice count.
+    /// One tanh on the sum gracefully handles any number of voices without volume pumping.
     mutating func renderSample(sampleRate: Double) -> Float {
         var mix: Float = 0
         mix += voices.0.renderSample(sampleRate: sampleRate)
@@ -180,6 +212,10 @@ struct FlowVoiceManager {
         if !voices.6.isActive && pitches.6 != -1 { pitches.6 = -1 }
         if !voices.7.isActive && pitches.7 != -1 { pitches.7 = -1 }
 
+        // Soft-limit the summed output. With 8 voices at full velocity,
+        // the raw sum can exceed ±1.0 and hard-clip at the DAC.
+        // tanh(mix * 0.25) keeps 1-3 voices in the linear region (~transparent)
+        // while gracefully compressing full polyphony peaks.
         return Float(tanh(Double(mix) * 0.25))
     }
 
@@ -206,9 +242,9 @@ extension FlowVoiceManager: NoteReceiver {
     }
 
     mutating func noteOff(pitch: Int) {
-        // Release all voices playing this pitch
+        // Release all voices playing this pitch (reads Bool directly, no FlowVoice copy)
         for i in 0..<Self.voiceCount {
-            if pitchAt(i) == pitch && voiceAt(i).isActive {
+            if pitchAt(i) == pitch && isVoiceActive(i) {
                 releaseVoiceAt(i, sampleRate: 44100)
                 return
             }

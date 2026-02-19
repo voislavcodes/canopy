@@ -1,6 +1,6 @@
 import Foundation
 
-/// Per-partial state for the FLOW engine's 64-sine additive/fluid model.
+/// Per-partial state for the FLOW engine's 16-sine additive/fluid model.
 /// Each partial is a sine oscillator whose frequency, amplitude, and phase modulation
 /// are driven by three fluid regime layers (laminar, vortex shedding, turbulence).
 struct FlowPartial {
@@ -33,20 +33,27 @@ struct FlowPartial {
 }
 
 /// Per-voice DSP for the FLOW engine.
-/// 64 sine partials embedded in a simulated fluid where Reynolds number
+/// 16 sine partials embedded in a simulated fluid where Reynolds number
 /// (derived from 5 user controls) drives continuous phase transitions between
 /// laminar purity, vortex shedding rhythm, and Kolmogorov turbulence.
-/// Zero heap allocation after init, pure value type, audio-thread safe.
+///
+/// CRITICAL: Partials stored as a tuple, NOT an array. Swift arrays are heap-allocated
+/// with CoW semantics — every subscript mutation triggers an atomic refcount check.
+/// Tuple storage is fully inline (zero heap, zero refcount, zero CoW).
+/// Loop access via withUnsafeMutablePointer + withMemoryRebound.
 struct FlowVoice {
     // MARK: - Constants
 
-    static let partialCount = 64
+    static let partialCount = 16
     static let controlBlockSize = 64
     static let eddyScaleCount = 6
 
-    // MARK: - Partials
+    // MARK: - Partials (inline tuple — NO heap, NO CoW, audio-thread safe)
 
-    var partials: [FlowPartial]
+    var partials: (FlowPartial, FlowPartial, FlowPartial, FlowPartial,
+                   FlowPartial, FlowPartial, FlowPartial, FlowPartial,
+                   FlowPartial, FlowPartial, FlowPartial, FlowPartial,
+                   FlowPartial, FlowPartial, FlowPartial, FlowPartial)
 
     // MARK: - Control inputs (smoothed toward targets)
 
@@ -67,10 +74,16 @@ struct FlowVoice {
     var velocity: Double = 0
     var isActive: Bool = false
     var envelopeLevel: Float = 0
-    private var envPhase: Int = 0        // 0=idle, 1=attack, 2=sustain, 3=release
+    private var envPhase: Int = 0        // 0=idle, 1=attack, 2=sustain, 3=release, 4=steal-fade
     private var envValue: Double = 0
     private var attackRate: Double = 0
     private var releaseRate: Double = 0
+
+    // Steal-fade: pending note waits while old envelope fades to zero over ~5ms.
+    private var pendingPitch: Int = -1
+    private var pendingVelocity: Double = 0
+    private var stealFadeRate: Double = 0
+    private var cachedSampleRate: Double = 44100
 
     // MARK: - Control-rate state
 
@@ -87,47 +100,72 @@ struct FlowVoice {
 
     // Multi-scale noise state (6 eddy scales)
     private var eddyState: (Double, Double, Double, Double, Double, Double) = (0, 0, 0, 0, 0, 0)
-    private var noiseState: UInt32 = 12345  // xorshift RNG state
+    var noiseState: UInt32 = 12345  // xorshift RNG state (internal so manager can set unique seeds)
+
+    // Control-rate cached values (computed once per 64 samples, used in render)
+    private var cachedSheddingSin: Double = 0
+    private var cachedSheddingCos: Double = 0
+    private var cachedNoises: (Double, Double, Double, Double, Double, Double) = (0, 0, 0, 0, 0, 0)
+    private var doControlUpdate: Bool = false
 
     // MARK: - Init
 
     init() {
-        partials = [FlowPartial](repeating: FlowPartial(), count: Self.partialCount)
+        let p = FlowPartial()
+        partials = (p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p)
     }
 
     // MARK: - Note Control
 
-    /// Trigger a note: initialize partials as harmonic series, begin envelope attack.
+    /// Trigger a note. If the voice is already active, enter a 5ms steal-fade
+    /// to ramp the old signal to zero before starting the new note.
     mutating func trigger(pitch: Int, velocity: Double, sampleRate: Double) {
+        if isActive && envValue > 0.001 {
+            pendingPitch = pitch
+            pendingVelocity = velocity
+            cachedSampleRate = sampleRate
+            stealFadeRate = 1.0 / max(1, 0.005 * sampleRate)
+            envPhase = 4
+            return
+        }
+        beginNote(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
+    }
+
+    /// Configure and start the note.
+    private mutating func beginNote(pitch: Int, velocity: Double, sampleRate: Double) {
         self.frequency = MIDIUtilities.frequency(forNote: pitch)
         self.velocity = velocity
         self.isActive = true
-        self.envPhase = 1 // attack
+        self.envPhase = 1
         self.envValue = 0
-        // 5ms attack ramp
+        self.cachedSampleRate = sampleRate
         self.attackRate = 1.0 / max(1, 0.005 * sampleRate)
-        // 100ms release
         self.releaseRate = 1.0 / max(1, 0.1 * sampleRate)
         self.controlCounter = 0
+        self.pendingPitch = -1
 
-        // Initialize partials as harmonic series (1/n^1.5 rolloff — steeper than
-        // classic 1/n to leave headroom when modulation inflates upper partials)
-        for i in 0..<Self.partialCount {
-            let harmonic = Double(i + 1)
-            partials[i].baseFreq = frequency * harmonic
-            partials[i].baseAmp = 1.0 / pow(harmonic, 1.5)
-            // Don't reset phase on retrigger for smoother legato
-            partials[i].freqOffset = 0
-            partials[i].freqOffsetTarget = 0
-            partials[i].freqOffsetStep = 0
-            partials[i].ampScale = 1
-            partials[i].ampScaleTarget = 1
-            partials[i].ampScaleStep = 0
-            partials[i].pmDepth = 0
-            partials[i].pmDepthTarget = 0
-            partials[i].pmDepthStep = 0
-            partials[i].vorticity = 0
-            partials[i].laminarPhase = Double(i) * 0.1 // stagger drift
+        let freq = self.frequency
+        withUnsafeMutablePointer(to: &partials) { ptr in
+            ptr.withMemoryRebound(to: FlowPartial.self, capacity: Self.partialCount) { p in
+                for i in 0..<Self.partialCount {
+                    let harmonic = Double(i + 1)
+                    p[i].baseFreq = freq * harmonic
+                    p[i].baseAmp = 1.0 / pow(harmonic, 1.5)
+                    p[i].phase = 0
+                    p[i].pmPhase = 0
+                    p[i].freqOffset = 0
+                    p[i].freqOffsetTarget = 0
+                    p[i].freqOffsetStep = 0
+                    p[i].ampScale = 1
+                    p[i].ampScaleTarget = 1
+                    p[i].ampScaleStep = 0
+                    p[i].pmDepth = 0
+                    p[i].pmDepthTarget = 0
+                    p[i].pmDepthStep = 0
+                    p[i].vorticity = 0
+                    p[i].laminarPhase = Double(i) * 0.1
+                }
+            }
         }
     }
 
@@ -145,20 +183,25 @@ struct FlowVoice {
         envPhase = 0
         envValue = 0
         envelopeLevel = 0
-        for i in 0..<Self.partialCount {
-            partials[i].vorticity = 0
-            partials[i].phase = 0
-            partials[i].pmPhase = 0
+        withUnsafeMutablePointer(to: &partials) { ptr in
+            ptr.withMemoryRebound(to: FlowPartial.self, capacity: Self.partialCount) { p in
+                for i in 0..<Self.partialCount {
+                    p[i].vorticity = 0
+                    p[i].phase = 0
+                    p[i].pmPhase = 0
+                }
+            }
         }
     }
 
     // MARK: - Render
 
-    /// Render one sample: advance envelope, interpolate params, sum 64 oscillators.
+    /// Render one sample. Control-rate values (Reynolds, regime, shedding, noise)
+    /// are computed BEFORE the pointer borrow. The pointer block then handles both
+    /// control-rate partial updates and per-sample rendering in a single borrow.
     mutating func renderSample(sampleRate: Double) -> Float {
         guard isActive else { return 0 }
 
-        // Advance envelope
         advanceEnvelope()
         guard envValue > 0.0001 else {
             if envPhase == 3 || envPhase == 0 {
@@ -169,11 +212,13 @@ struct FlowVoice {
         }
         envelopeLevel = Float(envValue)
 
-        // Control-rate update every 64 samples
+        // Control-rate: compute everything that doesn't touch partials
         controlCounter += 1
+        doControlUpdate = false
         if controlCounter >= Self.controlBlockSize {
             controlCounter = 0
-            updateControlRate(sampleRate: sampleRate)
+            doControlUpdate = true
+            computeControlRate(sampleRate: sampleRate)
         }
 
         // Smooth control parameters (per-sample)
@@ -184,47 +229,101 @@ struct FlowVoice {
         channelParam += (channelTarget - channelParam) * paramSmooth
         densityParam += (densityTarget - densityParam) * paramSmooth
 
-        // Render all partials
+        // Single pointer borrow for ALL partial access (control update + render)
         var mix: Double = 0
         let invSR = 1.0 / sampleRate
         let nyquist = sampleRate * 0.5 - 100
+        let invBlock = 1.0 / Double(Self.controlBlockSize)
+        let needsControl = doControlUpdate
+        let lamW = laminarWeight
+        let transW = transitionWeight
+        let turbW = turbulentWeight
+        let visP = viscosityParam
+        let shedSin = cachedSheddingSin
+        let shedCos = cachedSheddingCos
+        let noises = cachedNoises
 
-        for i in 0..<Self.partialCount {
-            // Interpolate per-sample
-            partials[i].freqOffset += partials[i].freqOffsetStep
-            partials[i].ampScale += partials[i].ampScaleStep
-            partials[i].pmDepth += partials[i].pmDepthStep
+        withUnsafeMutablePointer(to: &partials) { ptr in
+            ptr.withMemoryRebound(to: FlowPartial.self, capacity: Self.partialCount) { p in
 
-            // Compute actual frequency (Rule 7: clamp to safe range)
-            let freq = min(max(partials[i].baseFreq + partials[i].freqOffset, 20), nyquist)
+                // Control-rate: update per-partial targets (every 64 samples)
+                if needsControl {
+                    for i in 0..<Self.partialCount {
+                        let harmonic = Double(i + 1)
+                        var freqTarget = 0.0
+                        var ampTarget = 1.0
+                        var pmTarget = 0.0
 
-            // Phase modulation
-            let pm = sin(2.0 * .pi * partials[i].pmPhase) * partials[i].pmDepth
-            partials[i].pmPhase += freq * 1.001 * invSR // slightly detuned PM carrier
-            if partials[i].pmPhase > 1e6 { partials[i].pmPhase -= Double(Int(partials[i].pmPhase)) }
+                        // Layer 1: LAMINAR
+                        if lamW > 0.001 {
+                            p[i].laminarPhase += 0.01 * (1.0 + Double(i) * 0.02)
+                            let drift = sin(p[i].laminarPhase) * 0.5
+                            freqTarget += drift * lamW
+                            let shimmer = 1.0 + sin(p[i].laminarPhase * 0.7) * 0.02
+                            ampTarget *= (1.0 - lamW) + lamW * shimmer
+                        }
 
-            // Main oscillator
-            let sample = sin(2.0 * .pi * partials[i].phase + pm)
-            partials[i].phase += freq * invSR
-            if partials[i].phase > 1e6 { partials[i].phase -= Double(Int(partials[i].phase)) }
+                        // Layer 2: VORTEX SHEDDING
+                        if transW > 0.001 {
+                            let vortexMod = (i % 2 == 0) ? shedSin : shedCos
+                            freqTarget += vortexMod * 2.0 * harmonic * transW
+                            ampTarget *= exp(vortexMod * 0.12 * transW)
+                            pmTarget += abs(vortexMod) * 0.15 * transW
+                            p[i].vorticity += vortexMod * 0.1 * transW
+                            p[i].vorticity *= 0.95
+                            p[i].vorticity = min(max(p[i].vorticity, -1.0), 1.0)
+                            freqTarget += p[i].vorticity * 3.0
+                        }
 
-            // Amplitude: base * scale (Rule 2: use exp for multiplicative modulation)
-            let amp = partials[i].baseAmp * max(partials[i].ampScale, 0)
-            mix += sample * amp
+                        // Layer 3: TURBULENCE
+                        if turbW > 0.001 {
+                            let scaleIndex = min(i / (Self.partialCount / Self.eddyScaleCount), Self.eddyScaleCount - 1)
+                            let noiseVal = Self.getEddyNoise(noises, scale: scaleIndex)
+                            let energy = pow(harmonic, -5.0 / 3.0)
+                            let dissipation = exp(-harmonic * visP * 0.1)
+                            let onsetDelay = max(0, 1.0 - harmonic * 0.02)
+                            let turbStrength = energy * dissipation * onsetDelay * turbW
+                            freqTarget += noiseVal * 5.0 * turbStrength * harmonic
+                            ampTarget *= exp(noiseVal * 0.15 * turbStrength)
+                            pmTarget += abs(noiseVal) * 0.2 * turbStrength
+                        }
+
+                        p[i].freqOffsetTarget = freqTarget
+                        p[i].freqOffsetStep = (freqTarget - p[i].freqOffset) * invBlock
+                        p[i].ampScaleTarget = ampTarget
+                        p[i].ampScaleStep = (ampTarget - p[i].ampScale) * invBlock
+                        p[i].pmDepthTarget = pmTarget
+                        p[i].pmDepthStep = (pmTarget - p[i].pmDepth) * invBlock
+                    }
+                }
+
+                // Per-sample: interpolate + render all partials
+                for i in 0..<Self.partialCount {
+                    p[i].freqOffset += p[i].freqOffsetStep
+                    p[i].ampScale += p[i].ampScaleStep
+                    p[i].pmDepth += p[i].pmDepthStep
+
+                    let rawFreq = p[i].baseFreq + p[i].freqOffset
+                    guard rawFreq < nyquist else { continue }
+                    let freq = max(rawFreq, 20)
+
+                    let pm = sin(2.0 * .pi * p[i].pmPhase) * p[i].pmDepth
+                    p[i].pmPhase += freq * 1.001 * invSR
+                    p[i].pmPhase -= Double(Int(p[i].pmPhase))
+
+                    let sample = sin(2.0 * .pi * p[i].phase + pm)
+                    p[i].phase += freq * invSR
+                    p[i].phase -= Double(Int(p[i].phase))
+
+                    let amp = p[i].baseAmp * max(p[i].ampScale, 0)
+                    mix += sample * amp
+                }
+            }
         }
 
-        // Normalize: harmonic series H(64) ≈ 4.74 unmodulated peak.
-        // With modulation headroom (~2x worst case), use 1/10 to keep signal
-        // in the linear region of tanh under normal conditions.
         mix *= 0.1
-
-        // Apply envelope and velocity
         mix *= envValue * Double(velocity)
-
-        // Rule 5: tanh as safety net only (no drive — signal should already be < 1)
-        let output = tanh(mix)
-
-        return Float(output)
+        return Float(mix)
     }
 
     // MARK: - Envelope
@@ -238,7 +337,7 @@ struct FlowVoice {
                 envPhase = 2
             }
         case 2: // Sustain
-            break // hold at current level
+            break
         case 3: // Release
             envValue -= envValue * releaseRate
             if envValue < 0.0001 {
@@ -246,192 +345,84 @@ struct FlowVoice {
                 envPhase = 0
                 isActive = false
             }
+        case 4: // Steal-fade
+            envValue -= stealFadeRate
+            if envValue <= 0.001 {
+                envValue = 0
+                if pendingPitch >= 0 {
+                    beginNote(pitch: pendingPitch, velocity: pendingVelocity, sampleRate: cachedSampleRate)
+                } else {
+                    envPhase = 0
+                    isActive = false
+                }
+            }
         default:
             break
         }
     }
 
-    // MARK: - Control Rate Update
+    // MARK: - Control Rate (non-partial computation)
 
-    /// Every 64 samples: compute Reynolds number, regime weights,
-    /// run 3 regime layers, set per-partial interpolation targets.
-    private mutating func updateControlRate(sampleRate: Double) {
+    /// Compute Reynolds number, regime weights, shedding oscillator, and noise.
+    /// Does NOT touch partials — those are updated in the render pointer block.
+    private mutating func computeControlRate(sampleRate: Double) {
         let blockSize = Double(Self.controlBlockSize)
-        let invBlock = 1.0 / blockSize
 
-        // Compute Reynolds number: Re = (current * density * channel) / viscosity
-        // All params 0–1, so scale to meaningful ranges
-        let currentScaled = max(currentParam * 10.0, 0.001)  // Rule 1
-        let viscosityScaled = max(viscosityParam * 5.0, 0.001)
+        let currentScaled = max(currentParam * 10.0, 0.001)
+        let viscosityScaled = max(0.01 * pow(500.0, viscosityParam), 0.001)
         let obstacleScaled = max(obstacleParam, 0.001)
         let channelScaled = max(channelParam * 2.0, 0.001)
         let densityScaled = max(densityParam * 2.0, 0.001)
 
         reynoldsNumber = (currentScaled * densityScaled * channelScaled) / viscosityScaled
 
-        // Regime blend weights (smooth crossfade regions)
-        // Re < 10: fully laminar
-        // 10 < Re < 50: laminar → transition blend
-        // 50 < Re < 200: transition
-        // 200 < Re < 500: transition → turbulent blend
-        // Re > 500: fully turbulent
         if reynoldsNumber < 10 {
-            laminarWeight = 1.0
-            transitionWeight = 0.0
-            turbulentWeight = 0.0
+            laminarWeight = 1.0; transitionWeight = 0.0; turbulentWeight = 0.0
         } else if reynoldsNumber < 50 {
             let t = (reynoldsNumber - 10) / 40.0
-            laminarWeight = 1.0 - t
-            transitionWeight = t
-            turbulentWeight = 0.0
+            laminarWeight = 1.0 - t; transitionWeight = t; turbulentWeight = 0.0
         } else if reynoldsNumber < 200 {
-            laminarWeight = 0.0
-            transitionWeight = 1.0
-            turbulentWeight = 0.0
+            laminarWeight = 0.0; transitionWeight = 1.0; turbulentWeight = 0.0
         } else if reynoldsNumber < 500 {
             let t = (reynoldsNumber - 200) / 300.0
-            laminarWeight = 0.0
-            transitionWeight = 1.0 - t
-            turbulentWeight = t
+            laminarWeight = 0.0; transitionWeight = 1.0 - t; turbulentWeight = t
         } else {
-            laminarWeight = 0.0
-            transitionWeight = 0.0
-            turbulentWeight = 1.0
+            laminarWeight = 0.0; transitionWeight = 0.0; turbulentWeight = 1.0
         }
 
-        // Advance shedding oscillator (Strouhal frequency)
-        // St ≈ 0.2, so f_shed = 0.2 * U / D
         let sheddingFreq = 0.2 * currentScaled / obstacleScaled
         let sheddingInc = sheddingFreq / max(sampleRate / blockSize, 0.001)
         sheddingPhase += sheddingInc
         if sheddingPhase > 1.0 { sheddingPhase -= Double(Int(sheddingPhase)) }
-        let sheddingSin = sin(2.0 * .pi * sheddingPhase)
-        let sheddingCos = cos(2.0 * .pi * sheddingPhase)
+        cachedSheddingSin = sin(2.0 * .pi * sheddingPhase)
+        cachedSheddingCos = cos(2.0 * .pi * sheddingPhase)
 
-        // Generate multi-scale noise for turbulence
-        let noises = generateEddyNoise()
-
-        // Apply 3 regime layers to each partial
-        for i in 0..<Self.partialCount {
-            let harmonic = Double(i + 1)
-            var freqTarget = 0.0
-            var ampTarget = 1.0
-            var pmTarget = 0.0
-
-            // Layer 1: LAMINAR — subtle sinusoidal drift
-            if laminarWeight > 0.001 {
-                partials[i].laminarPhase += 0.01 * (1.0 + Double(i) * 0.02)
-                let drift = sin(partials[i].laminarPhase) * 0.5 // ±0.5 Hz drift
-                freqTarget += drift * laminarWeight
-                // Very slight amplitude shimmer
-                let shimmer = 1.0 + sin(partials[i].laminarPhase * 0.7) * 0.02
-                ampTarget *= (1.0 - laminarWeight) + laminarWeight * shimmer
-            }
-
-            // Layer 2: VORTEX SHEDDING — alternating vortex modulation
-            if transitionWeight > 0.001 {
-                // Even partials get sin, odd get cos (alternating vortices)
-                let vortexMod = (i % 2 == 0) ? sheddingSin : sheddingCos
-
-                // Frequency modulation: partials shift based on vortex
-                let freqMod = vortexMod * 2.0 * harmonic * transitionWeight
-                freqTarget += freqMod
-
-                // Amplitude modulation via vortex (keep depth mild to avoid sum inflation)
-                let ampMod = exp(vortexMod * 0.12 * transitionWeight) // Rule 2
-                ampTarget *= ampMod
-
-                // Phase modulation depth increases with transition
-                pmTarget += abs(vortexMod) * 0.15 * transitionWeight
-
-                // Accumulate vorticity with decay (Rule 3: clamp)
-                partials[i].vorticity += vortexMod * 0.1 * transitionWeight
-                partials[i].vorticity *= 0.95  // decay
-                partials[i].vorticity = min(max(partials[i].vorticity, -1.0), 1.0)
-
-                // Feed vorticity back into frequency
-                freqTarget += partials[i].vorticity * 3.0
-            }
-
-            // Layer 3: TURBULENCE — multi-scale correlated noise (Kolmogorov cascade)
-            if turbulentWeight > 0.001 {
-                // Which eddy scale affects this partial?
-                // Lower partials → larger eddies, higher → smaller eddies
-                // Kolmogorov energy spectrum: E(k) ∝ k^(-5/3)
-                let scaleIndex = min(i / (Self.partialCount / Self.eddyScaleCount), Self.eddyScaleCount - 1)
-                let noiseVal = getEddyNoise(noises, scale: scaleIndex)
-
-                // Energy follows k^(-5/3)
-                let k = harmonic
-                let energy = pow(k, -5.0 / 3.0)
-
-                // Viscosity controls dissipation cutoff
-                // Higher viscosity → less turbulence on higher partials
-                let dissipation = exp(-harmonic * viscosityParam * 0.1)
-
-                // Cascade onset delay: lower partials get turbulence first
-                let onsetDelay = max(0, 1.0 - harmonic * 0.02)
-
-                let turbStrength = energy * dissipation * onsetDelay * turbulentWeight
-
-                // Frequency jitter
-                freqTarget += noiseVal * 5.0 * turbStrength * harmonic
-
-                // Amplitude modulation (reduced depth — 64 partials compound fast)
-                ampTarget *= exp(noiseVal * 0.15 * turbStrength)  // Rule 2
-
-                // Phase modulation
-                pmTarget += abs(noiseVal) * 0.2 * turbStrength
-            }
-
-            // Set interpolation targets (Rule 4: linear interpolation)
-            partials[i].freqOffsetTarget = freqTarget
-            partials[i].freqOffsetStep = (freqTarget - partials[i].freqOffset) * invBlock
-
-            partials[i].ampScaleTarget = ampTarget
-            partials[i].ampScaleStep = (ampTarget - partials[i].ampScale) * invBlock
-
-            partials[i].pmDepthTarget = pmTarget
-            partials[i].pmDepthStep = (pmTarget - partials[i].pmDepth) * invBlock
-        }
+        cachedNoises = generateEddyNoise()
     }
 
     // MARK: - Noise Generation
 
-    /// Xorshift32 RNG — audio-thread safe, no allocations.
     private mutating func xorshift() -> Double {
         noiseState ^= noiseState << 13
         noiseState ^= noiseState >> 17
         noiseState ^= noiseState << 5
-        // Map to -1...1
         return Double(Int32(bitPattern: noiseState)) / Double(Int32.max)
     }
 
-    /// Generate correlated noise for 6 eddy scales.
-    /// One-pole filtered white noise per scale (larger eddies = lower cutoff).
     private mutating func generateEddyNoise() -> (Double, Double, Double, Double, Double, Double) {
-        // Filter coefficients: larger eddies → lower cutoff → smoother noise
         let coeffs: (Double, Double, Double, Double, Double, Double) = (0.99, 0.95, 0.9, 0.8, 0.6, 0.3)
-
-        let n0 = xorshift()
-        let n1 = xorshift()
-        let n2 = xorshift()
-        let n3 = xorshift()
-        let n4 = xorshift()
-        let n5 = xorshift()
-
+        let n0 = xorshift(); let n1 = xorshift(); let n2 = xorshift()
+        let n3 = xorshift(); let n4 = xorshift(); let n5 = xorshift()
         eddyState.0 = eddyState.0 * coeffs.0 + n0 * (1 - coeffs.0)
         eddyState.1 = eddyState.1 * coeffs.1 + n1 * (1 - coeffs.1)
         eddyState.2 = eddyState.2 * coeffs.2 + n2 * (1 - coeffs.2)
         eddyState.3 = eddyState.3 * coeffs.3 + n3 * (1 - coeffs.3)
         eddyState.4 = eddyState.4 * coeffs.4 + n4 * (1 - coeffs.4)
         eddyState.5 = eddyState.5 * coeffs.5 + n5 * (1 - coeffs.5)
-
         return eddyState
     }
 
-    /// Get noise value for a specific eddy scale.
-    private func getEddyNoise(_ noises: (Double, Double, Double, Double, Double, Double), scale: Int) -> Double {
+    private static func getEddyNoise(_ noises: (Double, Double, Double, Double, Double, Double), scale: Int) -> Double {
         switch scale {
         case 0: return noises.0
         case 1: return noises.1
