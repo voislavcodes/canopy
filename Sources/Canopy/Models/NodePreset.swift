@@ -105,22 +105,6 @@ struct NodePreset: Identifiable, Equatable {
             defaultArpConfig: ArpConfig(mode: .up, rate: .sixteenth, octaveRange: 1, gateLength: 0.5)
         ),
         NodePreset(
-            id: "fx",
-            name: "FX",
-            icon: "sparkles",
-            color: .pink,
-            nodeType: .effect,
-            defaultPatch: SoundPatch(
-                name: "FX",
-                soundType: .oscillator(OscillatorConfig(waveform: .noise)),
-                envelope: EnvelopeConfig(attack: 0.5, decay: 0.8, sustain: 0.3, release: 2.0),
-                filter: FilterConfig(enabled: true, cutoff: 3000, resonance: 0.0)
-            ),
-            defaultLengthInBeats: 8,
-            defaultPitchRange: PitchRange(low: 24, high: 96), // C2–C7
-            defaultArpConfig: nil
-        ),
-        NodePreset(
             id: "west",
             name: "West",
             icon: "waveform.path.ecg.rectangle",

@@ -132,7 +132,7 @@ final class DrumSequencerTests: XCTestCase {
     }
 
     func testNonDrumPresetsUseOscillator() {
-        for id in ["melody", "bass", "pad", "arp", "fx"] {
+        for id in ["melody", "bass", "pad", "arp"] {
             let preset = NodePreset.find(id)
             XCTAssertNotNil(preset, "\(id) preset should exist")
             if case .oscillator = preset!.defaultPatch.soundType {

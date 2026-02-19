@@ -6,14 +6,13 @@ final class PresetTests: XCTestCase {
     // MARK: - Built-in Presets
 
     func testAllBuiltInPresetsExist() {
-        XCTAssertEqual(NodePreset.builtIn.count, 7)
+        XCTAssertEqual(NodePreset.builtIn.count, 6)
         let ids = NodePreset.builtIn.map(\.id)
         XCTAssertTrue(ids.contains("melody"))
         XCTAssertTrue(ids.contains("bass"))
         XCTAssertTrue(ids.contains("drums"))
         XCTAssertTrue(ids.contains("pad"))
         XCTAssertTrue(ids.contains("arp"))
-        XCTAssertTrue(ids.contains("fx"))
         XCTAssertTrue(ids.contains("west"))
     }
 
@@ -69,13 +68,6 @@ final class PresetTests: XCTestCase {
         } else {
             XCTFail("Arp preset should use oscillator")
         }
-    }
-
-    func testFXPresetDefaults() {
-        let preset = NodePreset.find("fx")!
-        XCTAssertEqual(preset.color, .pink)
-        XCTAssertEqual(preset.nodeType, .effect)
-        XCTAssertEqual(preset.defaultLengthInBeats, 8)
     }
 
     func testFindUnknownPresetReturnsNil() {
