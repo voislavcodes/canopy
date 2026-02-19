@@ -372,8 +372,8 @@ struct CanopyCanvasView: View {
         effectiveInputMode: InputMode
     ) -> some View {
         ZStack {
-            // Dimming backdrop
-            Color.black.opacity(0.4)
+            // Opaque backdrop — hides the canvas completely
+            CanopyColors.canvasBackground
                 .ignoresSafeArea()
                 .onTapGesture {
                     withAnimation(.spring(duration: 0.3)) {
@@ -381,7 +381,8 @@ struct CanopyCanvasView: View {
                     }
                 }
 
-            // Focused panel at center
+            // Focused panel scaled to fill ~80% of canvas height
+            let focusScale = min(viewSize.height * 0.8 / 450, 2.5)
             Group {
                 switch focused {
                 case .synth:
@@ -408,30 +409,12 @@ struct CanopyCanvasView: View {
                     }
                 }
             }
-            .environment(\.canvasScale, 1.0)
-            .scaleEffect(1.2)
+            .overlay(alignment: .top) {
+                BloomDragHandle(panel: focused, nodeID: node.id, bloomState: bloomState, canvasScale: 1.0)
+            }
+            .environment(\.canvasScale, min(focusScale, 2.5))
             .position(x: viewSize.width / 2, y: viewSize.height / 2)
             .transition(.scale(scale: 0.9).combined(with: .opacity))
-
-            // Close button (top-right of viewport center area)
-            Button {
-                withAnimation(.spring(duration: 0.3)) {
-                    bloomState.unfocus()
-                }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(CanopyColors.chromeText)
-                    .frame(width: 28, height: 28)
-                    .background(CanopyColors.bloomPanelBackground.opacity(0.9))
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-            .position(x: viewSize.width / 2 + 200, y: viewSize.height / 2 - 150)
         }
         .onExitCommand {
             withAnimation(.spring(duration: 0.3)) {

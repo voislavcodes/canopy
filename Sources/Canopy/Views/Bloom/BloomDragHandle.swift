@@ -25,8 +25,8 @@ struct BloomDragHandle: View {
                     }
                 }
             } label: {
-                Image(systemName: bloomState.focusedPanel == panel ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 11, weight: .medium))
+                Image(systemName: bloomState.focusedPanel == panel ? "xmark" : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: bloomState.focusedPanel == panel ? 10 : 11, weight: bloomState.focusedPanel == panel ? .bold : .medium))
                     .foregroundColor(CanopyColors.chromeText.opacity(isHovering ? 0.8 : 0.4))
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
