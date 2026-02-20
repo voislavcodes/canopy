@@ -213,12 +213,11 @@ struct FlowVoiceManager {
         if !voices.6.isActive && pitches.6 != -1 { pitches.6 = -1 }
         if !voices.7.isActive && pitches.7 != -1 { pitches.7 = -1 }
 
-        // Soft-limit the summed output. With 8 voices at full velocity,
-        // the raw sum can exceed ±1.0 and hard-clip at the DAC.
-        // tanh(mix * scale) keeps the signal well inside the linear region
-        // so full-volume playback stays clean without saturation artifacts.
-        // Scale 1.5 ≈ +20dB vs the original 0.15, bringing FLOW in line with other synths.
-        return Float(tanh(Double(mix) * 1.5))
+        // Two-stage output: gentle tanh tames peaks, then linear gain boosts volume.
+        // tanh(mix * 0.7) barely compresses single voices but catches multi-voice peaks.
+        // The ×2.2 linear boost brings FLOW in line with other synths (~+3.5dB over previous).
+        // Shore (master bus limiter) handles any output exceeding ±1.0.
+        return Float(tanh(Double(mix) * 0.7) * 2.2)
     }
 
     /// Kill all voices immediately.
