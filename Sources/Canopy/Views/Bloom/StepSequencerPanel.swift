@@ -140,9 +140,7 @@ struct StepSequencerPanel: View {
                             ZStack(alignment: .topLeading) {
                                 gridView(sequence: node.sequence)
 
-                                if isArpActive {
-                                    spanOverlay(sequence: node.sequence)
-                                }
+                                spanOverlay(sequence: node.sequence)
                             }
                             velocityBars(sequence: node.sequence)
                         }
@@ -1103,7 +1101,7 @@ struct StepSequencerPanel: View {
         reloadSequence()
     }
 
-    // MARK: - Span Overlay (arp mode)
+    // MARK: - Span Overlay
 
     /// Build span lookup: for each pitch row, collect (startStep, endStep, NoteEvent index).
     private func spanOverlay(sequence: NoteSequence) -> some View {
@@ -1124,7 +1122,9 @@ struct StepSequencerPanel: View {
             spansByPitch[note.pitch, default: []].append((startStep: startStep, endStep: endStep, noteIndex: idx))
         }
 
-        let arpCyan = Color(red: 0.2, green: 0.7, blue: 0.8)
+        let spanColor = isArpActive
+            ? Color(red: 0.2, green: 0.7, blue: 0.8)
+            : CanopyColors.gridCellActive
 
         return ZStack(alignment: .topLeading) {
             ForEach(pitches, id: \.self) { pitch in
@@ -1141,16 +1141,18 @@ struct StepSequencerPanel: View {
                             // Span bar
                             ZStack(alignment: .trailing) {
                                 RoundedRectangle(cornerRadius: cellCornerRadius)
-                                    .fill(arpCyan.opacity(0.2))
+                                    .fill(spanColor.opacity(0.2))
                                     .frame(width: spanWidth, height: cellSize)
+                                    .allowsHitTesting(false)
 
                                 RoundedRectangle(cornerRadius: cellCornerRadius)
-                                    .stroke(arpCyan.opacity(0.5), lineWidth: 1)
+                                    .stroke(spanColor.opacity(0.5), lineWidth: 1)
                                     .frame(width: spanWidth, height: cellSize)
+                                    .allowsHitTesting(false)
 
                                 // Drag handle on right edge
                                 Rectangle()
-                                    .fill(arpCyan.opacity(0.6))
+                                    .fill(spanColor.opacity(0.6))
                                     .frame(width: 3 * cs, height: cellSize * 0.6)
                                     .clipShape(RoundedRectangle(cornerRadius: 1 * cs))
                                     .padding(.trailing, 1 * cs)
@@ -1170,7 +1172,6 @@ struct StepSequencerPanel: View {
                                     )
                             }
                             .offset(x: CGFloat(visibleStart) * stride, y: y)
-                            .allowsHitTesting(true)
                         }
                     }
                 }
