@@ -7,7 +7,6 @@ import SwiftUI
 /// - Nothing selected → shows master bus effect chain
 struct FXLaneView: View {
     @ObservedObject var projectState: ProjectState
-    @State private var isCollapsed: Bool = false
     @State private var showingPicker: Bool = false
     @State private var expandedEffectID: UUID?
 
@@ -25,15 +24,6 @@ struct FXLaneView: View {
         return projectState.project.masterBus.effects
     }
 
-    /// Header label.
-    private var headerLabel: String {
-        if let nodeID = projectState.selectedNodeID,
-           let node = projectState.findNode(id: nodeID) {
-            return "\(node.name.lowercased()) fx"
-        }
-        return "environment"
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             // Top border
@@ -41,81 +31,52 @@ struct FXLaneView: View {
                 .fill(CanopyColors.chromeBorder)
                 .frame(height: 1)
 
-            if !isCollapsed {
-                HStack(spacing: 6) {
-                    // Header
-                    headerButton
+            HStack(spacing: 6) {
+                // +FX button on the left
+                addButton
 
-                    // Scrollable effect boxes
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
-                            ForEach(effects) { effect in
-                                if effects.first?.id != effect.id {
-                                    Text("\u{2192}")
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundColor(CanopyColors.chromeText.opacity(0.3))
-                                }
-
-                                EffectBoxView(
-                                    effect: effect,
-                                    isExpanded: expandedEffectID == effect.id,
-                                    onTapName: { toggleBypass(effect.id) },
-                                    onTapExpand: { toggleExpand(effect.id) },
-                                    onRemove: { removeEffect(effect.id) },
-                                    onParameterChange: { key, value in
-                                        updateParameter(effectID: effect.id, key: key, value: value)
-                                    },
-                                    onWetDryChange: { value in
-                                        updateWetDry(effectID: effect.id, value: value)
-                                    }
-                                )
+                // Scrollable effect boxes
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(effects) { effect in
+                            if effects.first?.id != effect.id {
+                                Text("\u{2192}")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(CanopyColors.chromeText.opacity(0.3))
                             }
+
+                            EffectBoxView(
+                                effect: effect,
+                                isExpanded: expandedEffectID == effect.id,
+                                onTapName: { toggleBypass(effect.id) },
+                                onTapExpand: { toggleExpand(effect.id) },
+                                onRemove: { removeEffect(effect.id) },
+                                onParameterChange: { key, value in
+                                    updateParameter(effectID: effect.id, key: key, value: value)
+                                },
+                                onWetDryChange: { value in
+                                    updateWetDry(effectID: effect.id, value: value)
+                                }
+                            )
                         }
                     }
-
-                    // Shore indicator (master bus only)
-                    if isShowingMasterBus {
-                        shoreIndicator
-                    }
-
-                    // Add button
-                    addButton
-
-                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .frame(height: 44)
-            } else {
-                // Collapsed: just show header
-                HStack {
-                    headerButton
-                    Spacer()
+
+                // Shore indicator (master bus only)
+                if isShowingMasterBus {
+                    shoreIndicator
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 2)
-                .frame(height: 20)
+
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .frame(height: 36)
         }
         .background(CanopyColors.chromeBackground)
         .sheet(isPresented: $showingPicker) {
             effectPickerSheet
         }
-    }
-
-    // MARK: - Header
-
-    private var headerButton: some View {
-        Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isCollapsed.toggle() } }) {
-            HStack(spacing: 4) {
-                Text(isCollapsed ? "\u{25B6}" : "\u{25BC}")
-                    .font(.system(size: 8, design: .monospaced))
-                Text(headerLabel)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-            }
-            .foregroundColor(CanopyColors.chromeText)
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Shore Indicator
@@ -152,14 +113,19 @@ struct FXLaneView: View {
 
     private var addButton: some View {
         Button(action: { showingPicker = true }) {
-            Text("+")
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText)
-                .frame(width: 22, height: 22)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(CanopyColors.chromeBorder, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
-                )
+            HStack(spacing: 4) {
+                Text("+")
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                Text("FX")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+            }
+            .foregroundColor(CanopyColors.chromeText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(CanopyColors.chromeBorder, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            )
         }
         .buttonStyle(.plain)
     }
