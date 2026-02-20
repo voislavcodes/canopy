@@ -215,9 +215,9 @@ struct FlowVoiceManager {
 
         // Two-stage output: gentle tanh tames peaks, then linear gain boosts volume.
         // tanh(mix * 0.7) barely compresses single voices but catches multi-voice peaks.
-        // The ×2.2 linear boost brings FLOW in line with other synths (~+3.5dB over previous).
+        // The ×3.5 linear boost brings FLOW in line with other synths.
         // Shore (master bus limiter) handles any output exceeding ±1.0.
-        return Float(tanh(Double(mix) * 0.7) * 2.2)
+        return Float(tanh(Double(mix) * 0.7) * 3.5)
     }
 
     /// Kill all voices immediately.
