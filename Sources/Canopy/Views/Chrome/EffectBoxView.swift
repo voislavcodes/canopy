@@ -49,14 +49,16 @@ struct EffectBoxView: View {
                 )
             }
 
-            // Wet/dry slider
-            MiniSliderView(
-                label: "wet",
-                value: effect.wetDry,
-                color: effectColor,
-                dimmed: effect.bypassed,
-                onChange: { onWetDryChange($0) }
-            )
+            // Wet/dry slider (hidden for level — wet/dry on a gain makes no sense)
+            if effect.type.canonical != .level {
+                MiniSliderView(
+                    label: "wet",
+                    value: effect.wetDry,
+                    color: effectColor,
+                    dimmed: effect.bypassed,
+                    onChange: { onWetDryChange($0) }
+                )
+            }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
@@ -89,6 +91,7 @@ struct EffectBoxView: View {
         case .drift:    return Color(red: 0.3, green: 0.8, blue: 0.8)   // Cyan
         case .tide:     return Color(red: 0.8, green: 0.4, blue: 0.7)   // Pink
         case .terrain:  return Color(red: 0.6, green: 0.6, blue: 0.5)   // Olive
+        case .level:    return Color(red: 0.7, green: 0.7, blue: 0.75)  // Silver
         default:        return CanopyColors.chromeText
         }
     }
@@ -105,6 +108,7 @@ struct EffectBoxView: View {
         case .drift:    return [("rate", "rate"), ("depth", "depth")]
         case .tide:     return [("rate", "rate"), ("depth", "depth")]
         case .terrain:  return [("low", "lo"), ("mid", "mid"), ("high", "hi")]
+        case .level:    return [("amount", "LEVEL")]
         default:        return []
         }
     }

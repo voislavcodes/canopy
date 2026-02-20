@@ -200,7 +200,7 @@ struct FXLaneView: View {
     }
 
     private var fxPickerOptions: [(EffectType, String)] {
-        [(.color, "filter"), (.heat, "distortion"), (.echo, "delay"), (.space, "reverb"), (.pressure, "compressor")]
+        [(.color, "filter"), (.heat, "distortion"), (.echo, "delay"), (.space, "reverb"), (.pressure, "compressor"), (.level, "gain")]
     }
 
     // MARK: - Actions

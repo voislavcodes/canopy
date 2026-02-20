@@ -11,6 +11,7 @@ enum EffectSlot {
     case echo(EchoEffect)
     case space(SpaceEffect)
     case pressure(PressureEffect)
+    case level(LevelEffect)
 
     /// Process a single sample through the effect.
     mutating func process(sample: Float, sampleRate: Float) -> Float {
@@ -35,6 +36,10 @@ enum EffectSlot {
             let out = fx.process(sample: sample, sampleRate: sampleRate)
             self = .pressure(fx)
             return out
+        case .level(var fx):
+            let out = fx.process(sample: sample, sampleRate: sampleRate)
+            self = .level(fx)
+            return out
         }
     }
 
@@ -56,6 +61,9 @@ enum EffectSlot {
         case .pressure(var fx):
             fx.updateParameters(params)
             self = .pressure(fx)
+        case .level(var fx):
+            fx.updateParameters(params)
+            self = .level(fx)
         }
     }
 
@@ -77,6 +85,9 @@ enum EffectSlot {
         case .pressure(var fx):
             fx.reset()
             self = .pressure(fx)
+        case .level(var fx):
+            fx.reset()
+            self = .level(fx)
         }
     }
 
@@ -90,6 +101,7 @@ enum EffectSlot {
         case .echo:     slot = .echo(EchoEffect())
         case .space:    slot = .space(SpaceEffect())
         case .pressure: slot = .pressure(PressureEffect())
+        case .level:    slot = .level(LevelEffect())
         default:        slot = .color(ColorEffect()) // fallback
         }
         slot.updateParameters(parameters)
