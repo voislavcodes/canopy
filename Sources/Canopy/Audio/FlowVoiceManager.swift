@@ -215,9 +215,9 @@ struct FlowVoiceManager {
 
         // Soft-limit the summed output. With 8 voices at full velocity,
         // the raw sum can exceed ±1.0 and hard-clip at the DAC.
-        // tanh(mix * 0.25) keeps 1-3 voices in the linear region (~transparent)
-        // while gracefully compressing full polyphony peaks.
-        return Float(tanh(Double(mix) * 0.25))
+        // tanh(mix * 0.15) keeps the signal well inside the linear region
+        // so full-volume playback stays clean without saturation artifacts.
+        return Float(tanh(Double(mix) * 0.15))
     }
 
     /// Kill all voices immediately.
