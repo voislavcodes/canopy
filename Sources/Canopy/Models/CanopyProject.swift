@@ -1,5 +1,18 @@
 import Foundation
 
+/// Master bus configuration — global effects and Shore limiter.
+struct MasterBus: Codable, Equatable {
+    var effects: [Effect] = []
+    var shore: ShoreConfig = ShoreConfig()
+    var volume: Double = 1.0
+}
+
+/// Shore (brick-wall limiter) configuration.
+struct ShoreConfig: Codable, Equatable {
+    var ceiling: Double = -0.3  // dBFS
+    var enabled: Bool = true
+}
+
 struct CanopyProject: Codable, Equatable {
     static let currentFormatVersion = 1
 
@@ -15,6 +28,7 @@ struct CanopyProject: Codable, Equatable {
     var modulationRoutings: [ModulationRouting]
     var scaleAwareEnabled: Bool
     var formatVersion: Int
+    var masterBus: MasterBus
 
     init(
         id: UUID = UUID(),
@@ -28,7 +42,8 @@ struct CanopyProject: Codable, Equatable {
         lfos: [LFODefinition] = [],
         modulationRoutings: [ModulationRouting] = [],
         scaleAwareEnabled: Bool = false,
-        formatVersion: Int = CanopyProject.currentFormatVersion
+        formatVersion: Int = CanopyProject.currentFormatVersion,
+        masterBus: MasterBus = MasterBus()
     ) {
         self.id = id
         self.name = name
@@ -42,9 +57,10 @@ struct CanopyProject: Codable, Equatable {
         self.modulationRoutings = modulationRoutings
         self.scaleAwareEnabled = scaleAwareEnabled
         self.formatVersion = formatVersion
+        self.masterBus = masterBus
     }
 
-    // Custom decoder for backward compatibility with projects saved before LFO support.
+    // Custom decoder for backward compatibility with projects saved before LFO/MasterBus support.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -61,6 +77,7 @@ struct CanopyProject: Codable, Equatable {
         modulationRoutings = try container.decodeIfPresent([ModulationRouting].self, forKey: .modulationRoutings) ?? []
         scaleAwareEnabled = try container.decodeIfPresent(Bool.self, forKey: .scaleAwareEnabled) ?? false
         formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
+        masterBus = try container.decodeIfPresent(MasterBus.self, forKey: .masterBus) ?? MasterBus()
     }
 
     /// Migrate a project to the current format version. No-op when already current.

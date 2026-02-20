@@ -16,6 +16,10 @@ final class AudioEngine {
 
     private(set) var sampleRate: Double = 0
 
+    /// Master bus AU — inserted between mainMixerNode and outputNode.
+    private(set) var masterBusAU: MasterBusAU?
+    private var masterBusAVUnit: AVAudioUnit?
+
     private init() {}
 
     // MARK: - Engine Lifecycle
@@ -27,12 +31,64 @@ final class AudioEngine {
         let hwFormat = engine.outputNode.outputFormat(forBus: 0)
         self.sampleRate = hwFormat.sampleRate
 
+        // Insert master bus AU synchronously before starting the engine.
+        // attach/connect require the engine to be stopped.
+        if masterBusAU == nil {
+            insertMasterBus()
+        }
+
         do {
             try engine.start()
             logger.info("Audio engine started at \(self.sampleRate) Hz")
         } catch {
             logger.error("Failed to start audio engine: \(error.localizedDescription)")
         }
+    }
+
+    /// Insert the MasterBusAU between mainMixerNode and outputNode.
+    /// Must be called while the engine is NOT running.
+    private func insertMasterBus() {
+        MasterBusAU.register()
+
+        let desc = MasterBusAU.masterBusDescription
+
+        // Instantiate synchronously on a background queue to avoid potential
+        // main-thread deadlock with the completion handler.
+        var instantiatedUnit: AVAudioUnit?
+        let semaphore = DispatchSemaphore(value: 0)
+
+        // AVAudioUnit.instantiate callback fires on an arbitrary queue (not main),
+        // so blocking the main thread with a semaphore is safe here.
+        AVAudioUnit.instantiate(with: desc, options: .loadInProcess) { avUnit, error in
+            if let error = error {
+                Logger(subsystem: "com.canopy", category: "AudioEngine")
+                    .error("Failed to instantiate MasterBusAU: \(error.localizedDescription)")
+            }
+            instantiatedUnit = avUnit
+            semaphore.signal()
+        }
+        semaphore.wait()
+
+        guard let avUnit = instantiatedUnit else {
+            logger.error("MasterBusAU instantiation returned nil")
+            return
+        }
+
+        engine.attach(avUnit)
+
+        let mainMixer = engine.mainMixerNode
+        let format = mainMixer.outputFormat(forBus: 0)
+
+        // Disconnect default mainMixer → outputNode connection
+        engine.disconnectNodeOutput(mainMixer)
+
+        // Insert: mainMixer → masterBusAU → outputNode
+        engine.connect(mainMixer, to: avUnit, format: format)
+        engine.connect(avUnit, to: engine.outputNode, format: format)
+
+        masterBusAVUnit = avUnit
+        masterBusAU = avUnit.auAudioUnit as? MasterBusAU
+        logger.info("Master bus AU inserted into audio graph")
     }
 
     /// Stop the audio engine.
@@ -164,6 +220,33 @@ final class AudioEngine {
     /// Update the filter on a specific node.
     func configureFilter(enabled: Bool, cutoff: Double, resonance: Double, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureFilter(enabled: enabled, cutoff: cutoff, resonance: resonance)
+    }
+
+    // MARK: - FX Chain
+
+    /// Set the effect chain on a specific node.
+    func configureNodeFXChain(effects: [Effect], nodeID: UUID) {
+        let chain = EffectChain.build(from: effects)
+        graph.unit(for: nodeID)?.setFXChain(chain)
+    }
+
+    /// Set the master bus effect chain.
+    func configureMasterFXChain(effects: [Effect]) {
+        let chain = EffectChain.build(from: effects)
+        masterBusAU?.swapFXChain(chain)
+    }
+
+    /// Set the master bus volume.
+    func configureMasterVolume(_ volume: Float) {
+        masterBusAU?.masterVolume = volume
+    }
+
+    /// Configure Shore limiter.
+    func configureShore(enabled: Bool, ceiling: Double) {
+        masterBusAU?.shoreEnabled = enabled
+        // Convert dBFS to linear
+        let linear = Float(pow(10.0, ceiling / 20.0))
+        masterBusAU?.shoreCeiling = min(1.0, linear)
     }
 
     // MARK: - Transport (all nodes)

@@ -76,6 +76,7 @@ final class NodeAudioUnit {
         var seq = Sequencer()
         var filter = MoogLadderFilter()
         var lfoBank = LFOBank()
+        var fxChain = EffectChain()
         var volume: Double = 0.8
         var volumeSmoothed: Double = 0.8
         var detune: Double = 0
@@ -189,8 +190,13 @@ final class NodeAudioUnit {
 
                 case .setFlow:
                     break // ignored in oscillator path
+
+                case .setFXChain(let chain):
+                    fxChain = chain
                 }
             }
+
+            let srF = Float(sr)
 
             // Branch once before the loop: modulated vs unmodulated path.
             // Zero overhead when no LFOs are routed to this node.
@@ -205,12 +211,15 @@ final class NodeAudioUnit {
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
-                    let sample: Float
+                    var sample: Float
                     if cutMod != 0 {
                         sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
                     } else {
                         sample = filter.process(raw)
                     }
+
+                    // Per-node FX chain (empty chain = zero cost)
+                    sample = fxChain.process(sample: sample, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -236,7 +245,10 @@ final class NodeAudioUnit {
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
-                    let sample = filter.process(raw)
+                    var sample = filter.process(raw)
+
+                    // Per-node FX chain (empty chain = zero cost)
+                    sample = fxChain.process(sample: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
                         let bufL = ablPointer[0]
@@ -273,6 +285,7 @@ final class NodeAudioUnit {
         var seq = Sequencer()
         var filter = MoogLadderFilter()
         var lfoBank = LFOBank()
+        var fxChain = EffectChain()
         var volume: Double = 0.8
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
@@ -369,8 +382,13 @@ final class NodeAudioUnit {
 
                 case .setFlow:
                     break // ignored in drum kit path
+
+                case .setFXChain(let chain):
+                    fxChain = chain
                 }
             }
+
+            let srF = Float(sr)
 
             // Render loop — same LFO branching as oscillator path
             if lfoBank.slotCount > 0 {
@@ -383,12 +401,14 @@ final class NodeAudioUnit {
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = drumKit.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
-                    let sample: Float
+                    var sample: Float
                     if cutMod != 0 {
                         sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
                     } else {
                         sample = filter.process(raw)
                     }
+
+                    sample = fxChain.process(sample: sample, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -410,7 +430,9 @@ final class NodeAudioUnit {
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = drumKit.renderSample(sampleRate: sr) * Float(volumeSmoothed)
-                    let sample = filter.process(raw)
+                    var sample = filter.process(raw)
+
+                    sample = fxChain.process(sample: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
                         ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
@@ -443,6 +465,7 @@ final class NodeAudioUnit {
         var seq = Sequencer()
         var filter = MoogLadderFilter()
         var lfoBank = LFOBank()
+        var fxChain = EffectChain()
         var volume: Double = 0.8
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
@@ -549,8 +572,13 @@ final class NodeAudioUnit {
 
                 case .setFlow:
                     break // ignored in west coast path
+
+                case .setFXChain(let chain):
+                    fxChain = chain
                 }
             }
+
+            let srF = Float(sr)
 
             // Render loop — same LFO branching as other paths
             if lfoBank.slotCount > 0 {
@@ -563,12 +591,14 @@ final class NodeAudioUnit {
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = westCoast.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
-                    let sample: Float
+                    var sample: Float
                     if cutMod != 0 {
                         sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
                     } else {
                         sample = filter.process(raw)
                     }
+
+                    sample = fxChain.process(sample: sample, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -590,7 +620,9 @@ final class NodeAudioUnit {
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = westCoast.renderSample(sampleRate: sr) * Float(volumeSmoothed)
-                    let sample = filter.process(raw)
+                    var sample = filter.process(raw)
+
+                    sample = fxChain.process(sample: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
                         ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
@@ -623,6 +655,7 @@ final class NodeAudioUnit {
         var seq = Sequencer()
         var filter = MoogLadderFilter()
         var lfoBank = LFOBank()
+        var fxChain = EffectChain()
         var volume: Double = 0.8
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
@@ -718,8 +751,13 @@ final class NodeAudioUnit {
                         current: current, viscosity: viscosity, obstacle: obstacle,
                         channel: channel, density: density, warmth: warmth
                     )
+
+                case .setFXChain(let chain):
+                    fxChain = chain
                 }
             }
+
+            let srF = Float(sr)
 
             // Render loop — same LFO branching as other paths
             if lfoBank.slotCount > 0 {
@@ -732,12 +770,14 @@ final class NodeAudioUnit {
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = flow.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
-                    let sample: Float
+                    var sample: Float
                     if cutMod != 0 {
                         sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
                     } else {
                         sample = filter.process(raw)
                     }
+
+                    sample = fxChain.process(sample: sample, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -759,7 +799,9 @@ final class NodeAudioUnit {
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = flow.renderSample(sampleRate: sr) * Float(volumeSmoothed)
-                    let sample = filter.process(raw)
+                    var sample = filter.process(raw)
+
+                    sample = fxChain.process(sample: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
                         ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
@@ -901,6 +943,10 @@ final class NodeAudioUnit {
             density: config.density, warmth: config.warmth,
             volume: config.volume
         ))
+    }
+
+    func setFXChain(_ chain: EffectChain) {
+        commandBuffer.push(.setFXChain(chain))
     }
 
     func configureWestCoast(_ config: WestCoastConfig) {

@@ -54,6 +54,9 @@ enum AudioCommand {
     // FLOW engine: 64-partial fluid simulation
     case setFlow(current: Double, viscosity: Double, obstacle: Double,
                  channel: Double, density: Double, warmth: Double, volume: Double)
+
+    // FX chain swap (per-node effect chain replacement)
+    case setFXChain(EffectChain)
 }
 
 /// Lock-free single-producer single-consumer ring buffer for AudioCommands.

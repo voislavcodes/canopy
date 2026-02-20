@@ -357,6 +357,139 @@ class ProjectState: ObservableObject {
         return result
     }
 
+    // MARK: - Node FX Chain
+
+    /// Add an effect to a node's chain.
+    @discardableResult
+    func addNodeEffect(nodeID: UUID, type: EffectType) -> Effect {
+        let effect = Effect(type: type)
+        updateNode(id: nodeID) { node in
+            if node.effects.count < EffectChain.maxSlots {
+                node.effects.append(effect)
+            }
+        }
+        syncNodeFXToEngine(nodeID: nodeID)
+        return effect
+    }
+
+    /// Remove an effect from a node's chain.
+    func removeNodeEffect(nodeID: UUID, effectID: UUID) {
+        updateNode(id: nodeID) { node in
+            node.effects.removeAll { $0.id == effectID }
+        }
+        syncNodeFXToEngine(nodeID: nodeID)
+    }
+
+    /// Update an effect's parameters on a node.
+    func updateNodeEffect(nodeID: UUID, effectID: UUID, transform: (inout Effect) -> Void) {
+        updateNode(id: nodeID) { node in
+            if let idx = node.effects.firstIndex(where: { $0.id == effectID }) {
+                transform(&node.effects[idx])
+            }
+        }
+        syncNodeFXToEngine(nodeID: nodeID)
+    }
+
+    /// Reorder effects on a node (move from sourceIndex to destinationIndex).
+    func reorderNodeEffects(nodeID: UUID, from source: IndexSet, to destination: Int) {
+        updateNode(id: nodeID) { node in
+            node.effects.move(fromOffsets: source, toOffset: destination)
+        }
+        syncNodeFXToEngine(nodeID: nodeID)
+    }
+
+    /// Toggle bypass on a node effect.
+    func toggleNodeEffectBypass(nodeID: UUID, effectID: UUID) {
+        updateNode(id: nodeID) { node in
+            if let idx = node.effects.firstIndex(where: { $0.id == effectID }) {
+                node.effects[idx].bypassed.toggle()
+            }
+        }
+        syncNodeFXToEngine(nodeID: nodeID)
+    }
+
+    /// Push a node's effect chain to the audio engine.
+    func syncNodeFXToEngine(nodeID: UUID) {
+        guard let node = findNode(id: nodeID) else { return }
+        AudioEngine.shared.configureNodeFXChain(effects: node.effects, nodeID: nodeID)
+    }
+
+    // MARK: - Master Bus FX
+
+    /// Add an effect to the master bus chain.
+    @discardableResult
+    func addMasterEffect(type: EffectType) -> Effect {
+        let effect = Effect(type: type)
+        if project.masterBus.effects.count < EffectChain.maxSlots {
+            project.masterBus.effects.append(effect)
+        }
+        markDirty()
+        syncMasterFXToEngine()
+        return effect
+    }
+
+    /// Remove an effect from the master bus chain.
+    func removeMasterEffect(effectID: UUID) {
+        project.masterBus.effects.removeAll { $0.id == effectID }
+        markDirty()
+        syncMasterFXToEngine()
+    }
+
+    /// Update a master bus effect's parameters.
+    func updateMasterEffect(effectID: UUID, transform: (inout Effect) -> Void) {
+        if let idx = project.masterBus.effects.firstIndex(where: { $0.id == effectID }) {
+            transform(&project.masterBus.effects[idx])
+            markDirty()
+            syncMasterFXToEngine()
+        }
+    }
+
+    /// Reorder effects on the master bus.
+    func reorderMasterEffects(from source: IndexSet, to destination: Int) {
+        project.masterBus.effects.move(fromOffsets: source, toOffset: destination)
+        markDirty()
+        syncMasterFXToEngine()
+    }
+
+    /// Toggle bypass on a master bus effect.
+    func toggleMasterEffectBypass(effectID: UUID) {
+        if let idx = project.masterBus.effects.firstIndex(where: { $0.id == effectID }) {
+            project.masterBus.effects[idx].bypassed.toggle()
+            markDirty()
+            syncMasterFXToEngine()
+        }
+    }
+
+    /// Set master bus volume.
+    func setMasterVolume(_ volume: Double) {
+        project.masterBus.volume = max(0, min(1, volume))
+        markDirty()
+        AudioEngine.shared.configureMasterVolume(Float(volume))
+    }
+
+    /// Configure Shore limiter.
+    func configureShore(enabled: Bool, ceiling: Double) {
+        project.masterBus.shore.enabled = enabled
+        project.masterBus.shore.ceiling = ceiling
+        markDirty()
+        AudioEngine.shared.configureShore(enabled: enabled, ceiling: ceiling)
+    }
+
+    /// Push master bus FX chain to the audio engine.
+    func syncMasterFXToEngine() {
+        AudioEngine.shared.configureMasterFXChain(effects: project.masterBus.effects)
+    }
+
+    /// Push master bus state (volume, shore, fx chain) to the audio engine.
+    func syncMasterBusToEngine() {
+        AudioEngine.shared.configureMasterVolume(Float(project.masterBus.volume))
+        AudioEngine.shared.configureShore(
+            enabled: project.masterBus.shore.enabled,
+            ceiling: project.masterBus.shore.ceiling
+        )
+        syncMasterFXToEngine()
+    }
+
     // MARK: - LFO / Modulation
 
     /// Add a new LFO with auto-generated name and color.

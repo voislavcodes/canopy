@@ -21,6 +21,8 @@ struct MainContentView: View {
                 transportState: transportState
             )
 
+            FXLaneView(projectState: projectState)
+
             ModulatorStripView(projectState: projectState)
         }
         .background(CanopyColors.canvasBackground)
@@ -53,6 +55,16 @@ struct MainContentView: View {
 
         // Push LFO modulation routings to audio engine
         projectState.syncModulationToEngine()
+
+        // Push master bus state to audio engine
+        projectState.syncMasterBusToEngine()
+
+        // Push per-node FX chains to audio engine
+        for node in projectState.allNodes() {
+            if !node.effects.isEmpty {
+                projectState.syncNodeFXToEngine(nodeID: node.id)
+            }
+        }
     }
 
     /// Add a single node to the live audio graph (incremental, no teardown).
