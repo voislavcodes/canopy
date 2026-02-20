@@ -9,6 +9,10 @@ struct FXLaneView: View {
     @ObservedObject var projectState: ProjectState
     @State private var showingPicker: Bool = false
     @State private var expandedEffectID: UUID?
+    @State private var addButtonFrame: CGRect = .zero
+    @State private var pickerHeight: CGFloat = 240
+
+    private let stripCoordSpace = "fxLaneStrip"
 
     /// Whether we're showing the master bus (no node selected) or a node's chain.
     private var isShowingMasterBus: Bool {
@@ -34,6 +38,14 @@ struct FXLaneView: View {
             HStack(spacing: 6) {
                 // +FX button on the left
                 addButton
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: FXButtonFrameKey.self,
+                                value: geo.frame(in: .named(stripCoordSpace))
+                            )
+                        }
+                    )
 
                 // Scrollable effect boxes
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -74,8 +86,18 @@ struct FXLaneView: View {
             .frame(height: 36)
         }
         .background(CanopyColors.chromeBackground)
-        .sheet(isPresented: $showingPicker) {
-            effectPickerSheet
+        .coordinateSpace(name: stripCoordSpace)
+        .onPreferenceChange(FXButtonFrameKey.self) { addButtonFrame = $0 }
+        .overlay {
+            if showingPicker {
+                effectPickerPopover
+                    .fixedSize()
+                    .position(
+                        x: addButtonFrame.midX,
+                        y: -(pickerHeight / 2) - 4
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
+            }
         }
     }
 
@@ -112,7 +134,9 @@ struct FXLaneView: View {
     // MARK: - Add Button
 
     private var addButton: some View {
-        Button(action: { showingPicker = true }) {
+        Button(action: {
+            withAnimation(.spring(duration: 0.2)) { showingPicker.toggle() }
+        }) {
             HStack(spacing: 4) {
                 Text("+")
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
@@ -130,53 +154,53 @@ struct FXLaneView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Effect Picker Sheet
+    // MARK: - Effect Picker Popover
 
-    private var effectPickerSheet: some View {
-        VStack(spacing: 8) {
-            Text("add effect")
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeTextBright)
-                .padding(.top, 12)
-
-            ForEach([EffectType.color, .heat, .echo, .space, .pressure], id: \.self) { type in
+    private var effectPickerPopover: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(fxPickerOptions, id: \.0) { (type, label) in
                 Button(action: {
+                    withAnimation(.spring(duration: 0.2)) { showingPicker = false }
                     addEffect(type: type)
-                    showingPicker = false
                 }) {
                     HStack {
                         Text(type.displayName)
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeTextBright)
                         Spacer()
-                        Text(effectDescription(type))
+                        Text(label)
                             .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.4))
                     }
-                    .foregroundColor(CanopyColors.chromeTextBright)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
-
-            Button("cancel") { showingPicker = false }
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText)
-                .padding(.bottom, 12)
         }
-        .frame(width: 240)
-        .background(CanopyColors.bloomPanelBackground)
+        .padding(.vertical, 8)
+        .frame(width: 180)
+        .background(CanopyColors.bloomPanelBackground.opacity(0.95))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(CanopyColors.bloomPanelBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { pickerHeight = geo.size.height }
+                    .onChange(of: geo.size.height) { pickerHeight = $0 }
+            }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { } // Prevent tap-through
     }
 
-    private func effectDescription(_ type: EffectType) -> String {
-        switch type {
-        case .color:    return "filter"
-        case .heat:     return "distortion"
-        case .echo:     return "delay"
-        case .space:    return "reverb"
-        case .pressure: return "compressor"
-        default:        return ""
-        }
+    private var fxPickerOptions: [(EffectType, String)] {
+        [(.color, "filter"), (.heat, "distortion"), (.echo, "delay"), (.space, "reverb"), (.pressure, "compressor")]
     }
 
     // MARK: - Actions
@@ -236,5 +260,15 @@ struct FXLaneView: View {
                 effect.wetDry = value
             }
         }
+    }
+}
+
+// MARK: - Preference Key
+
+/// Reports the +FX button frame up to the strip for popover positioning.
+private struct FXButtonFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
     }
 }
