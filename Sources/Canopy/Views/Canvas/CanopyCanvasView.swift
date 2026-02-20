@@ -12,6 +12,8 @@ struct CanopyCanvasView: View {
     @State private var showPresetPicker = false
     @State private var editingNodeID: UUID?
     @State private var editingName: String = ""
+    @State private var lastNodeTapID: UUID?
+    @State private var lastNodeTapTime: Date?
 
     private let dotSpacing: CGFloat = 40
     private let dotSize: CGFloat = 2
@@ -60,14 +62,25 @@ struct CanopyCanvasView: View {
                     },
                     onPickerDismiss: { showPresetPicker = false },
                     onNodeTap: { nodeID in
-                        withAnimation(.spring(duration: 0.3)) {
+                        let now = Date()
+                        // Detect double-tap manually to avoid gesture disambiguation delay
+                        if let lastID = lastNodeTapID, lastID == nodeID,
+                           let lastTime = lastNodeTapTime, now.timeIntervalSince(lastTime) < 0.35 {
+                            // Double tap — open rename
+                            if let node = projectState.findNode(id: nodeID) {
+                                editingNodeID = nodeID
+                                editingName = node.name
+                            }
+                            lastNodeTapTime = nil
+                            lastNodeTapID = nil
+                        } else {
+                            // Single tap — select immediately
+                            if let node = projectState.findNode(id: nodeID) {
+                                ensureInitialOffsets(for: node)
+                            }
                             projectState.selectNode(nodeID)
-                        }
-                    },
-                    onDoubleTap: { nodeID in
-                        if let node = projectState.findNode(id: nodeID) {
-                            editingNodeID = nodeID
-                            editingName = node.name
+                            lastNodeTapTime = now
+                            lastNodeTapID = nodeID
                         }
                     }
                 )
@@ -294,7 +307,6 @@ struct CanopyCanvasView: View {
                         }
                     }
                 }
-                .transition(.scale(scale: 0.8).combined(with: .opacity))
 
                 // Right panel: sequencer (swappable)
                 DraggableBloomPanel(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: seqScreen) {
@@ -306,12 +318,10 @@ struct CanopyCanvasView: View {
                         }
                     }
                 }
-                .transition(.scale(scale: 0.8).combined(with: .opacity))
 
                 DraggableBloomPanel(panel: .prompt, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: promptScreen) {
                     ClaudePromptPanel()
                 }
-                .transition(.scale(scale: 0.8).combined(with: .opacity))
 
                 // Bottom: input (swappable)
                 DraggableBloomPanel(panel: .input, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: keyboardScreen) {
@@ -323,7 +333,6 @@ struct CanopyCanvasView: View {
                         }
                     }
                 }
-                .transition(.scale(scale: 0.8).combined(with: .opacity))
             }
         }
     }
@@ -582,16 +591,13 @@ struct CanopyCanvasView: View {
             let dx = canvasX - node.position.x
             let dy = canvasY - node.position.y
             if dx * dx + dy * dy <= hitRadius * hitRadius {
-                withAnimation(.spring(duration: 0.3)) {
-                    projectState.selectNode(node.id)
-                }
+                ensureInitialOffsets(for: node)
+                projectState.selectNode(node.id)
                 return
             }
         }
 
-        withAnimation(.spring(duration: 0.2)) {
-            projectState.selectNode(nil)
-        }
+        projectState.selectNode(nil)
         showPresetPicker = false
         editingNodeID = nil
         // Dismiss LFO popover on canvas background tap
@@ -613,7 +619,6 @@ private struct TreeContentView: View {
     let onPresetSelected: (NodePreset) -> Void
     let onPickerDismiss: () -> Void
     let onNodeTap: (UUID) -> Void
-    let onDoubleTap: (UUID) -> Void
 
     var body: some View {
         ZStack {
@@ -626,17 +631,15 @@ private struct TreeContentView: View {
                     .fill(CanopyColors.bloomZone.opacity(0.85))
                     .frame(width: 350, height: 350)
                     .position(x: selectedNode.position.x, y: selectedNode.position.y)
+                    .transition(.opacity.animation(.easeOut(duration: 0.15)))
             }
 
-            // Nodes
+            // Nodes — single tap only (double-tap handled via timing in parent)
             ForEach(allNodes) { node in
                 NodeView(
                     node: node,
                     isSelected: selectedNodeID == node.id
                 )
-                .onTapGesture(count: 2) {
-                    onDoubleTap(node.id)
-                }
                 .onTapGesture {
                     onNodeTap(node.id)
                 }

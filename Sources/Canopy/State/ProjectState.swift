@@ -152,9 +152,6 @@ class ProjectState: ObservableObject {
 
     func selectNode(_ id: UUID?) {
         selectedNodeID = id
-        if project.trees.count > 0 {
-            recomputeLayout(root: &project.trees[0].rootNode, x: 0, y: 0, depth: 0)
-        }
     }
 
     func findNode(id: UUID) -> Node? {
