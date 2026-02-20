@@ -71,10 +71,9 @@ struct DrumSequencerPanel: View {
                     // Grid + velocity bars + playhead
                     ZStack(alignment: .topLeading) {
                         VStack(spacing: 2 * cs) {
-                            gridView(sequence: node.sequence)
+                            gridCanvas(sequence: node.sequence)
                             velocityBars(sequence: node.sequence)
                         }
-                        .drawingGroup()
 
                         SequencerPlayhead(
                             nodeID: node.id,
@@ -163,45 +162,66 @@ struct DrumSequencerPanel: View {
         return dict
     }
 
-    private func gridView(sequence: NoteSequence) -> some View {
+    private func gridCanvas(sequence: NoteSequence) -> some View {
         let lookup = noteEventLookup(for: sequence)
         let pitches = FMDrumKit.midiPitches
-        return VStack(spacing: cellSpacing) {
-            ForEach(0..<voiceCount, id: \.self) { voiceIndex in
+        let cellSz = cellSize
+        let spacing = cellSpacing
+        let stride = cellSz + spacing
+        let cr = cellCornerRadius
+        let cols = columns
+        let dCols = displayColumns
+        let vc = voiceCount
+        let gridWidth = CGFloat(dCols) * stride - spacing
+        let gridHeight = CGFloat(vc) * stride - spacing
+
+        let drumColor = CanopyColors.nodeRhythmic
+        let borderColor = CanopyColors.bloomPanelBorder
+        let inactiveColor = CanopyColors.gridCellInactive
+
+        return Canvas { context, size in
+            for voiceIndex in 0..<vc {
                 let pitch = pitches[voiceIndex]
-                HStack(spacing: cellSpacing) {
-                    ForEach(0..<displayColumns, id: \.self) { col in
-                        let enabled = col < columns
-                        let noteEvent = enabled ? lookup[pitch &* 1000 &+ col] : nil
-                        drumCell(pitch: pitch, step: col, noteEvent: noteEvent, enabled: enabled)
-                    }
+                let y = CGFloat(voiceIndex) * stride
+                for col in 0..<dCols {
+                    let enabled = col < cols
+                    let dimFactor: Double = enabled ? 1.0 : 0.25
+                    let noteEvent = enabled ? lookup[pitch &* 1000 &+ col] : nil
+                    let isActive = noteEvent != nil
+
+                    let x = CGFloat(col) * stride
+                    let rect = CGRect(x: x, y: y, width: cellSz, height: cellSz)
+                    let path = RoundedRectangle(cornerRadius: cr).path(in: rect)
+
+                    let fillColor: Color = isActive
+                        ? drumColor.opacity(0.15 * dimFactor)
+                        : inactiveColor.opacity(dimFactor)
+                    let strokeColor: Color = isActive
+                        ? drumColor.opacity(0.8 * dimFactor)
+                        : borderColor.opacity(0.3 * dimFactor)
+                    let strokeWidth: CGFloat = isActive ? 1.5 : 0.5
+
+                    context.fill(path, with: .color(fillColor))
+                    context.stroke(path, with: .color(strokeColor), lineWidth: strokeWidth)
                 }
             }
         }
-    }
-
-    private func drumCell(pitch: Int, step: Int, noteEvent: NoteEvent?, enabled: Bool) -> some View {
-        let isActive = noteEvent != nil
-        let dimFactor: Double = enabled ? 1.0 : 0.25
-        let drumColor = CanopyColors.nodeRhythmic
-
-        let strokeColor: Color = isActive
-            ? drumColor.opacity(0.8 * dimFactor)
-            : CanopyColors.bloomPanelBorder.opacity(0.3 * dimFactor)
-        let fillColor: Color = isActive
-            ? drumColor.opacity(0.15 * dimFactor)
-            : CanopyColors.gridCellInactive.opacity(dimFactor)
-
-        return RoundedRectangle(cornerRadius: cellCornerRadius)
-            .fill(fillColor)
-            .frame(width: cellSize, height: cellSize)
-            .overlay(
-                RoundedRectangle(cornerRadius: cellCornerRadius)
-                    .stroke(strokeColor, lineWidth: isActive ? 1.5 : 0.5)
-            )
-            .onTapGesture {
-                if enabled { toggleNote(pitch: pitch, step: step) }
-            }
+        .frame(width: gridWidth, height: gridHeight)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onEnded { value in
+                    guard abs(value.translation.width) < 5,
+                          abs(value.translation.height) < 5 else { return }
+                    let loc = value.startLocation
+                    let col = Int(loc.x / stride)
+                    let voiceIndex = Int(loc.y / stride)
+                    guard voiceIndex >= 0, voiceIndex < vc,
+                          col >= 0, col < cols else { return }
+                    let pitch = pitches[voiceIndex]
+                    toggleNote(pitch: pitch, step: col)
+                }
+        )
     }
 
     // MARK: - Velocity Bars
