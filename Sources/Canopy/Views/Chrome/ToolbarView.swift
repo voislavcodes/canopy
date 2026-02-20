@@ -65,11 +65,11 @@ struct ToolbarView: View {
             }
             .buttonStyle(.plain)
             .help("Computer keyboard MIDI input (A-L = notes, ; / ' = octave)")
-            .overlay(alignment: .topLeading) {
+            .overlay(alignment: .leading) {
                 Circle()
                     .fill(CanopyColors.chromeText.opacity(projectState.isDirty ? 0.4 : 0))
                     .frame(width: 6, height: 6)
-                    .offset(x: -8, y: -1)
+                    .offset(x: -9)
                     .allowsHitTesting(false)
             }
         }
