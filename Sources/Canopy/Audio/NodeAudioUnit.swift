@@ -27,7 +27,8 @@ final class NodeAudioUnit {
 
     private static let logger = Logger(subsystem: "com.canopy", category: "NodeAudioUnit")
 
-    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false) {
+    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false,
+         clockSamplePosition: UnsafeMutablePointer<Int64>, clockIsRunning: UnsafeMutablePointer<Bool>) {
         self.nodeID = nodeID
         self.commandBuffer = AudioCommandRingBuffer(capacity: 256)
 
@@ -43,22 +44,26 @@ final class NodeAudioUnit {
         if isFlow {
             self.sourceNode = Self.makeFlowSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate
+                panPtr: panPtr, sampleRate: sampleRate,
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isWestCoast {
             self.sourceNode = Self.makeWestCoastSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate
+                panPtr: panPtr, sampleRate: sampleRate,
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isDrumKit {
             self.sourceNode = Self.makeDrumKitSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate
+                panPtr: panPtr, sampleRate: sampleRate,
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else {
             self.sourceNode = Self.makeOscillatorSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate
+                panPtr: panPtr, sampleRate: sampleRate,
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         }
     }
@@ -70,7 +75,9 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
-        sampleRate: Double
+        sampleRate: Double,
+        clockPtr: UnsafeMutablePointer<Int64>,
+        clockRunning: UnsafeMutablePointer<Bool>
     ) -> AVAudioSourceNode {
         var voices = VoiceManager(voiceCount: 8)
         var seq = Sequencer()
@@ -135,7 +142,7 @@ final class NodeAudioUnit {
                     voices.allNotesOff()
 
                 case .sequencerSetBPM(let bpm):
-                    seq.bpm = bpm
+                    seq.setBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -198,12 +205,15 @@ final class NodeAudioUnit {
 
             let srF = Float(sr)
 
+            // Read tree clock once at top of callback
+            let baseSample = clockPtr.pointee
+
             // Branch once before the loop: modulated vs unmodulated path.
             // Zero overhead when no LFOs are routed to this node.
             if lfoBank.slotCount > 0 {
                 // MODULATED PATH
                 for frame in 0..<Int(frameCount) {
-                    seq.advanceOneSample(sampleRate: sr, receiver: &voices, detune: detune)
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &voices, detune: detune)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod // reserved for future per-sample resonance modulation
 
@@ -241,7 +251,7 @@ final class NodeAudioUnit {
             } else {
                 // UNMODIFIED PATH (existing behavior, zero LFO overhead)
                 for frame in 0..<Int(frameCount) {
-                    seq.advanceOneSample(sampleRate: sr, receiver: &voices, detune: detune)
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &voices, detune: detune)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
@@ -265,8 +275,8 @@ final class NodeAudioUnit {
             }
 
             // Update shared state for UI polling
-            beatPtr.pointee = seq.currentBeat
             playingPtr.pointee = seq.isPlaying
+            beatPtr.pointee = seq.currentBeat
 
             return noErr
         }
@@ -279,7 +289,9 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
-        sampleRate: Double
+        sampleRate: Double,
+        clockPtr: UnsafeMutablePointer<Int64>,
+        clockRunning: UnsafeMutablePointer<Bool>
     ) -> AVAudioSourceNode {
         var drumKit = FMDrumKit.defaultKit()
         var seq = Sequencer()
@@ -321,7 +333,7 @@ final class NodeAudioUnit {
                     drumKit.allNotesOff()
 
                 case .sequencerSetBPM(let bpm):
-                    seq.bpm = bpm
+                    seq.setBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -390,10 +402,13 @@ final class NodeAudioUnit {
 
             let srF = Float(sr)
 
+            // Read tree clock once at top of callback
+            let baseSample = clockPtr.pointee
+
             // Render loop — same LFO branching as oscillator path
             if lfoBank.slotCount > 0 {
                 for frame in 0..<Int(frameCount) {
-                    seq.advanceOneSample(sampleRate: sr, receiver: &drumKit, detune: 0)
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &drumKit, detune: 0)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
@@ -426,7 +441,7 @@ final class NodeAudioUnit {
                 }
             } else {
                 for frame in 0..<Int(frameCount) {
-                    seq.advanceOneSample(sampleRate: sr, receiver: &drumKit, detune: 0)
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &drumKit, detune: 0)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = drumKit.renderSample(sampleRate: sr) * Float(volumeSmoothed)
@@ -445,8 +460,8 @@ final class NodeAudioUnit {
                 }
             }
 
-            beatPtr.pointee = seq.currentBeat
             playingPtr.pointee = seq.isPlaying
+            beatPtr.pointee = seq.currentBeat
 
             return noErr
         }
@@ -459,7 +474,9 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
-        sampleRate: Double
+        sampleRate: Double,
+        clockPtr: UnsafeMutablePointer<Int64>,
+        clockRunning: UnsafeMutablePointer<Bool>
     ) -> AVAudioSourceNode {
         var westCoast = WestCoastVoiceManager()
         var seq = Sequencer()
@@ -501,7 +518,7 @@ final class NodeAudioUnit {
                     westCoast.allNotesOff()
 
                 case .sequencerSetBPM(let bpm):
-                    seq.bpm = bpm
+                    seq.setBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -580,10 +597,13 @@ final class NodeAudioUnit {
 
             let srF = Float(sr)
 
+            // Read tree clock once at top of callback
+            let baseSample = clockPtr.pointee
+
             // Render loop — same LFO branching as other paths
             if lfoBank.slotCount > 0 {
                 for frame in 0..<Int(frameCount) {
-                    seq.advanceOneSample(sampleRate: sr, receiver: &westCoast, detune: 0)
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &westCoast, detune: 0)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
@@ -616,7 +636,7 @@ final class NodeAudioUnit {
                 }
             } else {
                 for frame in 0..<Int(frameCount) {
-                    seq.advanceOneSample(sampleRate: sr, receiver: &westCoast, detune: 0)
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &westCoast, detune: 0)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = westCoast.renderSample(sampleRate: sr) * Float(volumeSmoothed)
@@ -635,8 +655,8 @@ final class NodeAudioUnit {
                 }
             }
 
-            beatPtr.pointee = seq.currentBeat
             playingPtr.pointee = seq.isPlaying
+            beatPtr.pointee = seq.currentBeat
 
             return noErr
         }
@@ -649,7 +669,9 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
-        sampleRate: Double
+        sampleRate: Double,
+        clockPtr: UnsafeMutablePointer<Int64>,
+        clockRunning: UnsafeMutablePointer<Bool>
     ) -> AVAudioSourceNode {
         var flow = FlowVoiceManager()
         var seq = Sequencer()
@@ -691,7 +713,7 @@ final class NodeAudioUnit {
                     flow.allNotesOff()
 
                 case .sequencerSetBPM(let bpm):
-                    seq.bpm = bpm
+                    seq.setBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -759,10 +781,13 @@ final class NodeAudioUnit {
 
             let srF = Float(sr)
 
+            // Read tree clock once at top of callback
+            let baseSample = clockPtr.pointee
+
             // Render loop — same LFO branching as other paths
             if lfoBank.slotCount > 0 {
                 for frame in 0..<Int(frameCount) {
-                    seq.advanceOneSample(sampleRate: sr, receiver: &flow, detune: 0)
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &flow, detune: 0)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
@@ -795,7 +820,7 @@ final class NodeAudioUnit {
                 }
             } else {
                 for frame in 0..<Int(frameCount) {
-                    seq.advanceOneSample(sampleRate: sr, receiver: &flow, detune: 0)
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &flow, detune: 0)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = flow.renderSample(sampleRate: sr) * Float(volumeSmoothed)
@@ -814,8 +839,8 @@ final class NodeAudioUnit {
                 }
             }
 
-            beatPtr.pointee = seq.currentBeat
             playingPtr.pointee = seq.isPlaying
+            beatPtr.pointee = seq.currentBeat
 
             return noErr
         }

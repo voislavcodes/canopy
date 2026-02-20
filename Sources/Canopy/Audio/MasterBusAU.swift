@@ -42,6 +42,12 @@ final class MasterBusAU: AUAudioUnit {
     // Master volume
     private let volumePtr: UnsafeMutablePointer<Float>
 
+    // Tree clock slots — pointer-to-optional-pointer pattern because MasterBusAU
+    // is instantiated by Apple's AU framework (can't pass constructor args).
+    // Set via setClockPointers() after instantiation.
+    private let clockPositionSlot: UnsafeMutablePointer<UnsafeMutablePointer<Int64>?>
+    private let clockRunningSlot: UnsafeMutablePointer<UnsafeMutablePointer<Bool>?>
+
     // Internal render block (captured once, no per-render allocation)
     private var _internalRenderBlock: AUInternalRenderBlock!
 
@@ -75,6 +81,11 @@ final class MasterBusAU: AUAudioUnit {
         volumePtr = .allocate(capacity: 1)
         volumePtr.initialize(to: 1.0)
 
+        clockPositionSlot = .allocate(capacity: 1)
+        clockPositionSlot.initialize(to: nil)
+        clockRunningSlot = .allocate(capacity: 1)
+        clockRunningSlot.initialize(to: nil)
+
         try super.init(componentDescription: componentDescription, options: options)
 
         // Create stereo format
@@ -90,6 +101,8 @@ final class MasterBusAU: AUAudioUnit {
         let shore = shorePtr
         let fxChain = fxChainPtr
         let vol = volumePtr
+        let posSlot = clockPositionSlot
+        let runSlot = clockRunningSlot
 
         _internalRenderBlock = { actionFlags, timestamp, frameCount, outputBusNumber, outputData, renderEvent, pullInputBlock in
             guard let pullInputBlock = pullInputBlock else {
@@ -125,8 +138,21 @@ final class MasterBusAU: AUAudioUnit {
                 rightBuf[frame] = limitedR
             }
 
+            // Advance tree clock AFTER all processing.
+            // Source nodes already rendered (pull model), so this is safe.
+            if runSlot.pointee?.pointee == true {
+                posSlot.pointee?.pointee += Int64(frameCount)
+            }
+
             return noErr
         }
+    }
+
+    /// Connect the tree clock pointers. Called from main thread after AU instantiation.
+    func setClockPointers(samplePosition: UnsafeMutablePointer<Int64>,
+                          isRunning: UnsafeMutablePointer<Bool>) {
+        clockPositionSlot.pointee = samplePosition
+        clockRunningSlot.pointee = isRunning
     }
 
     deinit {
@@ -136,6 +162,10 @@ final class MasterBusAU: AUAudioUnit {
         fxChainPtr.deallocate()
         volumePtr.deinitialize(count: 1)
         volumePtr.deallocate()
+        clockPositionSlot.deinitialize(count: 1)
+        clockPositionSlot.deallocate()
+        clockRunningSlot.deinitialize(count: 1)
+        clockRunningSlot.deallocate()
     }
 
     // MARK: - AUAudioUnit overrides

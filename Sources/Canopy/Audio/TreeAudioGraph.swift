@@ -7,6 +7,26 @@ final class TreeAudioGraph {
     private(set) var units: [UUID: NodeAudioUnit] = [:]
     private let logger = Logger(subsystem: "com.canopy", category: "TreeAudioGraph")
 
+    // MARK: - Unified Tree Clock
+    // One Int64 sample counter for the entire tree. Source nodes READ it,
+    // MasterBusAU ADVANCES it — render order guarantees no races.
+    let clockSamplePosition: UnsafeMutablePointer<Int64>
+    let clockIsRunning: UnsafeMutablePointer<Bool>
+
+    init() {
+        clockSamplePosition = .allocate(capacity: 1)
+        clockSamplePosition.initialize(to: 0)
+        clockIsRunning = .allocate(capacity: 1)
+        clockIsRunning.initialize(to: false)
+    }
+
+    deinit {
+        clockSamplePosition.deinitialize(count: 1)
+        clockSamplePosition.deallocate()
+        clockIsRunning.deinitialize(count: 1)
+        clockIsRunning.deallocate()
+    }
+
     // MARK: - Full Graph Build/Teardown
 
     /// Build the full audio graph from a tree. Walks all nodes recursively,
@@ -37,7 +57,8 @@ final class TreeAudioGraph {
         if case .westCoast = node.patch.soundType { isWest = true } else { isWest = false }
         let isFlow: Bool
         if case .flow = node.patch.soundType { isFlow = true } else { isFlow = false }
-        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow)
+        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow,
+                                 clockSamplePosition: clockSamplePosition, clockIsRunning: clockIsRunning)
         engine.attach(unit.sourceNode)
         // Connect directly to main mixer — same pattern as Phase 2.
         // AVAudioSourceNode uses the engine's native format when no format is specified.
@@ -73,6 +94,8 @@ final class TreeAudioGraph {
 
     /// Start all sequencers simultaneously at the given BPM.
     func startAll(bpm: Double) {
+        clockSamplePosition.pointee = 0
+        clockIsRunning.pointee = true
         for (_, unit) in units {
             unit.startSequencer(bpm: bpm)
         }
@@ -80,6 +103,7 @@ final class TreeAudioGraph {
 
     /// Stop all sequencers and silence all notes.
     func stopAll() {
+        clockIsRunning.pointee = false
         for (_, unit) in units {
             unit.stopSequencer()
         }

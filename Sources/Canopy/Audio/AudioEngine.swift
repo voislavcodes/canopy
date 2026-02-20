@@ -88,6 +88,8 @@ final class AudioEngine {
 
         masterBusAVUnit = avUnit
         masterBusAU = avUnit.auAudioUnit as? MasterBusAU
+        masterBusAU?.setClockPointers(samplePosition: graph.clockSamplePosition,
+                                       isRunning: graph.clockIsRunning)
         logger.info("Master bus AU inserted into audio graph")
     }
 

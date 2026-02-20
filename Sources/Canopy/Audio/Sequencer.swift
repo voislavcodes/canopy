@@ -154,6 +154,13 @@ struct Sequencer {
     // Cycle counter for loop wrap detection
     private var loopCount: Int = 0
 
+    // Clock sync flag — set true on start() and setBPM() to prevent
+    // spurious loop-wrap effects when a node joins mid-playback or BPM changes.
+    private var needsClockSync: Bool = false
+
+    // Test-only sample counter for backward-compatible advanceOneSample wrapper.
+    private var _testSampleCounter: Int64 = 0
+
     // MARK: - Arp state (pre-allocated, zero-alloc on audio thread)
 
     private var arpActive: Bool = false
@@ -341,6 +348,8 @@ struct Sequencer {
         self.loopCount = 0
         self.accumulatorValue = 0
         self.accumulatorDirection = 1.0
+        self.needsClockSync = true
+        self._testSampleCounter = 0
         resetFlags()
     }
 
@@ -348,6 +357,12 @@ struct Sequencer {
     mutating func stop() {
         isPlaying = false
         currentBeat = 0
+    }
+
+    /// Update BPM and mark for clock resync.
+    mutating func setBPM(_ newBPM: Double) {
+        self.bpm = newBPM
+        self.needsClockSync = true
     }
 
     /// Set mutation parameters without full reload.
@@ -424,6 +439,115 @@ struct Sequencer {
         let source = activeBufferIsA ? mutatedPitchesB : mutatedPitchesA
         return Array(source[0..<eventCount])
     }
+
+    // MARK: - Clock-Derived Tick (primary path)
+
+    /// Derive beat position from a global sample counter and trigger events.
+    /// Called per sample frame from the render callback.
+    /// The global counter is owned by TreeAudioGraph and advanced by MasterBusAU.
+    mutating func tick<R: NoteReceiver>(
+        globalSample: Int64, sampleRate: Double,
+        receiver: inout R, detune: Double
+    ) {
+        guard isPlaying else { return }
+
+        let globalBeat = Double(globalSample) * bpm / (60.0 * sampleRate)
+        let newLoopCount = lengthInBeats > 0 ? Int(globalBeat / lengthInBeats) : 0
+        let localBeat = globalBeat - Double(newLoopCount) * lengthInBeats
+
+        // Clock sync: on first tick after start/setBPM, adopt the current loop count
+        // without firing loop-wrap effects.
+        if needsClockSync {
+            needsClockSync = false
+            loopCount = newLoopCount
+            currentBeat = localBeat
+            resetFlags()
+            // Reset cursors for clean start
+            nextOnCursor = 0
+            nextOffCursor = 0
+            lastStepBoundaryIndex = -1
+            if direction == .reverse {
+                currentStepIndex = max(sortedStepCount - 1, 0)
+            } else {
+                currentStepIndex = 0
+            }
+            return
+        }
+
+        // Detect loop wrap(s)
+        if newLoopCount > loopCount {
+            let loopDelta = newLoopCount - loopCount
+            handleLoopWrap(receiver: &receiver, detune: detune, loopDelta: loopDelta)
+            loopCount = newLoopCount
+        }
+
+        currentBeat = localBeat
+
+        // Event processing (same as advanceOneSample)
+        if arpActive && arpPoolCount > 0 {
+            advanceOneSampleArp(sampleRate: sampleRate, receiver: &receiver, detune: detune)
+        } else if !arpActive {
+            if activeRatchetCount > 0 {
+                processRatchets(receiver: &receiver, detune: detune)
+            }
+            if direction == .forward {
+                advanceForward(sampleRate: sampleRate, receiver: &receiver, detune: detune)
+            } else {
+                advanceDirectional(sampleRate: sampleRate, receiver: &receiver, detune: detune)
+            }
+        }
+    }
+
+    /// Handle one or more loop wraps: note-offs, mutation, accumulator, flag resets.
+    private mutating func handleLoopWrap<R: NoteReceiver>(
+        receiver: inout R, detune: Double, loopDelta: Int
+    ) {
+        // Clean up sounding notes
+        if arpActive {
+            if arpCurrentNotePitch >= 0 {
+                receiver.noteOff(pitch: arpCurrentNotePitch)
+                arpCurrentNotePitch = -1
+                arpGateSamplesRemaining = 0
+            }
+        } else {
+            for i in 0..<eventCount {
+                if triggeredOnFlags[i] && !triggeredOffFlags[i] {
+                    receiver.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
+                    triggeredOffFlags[i] = true
+                }
+            }
+            for i in 0..<pendingRatchets.count {
+                if pendingRatchets[i].isActive && !pendingRatchets[i].hasTriggeredOff {
+                    receiver.noteOff(pitch: applyAccumulatorToPitch(pendingRatchets[i].pitch))
+                }
+                pendingRatchets[i].isActive = false
+            }
+            activeRatchetCount = 0
+        }
+
+        // Apply mutation and accumulator for each loop that passed
+        for _ in 0..<loopDelta {
+            if mutationAmount > 0 && scaleIntervalsCount > 0 {
+                applyMutation()
+            }
+            if accumulatorEnabled {
+                advanceAccumulator()
+            }
+        }
+
+        // Reset direction state
+        if direction == .reverse {
+            currentStepIndex = max(sortedStepCount - 1, 0)
+        } else {
+            currentStepIndex = 0
+        }
+        lastStepBoundaryIndex = -1
+        nextOnCursor = 0
+        nextOffCursor = 0
+        resetFlags()
+    }
+
+    // MARK: - Legacy Sample-Counting Path (backward-compatible, used by tests)
 
     /// Advance the beat clock by one sample and trigger any pending events.
     /// Called from the audio render callback per sample frame.
