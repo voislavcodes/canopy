@@ -264,10 +264,14 @@ struct FXLaneView: View {
     // MARK: - Actions
 
     private func addEffect(type: EffectType) {
+        let effect: Effect
         if let nodeID = projectState.selectedNodeID {
-            projectState.addNodeEffect(nodeID: nodeID, type: type)
+            effect = projectState.addNodeEffect(nodeID: nodeID, type: type)
         } else {
-            projectState.addMasterEffect(type: type)
+            effect = projectState.addMasterEffect(type: type)
+        }
+        withAnimation(.spring(duration: 0.2)) {
+            selectedFXID = effect.id
         }
     }
 
