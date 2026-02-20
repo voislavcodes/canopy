@@ -1,16 +1,37 @@
 import SwiftUI
 
+/// Preference key to report FX chip frames from children up to the strip.
+private struct FXChipFrameKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+/// Preference key to report the +FX button frame for picker positioning.
+private struct FXButtonFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
 /// Horizontal FX lane strip between canvas and modulator strip.
 ///
 /// Context-sensitive:
 /// - Node selected → shows that node's effect chain
 /// - Nothing selected → shows master bus effect chain
+///
+/// Effects render as compact chip tabs (like LFO chips).
+/// Tapping a chip opens a popover above it with full controls.
 struct FXLaneView: View {
     @ObservedObject var projectState: ProjectState
     @State private var showingPicker: Bool = false
-    @State private var expandedEffectID: UUID?
+    @State private var selectedFXID: UUID?
+    @State private var chipFrames: [UUID: CGRect] = [:]
     @State private var addButtonFrame: CGRect = .zero
     @State private var pickerHeight: CGFloat = 240
+    @State private var popoverHeight: CGFloat = 200
 
     private let stripCoordSpace = "fxLaneStrip"
 
@@ -47,27 +68,31 @@ struct FXLaneView: View {
                         }
                     )
 
-                // Scrollable effect boxes
+                // Scrollable FX chip tabs
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
                         ForEach(effects) { effect in
-                            if effects.first?.id != effect.id {
-                                Text("\u{2192}")
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(CanopyColors.chromeText.opacity(0.3))
-                            }
-
-                            EffectBoxView(
+                            FXChipView(
                                 effect: effect,
-                                isExpanded: expandedEffectID == effect.id,
-                                onTapName: { toggleBypass(effect.id) },
-                                onTapExpand: { toggleExpand(effect.id) },
-                                onRemove: { removeEffect(effect.id) },
-                                onParameterChange: { key, value in
-                                    updateParameter(effectID: effect.id, key: key, value: value)
+                                isSelected: selectedFXID == effect.id,
+                                onTap: {
+                                    withAnimation(.spring(duration: 0.2)) {
+                                        showingPicker = false
+                                        if selectedFXID == effect.id {
+                                            selectedFXID = nil
+                                        } else {
+                                            selectedFXID = effect.id
+                                        }
+                                    }
                                 },
-                                onWetDryChange: { value in
-                                    updateWetDry(effectID: effect.id, value: value)
+                                onDelete: { removeEffect(effect.id) }
+                            )
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: FXChipFrameKey.self,
+                                        value: [effect.id: geo.frame(in: .named(stripCoordSpace))]
+                                    )
                                 }
                             )
                         }
@@ -88,7 +113,10 @@ struct FXLaneView: View {
         .background(CanopyColors.chromeBackground)
         .coordinateSpace(name: stripCoordSpace)
         .onPreferenceChange(FXButtonFrameKey.self) { addButtonFrame = $0 }
+        .onPreferenceChange(FXChipFrameKey.self) { chipFrames = $0 }
+        // Popovers overlay
         .overlay {
+            // +FX picker popover
             if showingPicker {
                 effectPickerPopover
                     .fixedSize()
@@ -97,6 +125,33 @@ struct FXLaneView: View {
                         y: -(pickerHeight / 2) - 4
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
+            }
+
+            // FX settings popover (above selected chip)
+            if let fxID = selectedFXID,
+               let effect = effects.first(where: { $0.id == fxID }),
+               let chipFrame = chipFrames[fxID] {
+                FXPopoverPanel(
+                    effect: effect,
+                    color: fxColor(effect.type),
+                    onClose: {
+                        withAnimation(.spring(duration: 0.2)) { selectedFXID = nil }
+                    },
+                    onToggleBypass: { toggleBypass(fxID) },
+                    onParameterChange: { key, value in
+                        updateParameter(effectID: fxID, key: key, value: value)
+                    },
+                    onWetDryChange: { value in
+                        updateWetDry(effectID: fxID, value: value)
+                    },
+                    measuredHeight: $popoverHeight
+                )
+                .fixedSize()
+                .position(
+                    x: chipFrame.midX,
+                    y: -(popoverHeight / 2) - 4
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
             }
         }
     }
@@ -135,7 +190,10 @@ struct FXLaneView: View {
 
     private var addButton: some View {
         Button(action: {
-            withAnimation(.spring(duration: 0.2)) { showingPicker.toggle() }
+            withAnimation(.spring(duration: 0.2)) {
+                selectedFXID = nil
+                showingPicker.toggle()
+            }
         }) {
             HStack(spacing: 4) {
                 Text("+")
@@ -219,8 +277,8 @@ struct FXLaneView: View {
         } else {
             projectState.removeMasterEffect(effectID: effectID)
         }
-        if expandedEffectID == effectID {
-            expandedEffectID = nil
+        if selectedFXID == effectID {
+            selectedFXID = nil
         }
     }
 
@@ -229,12 +287,6 @@ struct FXLaneView: View {
             projectState.toggleNodeEffectBypass(nodeID: nodeID, effectID: effectID)
         } else {
             projectState.toggleMasterEffectBypass(effectID: effectID)
-        }
-    }
-
-    private func toggleExpand(_ effectID: UUID) {
-        withAnimation(.easeInOut(duration: 0.15)) {
-            expandedEffectID = expandedEffectID == effectID ? nil : effectID
         }
     }
 
@@ -260,15 +312,5 @@ struct FXLaneView: View {
                 effect.wetDry = value
             }
         }
-    }
-}
-
-// MARK: - Preference Key
-
-/// Reports the +FX button frame up to the strip for popover positioning.
-private struct FXButtonFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
     }
 }
