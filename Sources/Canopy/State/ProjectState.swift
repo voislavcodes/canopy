@@ -118,10 +118,10 @@ class ProjectState: ObservableObject {
 
     // MARK: - Dirty Tracking & Auto-Save
 
-    /// Mark the project as dirty, update modifiedAt, and schedule a debounced auto-save (2s).
+    /// Mark the project as dirty and schedule a debounced auto-save (2s).
+    /// Guards redundant assignments to avoid extra @Published notifications.
     func markDirty() {
-        isDirty = true
-        project.modifiedAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        if !isDirty { isDirty = true }
         scheduleAutoSave()
     }
 
@@ -130,6 +130,7 @@ class ProjectState: ObservableObject {
         autoSaveWork?.cancel()
         autoSaveWork = nil
         guard let url = currentFilePath else { return }
+        project.modifiedAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         autoSaveHandler?(project, url)
         isDirty = false
     }

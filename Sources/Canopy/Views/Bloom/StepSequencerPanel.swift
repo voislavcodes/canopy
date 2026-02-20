@@ -138,13 +138,12 @@ struct StepSequencerPanel: View {
                     ZStack(alignment: .topLeading) {
                         VStack(spacing: 2 * cs) {
                             ZStack(alignment: .topLeading) {
-                                gridView(sequence: node.sequence)
+                                gridCanvas(sequence: node.sequence)
 
                                 spanOverlay(sequence: node.sequence)
                             }
                             velocityBars(sequence: node.sequence)
                         }
-                        .drawingGroup()
 
                         SequencerPlayhead(
                             nodeID: node.id,
@@ -356,24 +355,93 @@ struct StepSequencerPanel: View {
         return dict
     }
 
-    private func gridView(sequence: NoteSequence) -> some View {
+    private func gridCanvas(sequence: NoteSequence) -> some View {
+        // Pre-compute all values outside the Canvas closure
         let lookup = noteEventLookup(for: sequence)
         let pitches = visiblePitches
         let arpPitches: Set<Int> = isArpActive
             ? Set(sequence.notes.map { $0.pitch })
             : []
-        return VStack(spacing: cellSpacing) {
-            ForEach(pitches, id: \.self) { pitch in
+        let cellSz = cellSize
+        let spacing = cellSpacing
+        let stride = cellSz + spacing
+        let cr = cellCornerRadius
+        let cols = columns
+        let isArp = isArpActive
+        let hasEuclidean = sequence.euclidean != nil
+        let scale = cs
+        let gridWidth = CGFloat(displayColumns) * stride - spacing
+        let gridHeight = CGFloat(pitches.count) * stride - spacing
+
+        return Canvas { context, size in
+            for (rowIdx, pitch) in pitches.enumerated() {
                 let rowInPool = arpPitches.contains(pitch)
-                HStack(spacing: cellSpacing) {
-                    ForEach(0..<displayColumns, id: \.self) { col in
-                        let enabled = col < columns
-                        let noteEvent = enabled ? lookup[pitch &* 1000 &+ col] : nil
-                        stepCell(pitch: pitch, step: col, noteEvent: noteEvent, sequence: sequence, enabled: enabled, arpRowHighlight: rowInPool)
+                let y = CGFloat(rowIdx) * stride
+
+                for col in 0..<displayColumns {
+                    let x = CGFloat(col) * stride
+                    let rect = CGRect(x: x, y: y, width: cellSz, height: cellSz)
+                    let path = RoundedRectangle(cornerRadius: cr).path(in: rect)
+
+                    let enabled = col < cols
+                    let noteEvent = enabled ? lookup[pitch &* 1000 &+ col] : nil
+                    let isActive = noteEvent != nil
+                    let probability = noteEvent?.probability ?? 1.0
+                    let ratchetCount = noteEvent?.ratchetCount ?? 1
+                    let dimFactor: Double = enabled ? 1.0 : 0.25
+
+                    // Colors
+                    let euclideanGreen = Color(red: 0.2, green: 0.7, blue: 0.4)
+                    let arpCyan = Color(red: 0.2, green: 0.7, blue: 0.8)
+                    let baseColor: Color = isArp && isActive ? arpCyan
+                        : (hasEuclidean && isActive ? euclideanGreen : CanopyColors.gridCellActive)
+
+                    let inactiveFill: Color = rowInPool
+                        ? arpCyan.opacity(0.04 * dimFactor)
+                        : CanopyColors.gridCellInactive.opacity(dimFactor)
+                    let fillColor: Color = isActive
+                        ? baseColor.opacity(0.1 * dimFactor) : inactiveFill
+
+                    let strokeColor: Color = isActive
+                        ? baseColor.opacity((probability * 0.8 + 0.2) * dimFactor)
+                        : CanopyColors.bloomPanelBorder.opacity(0.3 * dimFactor)
+                    let strokeWidth: CGFloat = isActive ? 1.5 : 0.5
+
+                    context.fill(path, with: .color(fillColor))
+                    context.stroke(path, with: .color(strokeColor), lineWidth: strokeWidth)
+
+                    // Ratchet subdivision lines
+                    if isActive && ratchetCount > 1 {
+                        let lineW = cellSz - 4 * scale
+                        let startX = x + 2 * scale
+                        for r in 0..<ratchetCount {
+                            let ry = y + cellSz * CGFloat(r + 1) / CGFloat(ratchetCount + 1)
+                            var lp = Path()
+                            lp.move(to: CGPoint(x: startX, y: ry))
+                            lp.addLine(to: CGPoint(x: startX + lineW, y: ry))
+                            context.stroke(lp, with: .color(.white.opacity(0.3 * dimFactor)), lineWidth: 1)
+                        }
                     }
                 }
             }
         }
+        .frame(width: gridWidth, height: gridHeight)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onEnded { value in
+                    // Only treat as tap if movement was minimal
+                    guard abs(value.translation.width) < 5,
+                          abs(value.translation.height) < 5 else { return }
+                    let loc = value.startLocation
+                    let col = Int(loc.x / stride)
+                    let rowIdx = Int(loc.y / stride)
+                    guard rowIdx >= 0, rowIdx < pitches.count,
+                          col >= 0, col < cols else { return }
+                    let pitch = pitches[rowIdx]
+                    toggleNote(pitch: pitch, step: col)
+                }
+        )
     }
 
     // MARK: - Velocity Bars
@@ -403,53 +471,6 @@ struct StepSequencerPanel: View {
             }
         }
         .frame(height: 5 * cs, alignment: .bottom)
-    }
-
-    private func stepCell(pitch: Int, step: Int, noteEvent: NoteEvent?, sequence: NoteSequence, enabled: Bool = true, arpRowHighlight: Bool = false) -> some View {
-        let isActive = noteEvent != nil
-        let isEuclidean = sequence.euclidean != nil && isActive
-        let probability = noteEvent?.probability ?? 1.0
-        let ratchetCount = noteEvent?.ratchetCount ?? 1
-        let dimFactor: Double = enabled ? 1.0 : 0.25
-
-        let euclideanGreen = Color(red: 0.2, green: 0.7, blue: 0.4)
-        let arpCyan = Color(red: 0.2, green: 0.7, blue: 0.8)
-        let baseColor = isArpActive && isActive ? arpCyan : (isEuclidean ? euclideanGreen : CanopyColors.gridCellActive)
-
-        let strokeColor: Color = isActive
-            ? baseColor.opacity((probability * 0.8 + 0.2) * dimFactor)
-            : CanopyColors.bloomPanelBorder.opacity(0.3 * dimFactor)
-        let strokeWidth: CGFloat = isActive ? 1.5 : 0.5
-        let inactiveFill: Color = arpRowHighlight
-            ? arpCyan.opacity(0.04 * dimFactor)
-            : CanopyColors.gridCellInactive.opacity(dimFactor)
-        let fillColor: Color = isActive
-            ? baseColor.opacity(0.1 * dimFactor)
-            : inactiveFill
-
-        return ZStack {
-            RoundedRectangle(cornerRadius: cellCornerRadius)
-                .fill(fillColor)
-                .frame(width: cellSize, height: cellSize)
-
-            RoundedRectangle(cornerRadius: cellCornerRadius)
-                .stroke(strokeColor, lineWidth: strokeWidth)
-                .frame(width: cellSize, height: cellSize)
-
-            // Ratchet indicator: subdivision lines
-            if isActive && ratchetCount > 1 {
-                VStack(spacing: 0) {
-                    ForEach(0..<ratchetCount, id: \.self) { _ in
-                        Rectangle()
-                            .fill(Color.white.opacity(0.3 * dimFactor))
-                            .frame(width: cellSize - 4 * cs, height: 1)
-                    }
-                }
-            }
-        }
-        .onTapGesture {
-            if enabled { toggleNote(pitch: pitch, step: step) }
-        }
     }
 
     // MARK: - Custom Controls
