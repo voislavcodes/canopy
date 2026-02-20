@@ -215,9 +215,10 @@ struct FlowVoiceManager {
 
         // Soft-limit the summed output. With 8 voices at full velocity,
         // the raw sum can exceed ±1.0 and hard-clip at the DAC.
-        // tanh(mix * 0.15) keeps the signal well inside the linear region
+        // tanh(mix * scale) keeps the signal well inside the linear region
         // so full-volume playback stays clean without saturation artifacts.
-        return Float(tanh(Double(mix) * 0.15))
+        // Scale 0.267 ≈ +5dB vs the old 0.15, bringing FLOW in line with other synths.
+        return Float(tanh(Double(mix) * 0.267))
     }
 
     /// Kill all voices immediately.
