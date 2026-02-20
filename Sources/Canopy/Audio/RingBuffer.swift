@@ -61,6 +61,10 @@ enum AudioCommand {
                  depth: Double, warmth: Double, volume: Double,
                  funcShape: Int, funcAmount: Double, funcSkew: Double, funcCycles: Int)
 
+    // SWARM engine: emergent additive synthesis
+    case setSwarm(gravity: Double, energy: Double, flock: Double, scatter: Double,
+                  warmth: Double, volume: Double)
+
     // FX chain swap (per-node effect chain replacement)
     case setFXChain(EffectChain)
 }

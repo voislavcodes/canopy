@@ -224,6 +224,11 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.configureTide(config)
     }
 
+    /// Configure SWARM parameters on a specific node.
+    func configureSwarm(_ config: SwarmConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureSwarm(config)
+    }
+
     /// Update the filter on a specific node.
     func configureFilter(enabled: Bool, cutoff: Double, resonance: Double, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureFilter(enabled: enabled, cutoff: cutoff, resonance: resonance)

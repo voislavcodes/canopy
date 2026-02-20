@@ -1,65 +1,51 @@
 import SwiftUI
 
-/// Bloom panel: FLOW engine controls.
-/// 5 fluid dynamics parameters + volume/pan output section.
-/// Uses same local-drag-state pattern as WestCoastPanel.
-struct FlowPanel: View {
+/// Bloom panel: SWARM engine controls.
+/// 4 physics parameters (Gravity, Energy, Flock, Scatter) + output section.
+/// 64-dot visualization showing partials in frequency space.
+struct SwarmPanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
 
     // MARK: - Local drag state
 
-    // Fluid parameters
-    @State private var localCurrent: Double = 0.2
-    @State private var localViscosity: Double = 0.5
-    @State private var localObstacle: Double = 0.3
-    @State private var localChannel: Double = 0.5
-    @State private var localDensity: Double = 0.5
+    // Physics
+    @State private var localGravity: Double = 0.5
+    @State private var localEnergy: Double = 0.3
+    @State private var localFlock: Double = 0.2
+    @State private var localScatter: Double = 0.3
 
     // Output
     @State private var localWarmth: Double = 0.3
-    @State private var localVolume: Double = 0.8
+    @State private var localVolume: Double = 0.7
     @State private var localPan: Double = 0.0
 
     private var node: Node? { projectState.selectedNode }
     private var patch: SoundPatch? { node?.patch }
 
-    private var flowConfig: FlowConfig? {
+    private var swarmConfig: SwarmConfig? {
         guard let patch else { return nil }
-        if case .flow(let config) = patch.soundType { return config }
+        if case .swarm(let config) = patch.soundType { return config }
         return nil
     }
 
-    private let accentColor = CanopyColors.nodeFlow
-
-    /// Compute approximate regime label from current parameters.
-    private var regimeLabel: (String, Color) {
-        let currentScaled = max(localCurrent * 10.0, 0.001)
-        let viscosityScaled = max(localViscosity * 5.0, 0.001)
-        let channelScaled = max(localChannel * 2.0, 0.001)
-        let densityScaled = max(localDensity * 2.0, 0.001)
-        let re = (currentScaled * densityScaled * channelScaled) / viscosityScaled
-
-        if re < 30 {
-            return ("LAMINAR", Color(red: 0.3, green: 0.8, blue: 0.9))
-        } else if re < 350 {
-            return ("TRANSITION", Color(red: 0.9, green: 0.7, blue: 0.3))
-        } else {
-            return ("TURBULENT", Color(red: 0.9, green: 0.35, blue: 0.3))
-        }
-    }
+    private let accentColor = CanopyColors.nodeSwarm
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {
             // Header
             HStack {
-                Text("FLOW")
+                Text("SWARM")
                     .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText)
 
+                Text("\u{2726}")
+                    .font(.system(size: 10 * cs))
+                    .foregroundColor(accentColor.opacity(0.6))
+
                 ModuleSwapButton(
                     options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm")],
-                    current: "flow",
+                    current: "swarm",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
                         if type == "osc" {
@@ -68,50 +54,47 @@ struct FlowPanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .drumKit(DrumKitConfig()))
                         } else if type == "west" {
                             projectState.swapEngine(nodeID: nodeID, to: .westCoast(WestCoastConfig()))
+                        } else if type == "flow" {
+                            projectState.swapEngine(nodeID: nodeID, to: .flow(FlowConfig()))
                         } else if type == "tide" {
                             projectState.swapEngine(nodeID: nodeID, to: .tide(TideConfig()))
-                        } else if type == "swarm" {
-                            projectState.swapEngine(nodeID: nodeID, to: .swarm(SwarmConfig()))
                         }
                     }
                 )
             }
 
-            if flowConfig != nil {
-                // Regime indicator
-                let regime = regimeLabel
-                Text(regime.0)
-                    .font(.system(size: 10 * cs, weight: .bold, design: .monospaced))
-                    .foregroundColor(regime.1)
-                    .padding(.horizontal, 8 * cs)
-                    .padding(.vertical, 2 * cs)
+            if swarmConfig != nil {
+                // Visualization: 64 dots on frequency axis
+                swarmVisualization
+                    .frame(height: 60 * cs)
                     .background(
-                        RoundedRectangle(cornerRadius: 3 * cs)
-                            .fill(regime.1.opacity(0.1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3 * cs)
-                            .stroke(regime.1.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 4 * cs)
+                            .fill(Color.black.opacity(0.3))
                     )
 
                 HStack(alignment: .top, spacing: 10 * cs) {
-                    // Left column: Fluid
+                    // Left column: Physics
                     VStack(alignment: .leading, spacing: 8 * cs) {
-                        sectionLabel("FLUID")
+                        sectionLabel("PHYSICS")
 
-                        paramSlider(label: "CURR", value: $localCurrent, range: 0...1,
+                        paramSlider(label: "GRAV", value: $localGravity, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.current = localCurrent }
+                            commitConfig { $0.gravity = localGravity }
                         } onDrag: { pushConfigToEngine() }
 
-                        paramSlider(label: "VISC", value: $localViscosity, range: 0...1,
+                        paramSlider(label: "ENRG", value: $localEnergy, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.viscosity = localViscosity }
+                            commitConfig { $0.energy = localEnergy }
                         } onDrag: { pushConfigToEngine() }
 
-                        paramSlider(label: "DENS", value: $localDensity, range: 0...1,
+                        paramSlider(label: "FLOC", value: $localFlock, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.density = localDensity }
+                            commitConfig { $0.flock = localFlock }
+                        } onDrag: { pushConfigToEngine() }
+
+                        paramSlider(label: "SCTR", value: $localScatter, range: 0...1,
+                                    format: { "\(Int($0 * 100))%" }) {
+                            commitConfig { $0.scatter = localScatter }
                         } onDrag: { pushConfigToEngine() }
                     }
                     .frame(maxWidth: .infinity)
@@ -120,22 +103,8 @@ struct FlowPanel: View {
                     CanopyColors.bloomPanelBorder.opacity(0.3)
                         .frame(width: 1)
 
-                    // Right column: Geometry + Output
+                    // Right column: Output
                     VStack(alignment: .leading, spacing: 8 * cs) {
-                        sectionLabel("GEOMETRY")
-
-                        paramSlider(label: "OBST", value: $localObstacle, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.obstacle = localObstacle }
-                        } onDrag: { pushConfigToEngine() }
-
-                        paramSlider(label: "CHAN", value: $localChannel, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.channel = localChannel }
-                        } onDrag: { pushConfigToEngine() }
-
-                        sectionDivider
-
                         outputSection
                     }
                     .frame(maxWidth: .infinity)
@@ -158,15 +127,77 @@ struct FlowPanel: View {
         .onChange(of: projectState.selectedNodeID) { _ in syncFromModel() }
     }
 
+    // MARK: - Visualization
+
+    /// 64 dots showing partial positions and amplitudes.
+    /// Static preview based on current control values (no audio-thread bridge needed).
+    private var swarmVisualization: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+            Canvas { context, size in
+                let w = size.width
+                let h = size.height
+
+                // Draw faint harmonic lines
+                for harmonic in 1...16 {
+                    let x = (CGFloat(harmonic) / 32.0) * w
+                    var path = Path()
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: h))
+                    context.stroke(path, with: .color(accentColor.opacity(0.1)), lineWidth: 1)
+                }
+
+                // Compute approximate partial positions from control values
+                let gravity = Float(localGravity)
+                let scatter = Float(localScatter)
+                let range = 0.12 + scatter * 0.88
+                let timeBits = Int(timeline.date.timeIntervalSinceReferenceDate * 100)
+                let seed = UInt32(truncatingIfNeeded: timeBits) &+ 42
+
+                for i in 0..<64 {
+                    let harmonicRatio = Float(i + 1)
+                    let rangeScale = range * 0.75 + 0.25
+                    let basePosition = harmonicRatio * rangeScale
+
+                    // Simple drift simulation based on controls
+                    var noiseSeed = seed &+ UInt32(i) &* 2654435761
+                    noiseSeed = noiseSeed &* 1664525 &+ 1013904223
+                    let noise = Float(Int32(bitPattern: noiseSeed)) / Float(Int32.max)
+                    let drift = noise * (1.0 - gravity) * 0.5
+
+                    let position = max(0.5, min(32.0, basePosition + drift))
+
+                    // Amplitude from bloom
+                    let nearestHarmonic = roundf(position)
+                    let bloom = 0.2 + gravity * 0.6
+                    let naturalAmp = 1.0 / max(1.0, Float(i + 1))
+                    let harmonicDist = abs(position - nearestHarmonic)
+                    let proximityReward = max(0.0, 1.0 - harmonicDist * 4.0 * bloom)
+                    let amp = naturalAmp * (1.0 - bloom + bloom * proximityReward)
+
+                    // Map to screen
+                    let x = CGFloat(position / 32.0) * w
+                    let y = h - CGFloat(amp) * h * 0.85 - h * 0.05
+
+                    let dotSize: CGFloat = max(2 * cs, 3 * cs * CGFloat(amp))
+                    let brightness = max(0.2, CGFloat(amp))
+
+                    context.fill(
+                        Path(ellipseIn: CGRect(x: x - dotSize / 2, y: y - dotSize / 2, width: dotSize, height: dotSize)),
+                        with: .color(accentColor.opacity(brightness))
+                    )
+                }
+            }
+        }
+    }
+
     // MARK: - Sync
 
     private func syncFromModel() {
-        guard let config = flowConfig else { return }
-        localCurrent = config.current
-        localViscosity = config.viscosity
-        localObstacle = config.obstacle
-        localChannel = config.channel
-        localDensity = config.density
+        guard let config = swarmConfig else { return }
+        localGravity = config.gravity
+        localEnergy = config.energy
+        localFlock = config.flock
+        localScatter = config.scatter
         localWarmth = config.warmth
         localVolume = config.volume
         localPan = config.pan
@@ -262,7 +293,6 @@ struct FlowPanel: View {
     // MARK: - Param Slider
 
     private func paramSlider(label: String, value: Binding<Double>, range: ClosedRange<Double>,
-                              logarithmic: Bool = false,
                               format: @escaping (Double) -> String,
                               onCommit: @escaping () -> Void, onDrag: @escaping () -> Void) -> some View {
         HStack(spacing: 4 * cs) {
@@ -273,9 +303,7 @@ struct FlowPanel: View {
 
             GeometryReader { geo in
                 let width = geo.size.width
-                let fraction: CGFloat = logarithmic
-                    ? CGFloat((log(value.wrappedValue) - log(range.lowerBound)) / (log(range.upperBound) - log(range.lowerBound)))
-                    : CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
+                let fraction = CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
                 let filledWidth = max(0, min(width, width * fraction))
 
                 ZStack(alignment: .leading) {
@@ -291,11 +319,7 @@ struct FlowPanel: View {
                     DragGesture(minimumDistance: 0)
                         .onChanged { drag in
                             let frac = Double(max(0, min(1, drag.location.x / width)))
-                            if logarithmic {
-                                value.wrappedValue = exp(log(range.lowerBound) + frac * (log(range.upperBound) - log(range.lowerBound)))
-                            } else {
-                                value.wrappedValue = range.lowerBound + frac * (range.upperBound - range.lowerBound)
-                            }
+                            value.wrappedValue = range.lowerBound + frac * (range.upperBound - range.lowerBound)
                             onDrag()
                         }
                         .onEnded { _ in
@@ -314,12 +338,12 @@ struct FlowPanel: View {
 
     // MARK: - Commit Helpers
 
-    private func commitConfig(_ transform: (inout FlowConfig) -> Void) {
+    private func commitConfig(_ transform: (inout SwarmConfig) -> Void) {
         guard let nodeID = projectState.selectedNodeID else { return }
         projectState.updateNode(id: nodeID) { node in
-            if case .flow(var config) = node.patch.soundType {
+            if case .swarm(var config) = node.patch.soundType {
                 transform(&config)
-                node.patch.soundType = .flow(config)
+                node.patch.soundType = .swarm(config)
             }
         }
         pushConfigToEngine()
@@ -334,16 +358,15 @@ struct FlowPanel: View {
 
     private func pushConfigToEngine() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let config = FlowConfig(
-            current: localCurrent,
-            viscosity: localViscosity,
-            obstacle: localObstacle,
-            channel: localChannel,
-            density: localDensity,
+        let config = SwarmConfig(
+            gravity: localGravity,
+            energy: localEnergy,
+            flock: localFlock,
+            scatter: localScatter,
             warmth: localWarmth,
             volume: localVolume,
             pan: localPan
         )
-        AudioEngine.shared.configureFlow(config, nodeID: nodeID)
+        AudioEngine.shared.configureSwarm(config, nodeID: nodeID)
     }
 }

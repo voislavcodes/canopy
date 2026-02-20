@@ -38,7 +38,7 @@ struct DrumVoicePanel: View {
                     .foregroundColor(CanopyColors.chromeText)
 
                 ModuleSwapButton(
-                    options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide")],
+                    options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm")],
                     current: "drum",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
@@ -50,6 +50,8 @@ struct DrumVoicePanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .flow(FlowConfig()))
                         } else if type == "tide" {
                             projectState.swapEngine(nodeID: nodeID, to: .tide(TideConfig()))
+                        } else if type == "swarm" {
+                            projectState.swapEngine(nodeID: nodeID, to: .swarm(SwarmConfig()))
                         }
                     }
                 )

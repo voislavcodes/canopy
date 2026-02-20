@@ -367,6 +367,64 @@ struct TideConfig: Codable, Equatable {
     static let ambient = TideConfig(current: 0.3, pattern: 4, rate: 0.08, depth: 0.4, warmth: 0.6)
 }
 
+/// SWARM engine: emergent additive synthesis.
+/// 64 sine oscillators as autonomous agents in frequency space.
+/// Gravity pulls toward harmonics, turbulence tears apart, flocking aligns motion.
+/// Four controls map divergently to physics parameters.
+struct SwarmConfig: Codable, Equatable {
+    // The four controls
+    var gravity: Double = 0.5      // 0–1: harmonic attraction (0 = chaos, 1 = pure tone)
+    var energy: Double = 0.3       // 0–1: system agitation (0 = still, 1 = violent)
+    var flock: Double = 0.2        // 0–1: group behaviour (0 = independent, 1 = unison)
+    var scatter: Double = 0.3      // 0–1: spectral spread (0 = tight cluster, 1 = wide)
+
+    // Output
+    var warmth: Double = 0.3       // 0–1: per-voice tanh drive
+    var volume: Double = 0.7       // 0–1
+    var pan: Double = 0.0          // -1 to +1
+
+    init(
+        gravity: Double = 0.5,
+        energy: Double = 0.3,
+        flock: Double = 0.2,
+        scatter: Double = 0.3,
+        warmth: Double = 0.3,
+        volume: Double = 0.7,
+        pan: Double = 0.0
+    ) {
+        self.gravity = gravity
+        self.energy = energy
+        self.flock = flock
+        self.scatter = scatter
+        self.warmth = warmth
+        self.volume = volume
+        self.pan = pan
+    }
+
+    // MARK: - Preset Seeds
+
+    /// Clean shimmering harmonics. Still.
+    static let crystal = SwarmConfig(gravity: 0.8, energy: 0.1, flock: 0.1, scatter: 0.3)
+    /// Slow glacial drift in groups. Deep space.
+    static let nebula = SwarmConfig(gravity: 0.3, energy: 0.2, flock: 0.6, scatter: 0.4)
+    /// Buzzy, alive, shifting. The namesake.
+    static let swarm = SwarmConfig(gravity: 0.4, energy: 0.5, flock: 0.3, scatter: 0.5)
+    /// Barely harmonic. Eerie. Whisper from beyond.
+    static let ghost = SwarmConfig(gravity: 0.2, energy: 0.1, flock: 0.1, scatter: 0.3)
+    /// Violent spectral chaos.
+    static let storm = SwarmConfig(gravity: 0.5, energy: 0.9, flock: 0.2, scatter: 0.4)
+    /// Vocal groups. Harmonic sweeps.
+    static let choir = SwarmConfig(gravity: 0.7, energy: 0.2, flock: 0.8, scatter: 0.3)
+    /// Scattered light. Twinkling.
+    static let firefly = SwarmConfig(gravity: 0.5, energy: 0.4, flock: 0.4, scatter: 0.7)
+    /// Locked harmonics. Pure additive.
+    static let glass = SwarmConfig(gravity: 0.9, energy: 0.05, flock: 0.0, scatter: 0.5)
+    /// Starling flock. Groups tearing through space.
+    static let murmuration = SwarmConfig(gravity: 0.3, energy: 0.8, flock: 0.7, scatter: 0.3)
+    /// Dense, independent, atomic.
+    static let nucleus = SwarmConfig(gravity: 0.5, energy: 0.5, flock: 0.0, scatter: 0.1)
+}
+
 /// FLOW engine: 64 sine partials in a simulated fluid.
 /// Reynolds number (derived from 5 controls) drives phase transitions
 /// between laminar purity, vortex shedding rhythm, and turbulence.
@@ -430,6 +488,7 @@ enum SoundType: Codable, Equatable {
     case westCoast(WestCoastConfig)
     case flow(FlowConfig)
     case tide(TideConfig)
+    case swarm(SwarmConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }

@@ -48,6 +48,7 @@ enum CanopyColors {
     static let nodeWest = Color(red: 0.506, green: 0.549, blue: 0.972)   // Indigo #818CF8
     static let nodeFlow = Color(red: 0.3, green: 0.75, blue: 0.85)     // Teal-cyan for fluid
     static let nodeTide = Color(red: 0.2, green: 0.65, blue: 0.75)     // Ocean teal for spectral
+    static let nodeSwarm = Color(red: 0.5, green: 0.9, blue: 0.2)     // Lime green for emergent
 
     /// Map a PresetColor to a SwiftUI Color.
     static func presetColor(_ pc: PresetColor) -> Color {
@@ -59,6 +60,7 @@ enum CanopyColors {
         case .cyan:   return nodeArp
         case .pink:   return nodeFX
         case .indigo: return nodeWest
+        case .lime:   return nodeSwarm
         }
     }
 }

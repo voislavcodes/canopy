@@ -48,7 +48,7 @@ struct TidePanel: View {
                     .foregroundColor(CanopyColors.chromeText)
 
                 ModuleSwapButton(
-                    options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide")],
+                    options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm")],
                     current: "tide",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
@@ -60,6 +60,8 @@ struct TidePanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .westCoast(WestCoastConfig()))
                         } else if type == "flow" {
                             projectState.swapEngine(nodeID: nodeID, to: .flow(FlowConfig()))
+                        } else if type == "swarm" {
+                            projectState.swapEngine(nodeID: nodeID, to: .swarm(SwarmConfig()))
                         }
                     }
                 )

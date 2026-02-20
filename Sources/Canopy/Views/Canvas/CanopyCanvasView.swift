@@ -272,6 +272,11 @@ struct CanopyCanvasView: View {
             return false
         }()
 
+        let isSwarmEngine: Bool = {
+            if case .swarm = node.patch.soundType { return true }
+            return false
+        }()
+
         // Resolve effective module types (override or derive from SoundType)
         let effectiveSeqType = node.sequencerType ?? (isDrumEngine ? .drum : .pitched)
         let effectiveInputMode = node.inputMode ?? (isDrumEngine ? .padGrid : .keyboard)
@@ -286,6 +291,7 @@ struct CanopyCanvasView: View {
                 isWestCoastEngine: isWestCoastEngine,
                 isFlowEngine: isFlowEngine,
                 isTideEngine: isTideEngine,
+                isSwarmEngine: isSwarmEngine,
                 effectiveSeqType: effectiveSeqType,
                 effectiveInputMode: effectiveInputMode
             )
@@ -310,6 +316,8 @@ struct CanopyCanvasView: View {
                             FlowPanel(projectState: projectState)
                         } else if isTideEngine {
                             TidePanel(projectState: projectState)
+                        } else if isSwarmEngine {
+                            SwarmPanel(projectState: projectState)
                         } else {
                             SynthControlsPanel(projectState: projectState)
                         }
@@ -379,6 +387,7 @@ struct CanopyCanvasView: View {
         isWestCoastEngine: Bool,
         isFlowEngine: Bool = false,
         isTideEngine: Bool = false,
+        isSwarmEngine: Bool = false,
         effectiveSeqType: SequencerType,
         effectiveInputMode: InputMode
     ) -> some View {
@@ -405,6 +414,8 @@ struct CanopyCanvasView: View {
                         FlowPanel(projectState: projectState)
                     } else if isTideEngine {
                         TidePanel(projectState: projectState)
+                    } else if isSwarmEngine {
+                        SwarmPanel(projectState: projectState)
                     } else {
                         SynthControlsPanel(projectState: projectState)
                     }
@@ -482,6 +493,8 @@ struct CanopyCanvasView: View {
             AudioEngine.shared.configureFlow(config, nodeID: newNode.id)
         case .tide(let config):
             AudioEngine.shared.configureTide(config, nodeID: newNode.id)
+        case .swarm(let config):
+            AudioEngine.shared.configureSwarm(config, nodeID: newNode.id)
         default:
             break
         }

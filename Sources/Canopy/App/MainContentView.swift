@@ -136,6 +136,8 @@ struct MainContentView: View {
             AudioEngine.shared.configureFlow(config, nodeID: nodeID)
         case .tide(let config):
             AudioEngine.shared.configureTide(config, nodeID: nodeID)
+        case .swarm(let config):
+            AudioEngine.shared.configureSwarm(config, nodeID: nodeID)
         default:
             break
         }
