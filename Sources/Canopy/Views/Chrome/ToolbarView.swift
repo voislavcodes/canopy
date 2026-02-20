@@ -45,7 +45,7 @@ struct ToolbarView: View {
 
             Spacer()
 
-            // Computer keyboard MIDI input toggle
+            // Computer keyboard MIDI input toggle + dirty indicator
             Button(action: {
                 projectState.computerKeyboardEnabled.toggle()
             }) {
@@ -65,12 +65,12 @@ struct ToolbarView: View {
             }
             .buttonStyle(.plain)
             .help("Computer keyboard MIDI input (A-L = notes, ; / ' = octave)")
-
-            // Dirty indicator
-            if projectState.isDirty {
+            .overlay(alignment: .topLeading) {
                 Circle()
-                    .fill(CanopyColors.chromeText.opacity(0.4))
+                    .fill(CanopyColors.chromeText.opacity(projectState.isDirty ? 0.4 : 0))
                     .frame(width: 6, height: 6)
+                    .offset(x: -8, y: -1)
+                    .allowsHitTesting(false)
             }
         }
         .padding(.horizontal, 16)
