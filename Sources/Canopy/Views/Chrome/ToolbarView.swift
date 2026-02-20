@@ -69,7 +69,7 @@ struct ToolbarView: View {
                 Circle()
                     .fill(CanopyColors.chromeText.opacity(projectState.isDirty ? 0.4 : 0))
                     .frame(width: 6, height: 6)
-                    .offset(x: -9)
+                    .offset(x: -9, y: 1)
                     .allowsHitTesting(false)
             }
         }
