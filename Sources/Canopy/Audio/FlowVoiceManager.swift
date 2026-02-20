@@ -217,8 +217,8 @@ struct FlowVoiceManager {
         // the raw sum can exceed ±1.0 and hard-clip at the DAC.
         // tanh(mix * scale) keeps the signal well inside the linear region
         // so full-volume playback stays clean without saturation artifacts.
-        // Scale 0.267 ≈ +5dB vs the old 0.15, bringing FLOW in line with other synths.
-        return Float(tanh(Double(mix) * 0.267))
+        // Scale 0.475 ≈ +10dB vs the original 0.15, bringing FLOW in line with other synths.
+        return Float(tanh(Double(mix) * 0.475))
     }
 
     /// Kill all voices immediately.
