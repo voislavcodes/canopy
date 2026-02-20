@@ -47,7 +47,7 @@ final class ModelCodableTests: XCTestCase {
     func testEffectRoundTrip() throws {
         let effect = Effect(
             type: .delay,
-            mix: 0.4,
+            wetDry: 0.4,
             parameters: ["time": 0.25, "feedback": 0.5]
         )
 
@@ -317,6 +317,27 @@ final class ModelCodableTests: XCTestCase {
         let decoded = try decoder.decode(CanopyProject.self, from: data)
 
         XCTAssertTrue(decoded.scaleAwareEnabled)
+    }
+
+    func testTideConfigRoundTrip() throws {
+        let patch = SoundPatch(
+            name: "Test Tide",
+            soundType: .tide(TideConfig(current: 0.6, pattern: 7, rate: 0.45, depth: 0.8, warmth: 0.4))
+        )
+
+        let data = try JSONEncoder().encode(patch)
+        let decoded = try JSONDecoder().decode(SoundPatch.self, from: data)
+
+        XCTAssertEqual(patch, decoded)
+        if case .tide(let config) = decoded.soundType {
+            XCTAssertEqual(config.current, 0.6)
+            XCTAssertEqual(config.pattern, 7)
+            XCTAssertEqual(config.rate, 0.45)
+            XCTAssertEqual(config.depth, 0.8)
+            XCTAssertEqual(config.warmth, 0.4)
+        } else {
+            XCTFail("Expected .tide sound type")
+        }
     }
 
     func testNewScaleModesEncodeDecode() throws {

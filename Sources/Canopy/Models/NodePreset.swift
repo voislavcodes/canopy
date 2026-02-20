@@ -132,6 +132,20 @@ struct NodePreset: Identifiable, Equatable {
             defaultPitchRange: PitchRange(low: 48, high: 84), // C3–C6
             defaultArpConfig: nil
         ),
+        NodePreset(
+            id: "tide",
+            name: "Tide",
+            icon: "water.waves",
+            color: .cyan,
+            nodeType: .melodic,
+            defaultPatch: SoundPatch(
+                name: "Tide",
+                soundType: .tide(TideConfig())
+            ),
+            defaultLengthInBeats: 8,
+            defaultPitchRange: PitchRange(low: 36, high: 72), // C2–C5
+            defaultArpConfig: nil
+        ),
     ]
 
     /// Lookup a preset by ID.

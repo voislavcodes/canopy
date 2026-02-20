@@ -57,7 +57,9 @@ final class TreeAudioGraph {
         if case .westCoast = node.patch.soundType { isWest = true } else { isWest = false }
         let isFlow: Bool
         if case .flow = node.patch.soundType { isFlow = true } else { isFlow = false }
-        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow,
+        let isTide: Bool
+        if case .tide = node.patch.soundType { isTide = true } else { isTide = false }
+        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow, isTide: isTide,
                                  clockSamplePosition: clockSamplePosition, clockIsRunning: clockIsRunning)
         engine.attach(unit.sourceNode)
         // Connect directly to main mixer — same pattern as Phase 2.
@@ -155,6 +157,8 @@ final class TreeAudioGraph {
             unit.configureWestCoast(config)
         case .flow(let config):
             unit.configureFlow(config)
+        case .tide(let config):
+            unit.configureTide(config)
         default:
             break
         }

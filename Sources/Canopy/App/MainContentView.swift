@@ -130,6 +130,12 @@ struct MainContentView: View {
                 volume: patch.volume,
                 nodeID: nodeID
             )
+        case .westCoast(let config):
+            AudioEngine.shared.configureWestCoast(config, nodeID: nodeID)
+        case .flow(let config):
+            AudioEngine.shared.configureFlow(config, nodeID: nodeID)
+        case .tide(let config):
+            AudioEngine.shared.configureTide(config, nodeID: nodeID)
         default:
             break
         }

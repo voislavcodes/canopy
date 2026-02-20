@@ -220,6 +220,65 @@ struct WestCoastConfig: Codable, Equatable {
     }
 }
 
+/// TIDE engine: spectral sequencing synthesizer.
+/// A rich oscillator feeds 16 SVF bandpass filters whose levels are cycled
+/// by an internal pattern sequencer. Holding a note produces self-animating
+/// spectral movement.
+struct TideConfig: Codable, Equatable {
+    var current: Double     // 0–1: oscillator richness (sine → tri → saw → pulse → noise layers)
+    var pattern: Int        // 0–15: spectral journey pattern index
+    var rate: Double        // 0–1: cycle speed through pattern frames
+    var depth: Double       // 0–1: contrast between active and inactive bands
+    var warmth: Double      // 0–1: per-voice soft saturation (tanh drive)
+    var volume: Double      // 0–1
+    var pan: Double         // -1 to +1
+
+    init(
+        current: Double = 0.4,
+        pattern: Int = 0,
+        rate: Double = 0.3,
+        depth: Double = 0.6,
+        warmth: Double = 0.3,
+        volume: Double = 0.8,
+        pan: Double = 0.0
+    ) {
+        self.current = current
+        self.pattern = pattern
+        self.rate = rate
+        self.depth = depth
+        self.warmth = warmth
+        self.volume = volume
+        self.pan = pan
+    }
+
+    // MARK: - Preset Seeds
+
+    /// Gentle dawn: slow rising tide, warm and pure.
+    static let sunrise = TideConfig(current: 0.2, pattern: 0, rate: 0.15, depth: 0.5, warmth: 0.4)
+    /// Submerged: deep rich oscillator, slow ebb and flow.
+    static let deepSea = TideConfig(current: 0.7, pattern: 2, rate: 0.1, depth: 0.8, warmth: 0.5)
+    /// Beacon pulse: spotlight pattern, moderate speed.
+    static let lighthouse = TideConfig(current: 0.3, pattern: 3, rate: 0.4, depth: 0.7, warmth: 0.2)
+    /// Wide stereo: ping-pong pattern, full depth.
+    static let stereoField = TideConfig(current: 0.5, pattern: 6, rate: 0.35, depth: 0.9, warmth: 0.3)
+    /// Formant sweep: vowel pattern, rich source.
+    static let robotChoir = TideConfig(current: 0.6, pattern: 10, rate: 0.25, depth: 0.7, warmth: 0.4)
+    /// Cascading bands: waterfall of spectral energy.
+    static let waterfall = TideConfig(current: 0.8, pattern: 7, rate: 0.5, depth: 0.6, warmth: 0.3)
+    /// Metallic resonance: bells pattern, sparse source.
+    static let gamelan = TideConfig(current: 0.35, pattern: 11, rate: 0.2, depth: 0.8, warmth: 0.2)
+    /// Harmonic fifths: sacred intervals.
+    static let sacred = TideConfig(current: 0.25, pattern: 12, rate: 0.15, depth: 0.6, warmth: 0.5)
+    /// Staccato sparkle: fast rhythmic pattern.
+    static let fireflies = TideConfig(current: 0.45, pattern: 8, rate: 0.7, depth: 0.9, warmth: 0.2)
+    /// Suzanne Ciani-inspired: cascading sequences.
+    static let ciani = TideConfig(current: 0.55, pattern: 7, rate: 0.45, depth: 0.75, warmth: 0.35)
+    /// Morton Subotnick-inspired: wandering chaos.
+    static let subotnick = TideConfig(current: 0.7, pattern: 14, rate: 0.3, depth: 0.8, warmth: 0.4)
+    /// Ambient wash: slow, deep, warm.
+    static let ambient = TideConfig(current: 0.3, pattern: 4, rate: 0.08, depth: 0.4, warmth: 0.6)
+}
+
 /// FLOW engine: 64 sine partials in a simulated fluid.
 /// Reynolds number (derived from 5 controls) drives phase transitions
 /// between laminar purity, vortex shedding rhythm, and turbulence.
@@ -282,6 +341,7 @@ enum SoundType: Codable, Equatable {
     case drumKit(DrumKitConfig)
     case westCoast(WestCoastConfig)
     case flow(FlowConfig)
+    case tide(TideConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }

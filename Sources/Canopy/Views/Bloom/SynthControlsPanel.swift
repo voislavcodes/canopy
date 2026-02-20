@@ -46,7 +46,7 @@ struct SynthControlsPanel: View {
                     .foregroundColor(CanopyColors.chromeText)
 
                 ModuleSwapButton(
-                    options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow")],
+                    options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide")],
                     current: "osc",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
@@ -56,6 +56,8 @@ struct SynthControlsPanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .westCoast(WestCoastConfig()))
                         } else if type == "flow" {
                             projectState.swapEngine(nodeID: nodeID, to: .flow(FlowConfig()))
+                        } else if type == "tide" {
+                            projectState.swapEngine(nodeID: nodeID, to: .tide(TideConfig()))
                         }
                     }
                 )

@@ -27,7 +27,7 @@ final class NodeAudioUnit {
 
     private static let logger = Logger(subsystem: "com.canopy", category: "NodeAudioUnit")
 
-    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false,
+    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false, isTide: Bool = false,
          clockSamplePosition: UnsafeMutablePointer<Int64>, clockIsRunning: UnsafeMutablePointer<Bool>) {
         self.nodeID = nodeID
         self.commandBuffer = AudioCommandRingBuffer(capacity: 256)
@@ -41,7 +41,13 @@ final class NodeAudioUnit {
         let playingPtr = self._isPlaying
         let panPtr = self._pan
 
-        if isFlow {
+        if isTide {
+            self.sourceNode = Self.makeTideSourceNode(
+                cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
+                panPtr: panPtr, sampleRate: sampleRate,
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+            )
+        } else if isFlow {
             self.sourceNode = Self.makeFlowSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, sampleRate: sampleRate,
@@ -196,6 +202,9 @@ final class NodeAudioUnit {
                     break // ignored in oscillator path
 
                 case .setFlow:
+                    break // ignored in oscillator path
+
+                case .setTide:
                     break // ignored in oscillator path
 
                 case .setFXChain(let chain):
@@ -395,6 +404,9 @@ final class NodeAudioUnit {
                 case .setFlow:
                     break // ignored in drum kit path
 
+                case .setTide:
+                    break // ignored in drum kit path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -590,6 +602,9 @@ final class NodeAudioUnit {
                 case .setFlow:
                     break // ignored in west coast path
 
+                case .setTide:
+                    break // ignored in west coast path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -774,6 +789,9 @@ final class NodeAudioUnit {
                         channel: channel, density: density, warmth: warmth
                     )
 
+                case .setTide:
+                    break // ignored in flow path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -834,6 +852,203 @@ final class NodeAudioUnit {
                     } else {
                         for buf in 0..<ablPointer.count {
                             ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                        }
+                    }
+                }
+            }
+
+            playingPtr.pointee = seq.isPlaying
+            beatPtr.pointee = seq.currentBeat
+
+            return noErr
+        }
+    }
+
+    // MARK: - TIDE Render Path
+
+    private static func makeTideSourceNode(
+        cmdBuffer: AudioCommandRingBuffer,
+        beatPtr: UnsafeMutablePointer<Double>,
+        playingPtr: UnsafeMutablePointer<Bool>,
+        panPtr: UnsafeMutablePointer<Float>,
+        sampleRate: Double,
+        clockPtr: UnsafeMutablePointer<Int64>,
+        clockRunning: UnsafeMutablePointer<Bool>
+    ) -> AVAudioSourceNode {
+        var tide = TideVoiceManager()
+        var seq = Sequencer()
+        var filter = MoogLadderFilter()
+        var lfoBank = LFOBank()
+        var fxChain = EffectChain()
+        var volume: Double = 0.8
+        var volumeSmoothed: Double = 0.8
+        let sr = sampleRate
+        let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+
+        return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            let pan = panPtr.pointee
+
+            // Drain command buffer
+            while let cmd = cmdBuffer.pop() {
+                switch cmd {
+                case .noteOn(let pitch, let velocity):
+                    tide.noteOn(pitch: pitch, velocity: velocity, frequency: 0)
+
+                case .noteOff(let pitch):
+                    tide.noteOff(pitch: pitch)
+
+                case .allNotesOff:
+                    tide.allNotesOff()
+
+                case .setPatch(_, _, _, _, _, _, let newVolume):
+                    volume = newVolume
+
+                case .sequencerStart(let bpm):
+                    seq.start(bpm: bpm)
+
+                case .sequencerStop:
+                    seq.stop()
+                    tide.allNotesOff()
+
+                case .sequencerSetBPM(let bpm):
+                    seq.setBPM(bpm)
+
+                case .sequencerLoad(let events, let lengthInBeats,
+                                    let direction, let mutationAmount, let mutationRange,
+                                    let scaleRootSemitone, let scaleIntervals,
+                                    let accumulatorConfig):
+                    tide.allNotesOff()
+                    seq.load(events: events, lengthInBeats: lengthInBeats,
+                             direction: direction,
+                             mutationAmount: mutationAmount, mutationRange: mutationRange,
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
+                             accumulatorConfig: accumulatorConfig)
+
+                case .sequencerSetGlobalProbability(let prob):
+                    seq.globalProbability = prob
+
+                case .sequencerSetMutation(let amount, let range, let rootSemitone, let intervals):
+                    seq.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
+
+                case .sequencerResetMutation:
+                    seq.resetMutation()
+
+                case .sequencerFreezeMutation:
+                    seq.freezeMutation()
+
+                case .sequencerSetArp(let active, let samplesPerStep, let gateLength, let mode):
+                    seq.setArpConfig(active: active, samplesPerStep: samplesPerStep,
+                                     gateLength: gateLength, mode: mode)
+
+                case .sequencerSetArpPool(let pitches, let velocities, let startBeats, let endBeats):
+                    seq.setArpPool(pitches: pitches, velocities: velocities, startBeats: startBeats, endBeats: endBeats)
+
+                case .setFilter(let enabled, let cutoff, let reso):
+                    filter.enabled = enabled
+                    filter.cutoffHz = cutoff
+                    filter.resonance = reso
+                    filter.updateCoefficients(sampleRate: sr)
+
+                case .setLFOSlot(let slotIndex, let enabled, let waveform,
+                                 let rateHz, let initialPhase, let depth, let parameter):
+                    lfoBank.configureSlot(slotIndex, enabled: enabled, waveform: waveform,
+                                          rateHz: rateHz, initialPhase: initialPhase,
+                                          depth: depth, parameter: parameter)
+
+                case .setLFOSlotCount(let count):
+                    lfoBank.slotCount = count
+
+                case .setDrumVoice:
+                    break // ignored in tide path
+
+                case .setWestCoast:
+                    break // ignored in tide path
+
+                case .setFlow:
+                    break // ignored in tide path
+
+                case .setTide(let current, let pattern, let rate,
+                              let depth, let warmth, let newVolume):
+                    volume = newVolume
+                    tide.configureTide(
+                        current: current, pattern: pattern, rate: rate,
+                        depth: depth, warmth: warmth
+                    )
+
+                case .setFXChain(let chain):
+                    fxChain = chain
+                }
+            }
+
+            let srF = Float(sr)
+
+            // Read tree clock once at top of callback
+            let baseSample = clockPtr.pointee
+
+            // Tide is natively stereo — render stereo directly
+            if lfoBank.slotCount > 0 {
+                for frame in 0..<Int(frameCount) {
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &tide, detune: 0)
+                    let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
+                    _ = resMod
+
+                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
+                    let (rawL, rawR) = tide.renderStereoSample(sampleRate: sr)
+                    let volF = Float(volumeSmoothed)
+
+                    var sampleL = filter.process(rawL * volF)
+                    var sampleR = filter.process(rawR * volF)
+
+                    if cutMod != 0 {
+                        // Apply cutoff mod to both channels
+                        sampleL = filter.processWithCutoffMod(rawL * volF, cutoffMod: cutMod, sampleRate: sr)
+                        sampleR = filter.processWithCutoffMod(rawR * volF, cutoffMod: cutMod, sampleRate: sr)
+                    }
+
+                    sampleL = fxChain.process(sample: sampleL, sampleRate: srF)
+                    sampleR = fxChain.process(sample: sampleR, sampleRate: srF)
+
+                    // Apply pan modulation to stereo signal
+                    let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
+                    let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
+                    let modGainL = Float(cos(modAngle))
+                    let modGainR = Float(sin(modAngle))
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * modGainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                        }
+                    }
+                }
+            } else {
+                // Equal-power pan law
+                let angle = Double((pan + 1) * 0.5) * .pi * 0.5
+                let gainL = Float(cos(angle))
+                let gainR = Float(sin(angle))
+
+                for frame in 0..<Int(frameCount) {
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &tide, detune: 0)
+
+                    volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                    let (rawL, rawR) = tide.renderStereoSample(sampleRate: sr)
+                    let volF = Float(volumeSmoothed)
+                    var sampleL = filter.process(rawL * volF)
+                    var sampleR = filter.process(rawR * volF)
+
+                    sampleL = fxChain.process(sample: sampleL, sampleRate: srF)
+                    sampleR = fxChain.process(sample: sampleR, sampleRate: srF)
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * gainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
                         }
                     }
                 }
@@ -967,6 +1182,14 @@ final class NodeAudioUnit {
             obstacle: config.obstacle, channel: config.channel,
             density: config.density, warmth: config.warmth,
             volume: config.volume
+        ))
+    }
+
+    func configureTide(_ config: TideConfig) {
+        commandBuffer.push(.setTide(
+            current: config.current, pattern: config.pattern,
+            rate: config.rate, depth: config.depth,
+            warmth: config.warmth, volume: config.volume
         ))
     }
 

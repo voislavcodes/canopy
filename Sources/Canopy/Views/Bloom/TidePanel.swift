@@ -1,20 +1,19 @@
 import SwiftUI
 
-/// Bloom panel: FLOW engine controls.
-/// 5 fluid dynamics parameters + volume/pan output section.
-/// Uses same local-drag-state pattern as WestCoastPanel.
-struct FlowPanel: View {
+/// Bloom panel: TIDE spectral sequencing synthesizer controls.
+/// 4 spectral parameters + pattern selector + output section.
+/// Uses same local-drag-state pattern as FlowPanel.
+struct TidePanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
 
     // MARK: - Local drag state
 
-    // Fluid parameters
-    @State private var localCurrent: Double = 0.2
-    @State private var localViscosity: Double = 0.5
-    @State private var localObstacle: Double = 0.3
-    @State private var localChannel: Double = 0.5
-    @State private var localDensity: Double = 0.5
+    // Spectral parameters
+    @State private var localCurrent: Double = 0.4
+    @State private var localPattern: Int = 0
+    @State private var localRate: Double = 0.3
+    @State private var localDepth: Double = 0.6
 
     // Output
     @State private var localWarmth: Double = 0.3
@@ -24,42 +23,25 @@ struct FlowPanel: View {
     private var node: Node? { projectState.selectedNode }
     private var patch: SoundPatch? { node?.patch }
 
-    private var flowConfig: FlowConfig? {
+    private var tideConfig: TideConfig? {
         guard let patch else { return nil }
-        if case .flow(let config) = patch.soundType { return config }
+        if case .tide(let config) = patch.soundType { return config }
         return nil
     }
 
-    private let accentColor = CanopyColors.nodeFlow
-
-    /// Compute approximate regime label from current parameters.
-    private var regimeLabel: (String, Color) {
-        let currentScaled = max(localCurrent * 10.0, 0.001)
-        let viscosityScaled = max(localViscosity * 5.0, 0.001)
-        let channelScaled = max(localChannel * 2.0, 0.001)
-        let densityScaled = max(localDensity * 2.0, 0.001)
-        let re = (currentScaled * densityScaled * channelScaled) / viscosityScaled
-
-        if re < 30 {
-            return ("LAMINAR", Color(red: 0.3, green: 0.8, blue: 0.9))
-        } else if re < 350 {
-            return ("TRANSITION", Color(red: 0.9, green: 0.7, blue: 0.3))
-        } else {
-            return ("TURBULENT", Color(red: 0.9, green: 0.35, blue: 0.3))
-        }
-    }
+    private let accentColor = CanopyColors.nodeTide
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {
             // Header
             HStack {
-                Text("FLOW")
+                Text("TIDE")
                     .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText)
 
                 ModuleSwapButton(
                     options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide")],
-                    current: "flow",
+                    current: "tide",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
                         if type == "osc" {
@@ -68,76 +50,41 @@ struct FlowPanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .drumKit(DrumKitConfig()))
                         } else if type == "west" {
                             projectState.swapEngine(nodeID: nodeID, to: .westCoast(WestCoastConfig()))
-                        } else if type == "tide" {
-                            projectState.swapEngine(nodeID: nodeID, to: .tide(TideConfig()))
+                        } else if type == "flow" {
+                            projectState.swapEngine(nodeID: nodeID, to: .flow(FlowConfig()))
                         }
                     }
                 )
             }
 
-            if flowConfig != nil {
-                // Regime indicator
-                let regime = regimeLabel
-                Text(regime.0)
-                    .font(.system(size: 10 * cs, weight: .bold, design: .monospaced))
-                    .foregroundColor(regime.1)
-                    .padding(.horizontal, 8 * cs)
-                    .padding(.vertical, 2 * cs)
-                    .background(
-                        RoundedRectangle(cornerRadius: 3 * cs)
-                            .fill(regime.1.opacity(0.1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3 * cs)
-                            .stroke(regime.1.opacity(0.3), lineWidth: 1)
-                    )
+            if tideConfig != nil {
+                // Pattern selector
+                patternSelector
 
-                HStack(alignment: .top, spacing: 10 * cs) {
-                    // Left column: Fluid
-                    VStack(alignment: .leading, spacing: 8 * cs) {
-                        sectionLabel("FLUID")
+                // Spectral parameters
+                VStack(alignment: .leading, spacing: 8 * cs) {
+                    sectionLabel("SPECTRAL")
 
-                        paramSlider(label: "CURR", value: $localCurrent, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.current = localCurrent }
-                        } onDrag: { pushConfigToEngine() }
+                    paramSlider(label: "CURR", value: $localCurrent, range: 0...1,
+                                format: { "\(Int($0 * 100))%" }) {
+                        commitConfig { $0.current = localCurrent }
+                    } onDrag: { pushConfigToEngine() }
 
-                        paramSlider(label: "VISC", value: $localViscosity, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.viscosity = localViscosity }
-                        } onDrag: { pushConfigToEngine() }
+                    paramSlider(label: "RATE", value: $localRate, range: 0...1,
+                                format: { "\(Int($0 * 100))%" }) {
+                        commitConfig { $0.rate = localRate }
+                    } onDrag: { pushConfigToEngine() }
 
-                        paramSlider(label: "DENS", value: $localDensity, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.density = localDensity }
-                        } onDrag: { pushConfigToEngine() }
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    // Vertical divider
-                    CanopyColors.bloomPanelBorder.opacity(0.3)
-                        .frame(width: 1)
-
-                    // Right column: Geometry + Output
-                    VStack(alignment: .leading, spacing: 8 * cs) {
-                        sectionLabel("GEOMETRY")
-
-                        paramSlider(label: "OBST", value: $localObstacle, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.obstacle = localObstacle }
-                        } onDrag: { pushConfigToEngine() }
-
-                        paramSlider(label: "CHAN", value: $localChannel, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.channel = localChannel }
-                        } onDrag: { pushConfigToEngine() }
-
-                        sectionDivider
-
-                        outputSection
-                    }
-                    .frame(maxWidth: .infinity)
+                    paramSlider(label: "DPTH", value: $localDepth, range: 0...1,
+                                format: { "\(Int($0 * 100))%" }) {
+                        commitConfig { $0.depth = localDepth }
+                    } onDrag: { pushConfigToEngine() }
                 }
+
+                sectionDivider
+
+                // Output section
+                outputSection
             }
         }
         .padding(.top, 36 * cs)
@@ -156,15 +103,54 @@ struct FlowPanel: View {
         .onChange(of: projectState.selectedNodeID) { _ in syncFromModel() }
     }
 
+    // MARK: - Pattern Selector
+
+    private var patternSelector: some View {
+        HStack(spacing: 6 * cs) {
+            Button(action: {
+                localPattern = (localPattern - 1 + TidePatterns.patternCount) % TidePatterns.patternCount
+                commitConfig { $0.pattern = localPattern }
+            }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 10 * cs, weight: .bold))
+                    .foregroundColor(accentColor.opacity(0.8))
+            }
+            .buttonStyle(.plain)
+
+            Text(TidePatterns.names[localPattern])
+                .font(.system(size: 11 * cs, weight: .medium, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeTextBright)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4 * cs)
+                .background(
+                    RoundedRectangle(cornerRadius: 4 * cs)
+                        .fill(accentColor.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4 * cs)
+                        .stroke(accentColor.opacity(0.25), lineWidth: 1)
+                )
+
+            Button(action: {
+                localPattern = (localPattern + 1) % TidePatterns.patternCount
+                commitConfig { $0.pattern = localPattern }
+            }) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10 * cs, weight: .bold))
+                    .foregroundColor(accentColor.opacity(0.8))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     // MARK: - Sync
 
     private func syncFromModel() {
-        guard let config = flowConfig else { return }
+        guard let config = tideConfig else { return }
         localCurrent = config.current
-        localViscosity = config.viscosity
-        localObstacle = config.obstacle
-        localChannel = config.channel
-        localDensity = config.density
+        localPattern = config.pattern
+        localRate = config.rate
+        localDepth = config.depth
         localWarmth = config.warmth
         localVolume = config.volume
         localPan = config.pan
@@ -260,7 +246,6 @@ struct FlowPanel: View {
     // MARK: - Param Slider
 
     private func paramSlider(label: String, value: Binding<Double>, range: ClosedRange<Double>,
-                              logarithmic: Bool = false,
                               format: @escaping (Double) -> String,
                               onCommit: @escaping () -> Void, onDrag: @escaping () -> Void) -> some View {
         HStack(spacing: 4 * cs) {
@@ -271,9 +256,7 @@ struct FlowPanel: View {
 
             GeometryReader { geo in
                 let width = geo.size.width
-                let fraction: CGFloat = logarithmic
-                    ? CGFloat((log(value.wrappedValue) - log(range.lowerBound)) / (log(range.upperBound) - log(range.lowerBound)))
-                    : CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
+                let fraction: CGFloat = CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
                 let filledWidth = max(0, min(width, width * fraction))
 
                 ZStack(alignment: .leading) {
@@ -289,11 +272,7 @@ struct FlowPanel: View {
                     DragGesture(minimumDistance: 0)
                         .onChanged { drag in
                             let frac = Double(max(0, min(1, drag.location.x / width)))
-                            if logarithmic {
-                                value.wrappedValue = exp(log(range.lowerBound) + frac * (log(range.upperBound) - log(range.lowerBound)))
-                            } else {
-                                value.wrappedValue = range.lowerBound + frac * (range.upperBound - range.lowerBound)
-                            }
+                            value.wrappedValue = range.lowerBound + frac * (range.upperBound - range.lowerBound)
                             onDrag()
                         }
                         .onEnded { _ in
@@ -312,12 +291,12 @@ struct FlowPanel: View {
 
     // MARK: - Commit Helpers
 
-    private func commitConfig(_ transform: (inout FlowConfig) -> Void) {
+    private func commitConfig(_ transform: (inout TideConfig) -> Void) {
         guard let nodeID = projectState.selectedNodeID else { return }
         projectState.updateNode(id: nodeID) { node in
-            if case .flow(var config) = node.patch.soundType {
+            if case .tide(var config) = node.patch.soundType {
                 transform(&config)
-                node.patch.soundType = .flow(config)
+                node.patch.soundType = .tide(config)
             }
         }
         pushConfigToEngine()
@@ -332,16 +311,15 @@ struct FlowPanel: View {
 
     private func pushConfigToEngine() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let config = FlowConfig(
+        let config = TideConfig(
             current: localCurrent,
-            viscosity: localViscosity,
-            obstacle: localObstacle,
-            channel: localChannel,
-            density: localDensity,
+            pattern: localPattern,
+            rate: localRate,
+            depth: localDepth,
             warmth: localWarmth,
             volume: localVolume,
             pan: localPan
         )
-        AudioEngine.shared.configureFlow(config, nodeID: nodeID)
+        AudioEngine.shared.configureTide(config, nodeID: nodeID)
     }
 }

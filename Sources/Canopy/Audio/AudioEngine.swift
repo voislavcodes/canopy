@@ -219,6 +219,11 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.configureFlow(config)
     }
 
+    /// Configure TIDE parameters on a specific node.
+    func configureTide(_ config: TideConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureTide(config)
+    }
+
     /// Update the filter on a specific node.
     func configureFilter(enabled: Bool, cutoff: Double, resonance: Double, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureFilter(enabled: enabled, cutoff: cutoff, resonance: resonance)
