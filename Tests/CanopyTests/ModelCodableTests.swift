@@ -340,6 +340,74 @@ final class ModelCodableTests: XCTestCase {
         }
     }
 
+    func testTideConfigSyncRoundTrip() throws {
+        let config = TideConfig(current: 0.5, pattern: 3, rate: 0.3,
+                                rateSync: true, rateDivision: .eighth,
+                                depth: 0.7, warmth: 0.3)
+        let patch = SoundPatch(name: "Synced Tide", soundType: .tide(config))
+
+        let data = try JSONEncoder().encode(patch)
+        let decoded = try JSONDecoder().decode(SoundPatch.self, from: data)
+
+        XCTAssertEqual(patch, decoded)
+        if case .tide(let dc) = decoded.soundType {
+            XCTAssertTrue(dc.rateSync)
+            XCTAssertEqual(dc.rateDivision, .eighth)
+        } else {
+            XCTFail("Expected .tide sound type")
+        }
+    }
+
+    func testOldTideConfigDecodesWithDefaultSync() throws {
+        // Simulate old TideConfig JSON without rateSync/rateDivision/funcGen fields
+        let json = """
+        {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "name": "Old Tide",
+            "soundType": { "tide": { "_0": { "current": 0.5, "pattern": 2, "rate": 0.3, "depth": 0.6, "warmth": 0.3, "volume": 0.8, "pan": 0.0 } } },
+            "envelope": { "attack": 0.01, "decay": 0.1, "sustain": 0.7, "release": 0.3 },
+            "volume": 0.8,
+            "pan": 0.0
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(SoundPatch.self, from: data)
+
+        if case .tide(let config) = decoded.soundType {
+            XCTAssertFalse(config.rateSync, "Missing rateSync should default to false")
+            XCTAssertEqual(config.rateDivision, .oneBar, "Missing rateDivision should default to .oneBar")
+            XCTAssertEqual(config.current, 0.5)
+            XCTAssertEqual(config.funcShape, .off, "Missing funcShape should default to .off")
+            XCTAssertEqual(config.funcAmount, 0.0, "Missing funcAmount should default to 0.0")
+            XCTAssertEqual(config.funcSkew, 0.5, "Missing funcSkew should default to 0.5")
+            XCTAssertEqual(config.funcCycles, 1, "Missing funcCycles should default to 1")
+        } else {
+            XCTFail("Expected .tide sound type")
+        }
+    }
+
+    func testTideConfigWithFuncGenRoundTrip() throws {
+        let config = TideConfig(current: 0.5, pattern: 3, rate: 0.3,
+                                rateSync: true, rateDivision: .eighth,
+                                depth: 0.7, warmth: 0.3,
+                                funcShape: .square, funcAmount: 0.8,
+                                funcSkew: 0.3, funcCycles: 4)
+        let patch = SoundPatch(name: "FuncGen Tide", soundType: .tide(config))
+
+        let data = try JSONEncoder().encode(patch)
+        let decoded = try JSONDecoder().decode(SoundPatch.self, from: data)
+
+        XCTAssertEqual(patch, decoded)
+        if case .tide(let dc) = decoded.soundType {
+            XCTAssertEqual(dc.funcShape, .square)
+            XCTAssertEqual(dc.funcAmount, 0.8)
+            XCTAssertEqual(dc.funcSkew, 0.3)
+            XCTAssertEqual(dc.funcCycles, 4)
+        } else {
+            XCTFail("Expected .tide sound type")
+        }
+    }
+
     func testNewScaleModesEncodeDecode() throws {
         let modes: [ScaleMode] = [.harmonicMinor, .melodicMinor, .phrygian, .lydian,
                                    .locrian, .pentatonicMajor, .pentatonicMinor, .wholeTone]

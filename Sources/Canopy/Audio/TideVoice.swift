@@ -47,6 +47,22 @@ struct TideVoice {
     var warmthParam: Double = 0.3
     var warmthTarget: Double = 0.3
 
+    // Rate sync state
+    var rateSyncEnabled: Bool = false
+    var rateDivisionBeats: Double = 4.0  // beats per full pattern cycle (when synced)
+    var bpm: Double = 120
+
+    // Function generator state
+    var funcShapeRaw: Int = 0           // 0=off, 1=sine, 2=tri, 3=rampDown, 4=rampUp, 5=square, 6=sAndH
+    var funcAmountTarget: Double = 0.0
+    var funcAmount: Double = 0.0
+    var funcSkewTarget: Double = 0.5
+    var funcSkew: Double = 0.5
+    var funcCycles: Int = 1
+    var funcLevel: Double = 1.0         // smoothed output
+    var funcSHValue: Double = 1.0       // S&H held value
+    var funcPrevPhase: Double = 0       // for S&H wrap detection
+
     // MARK: - SVF filter states (16 bands as inline tuple)
 
     var filterStates: (SVFBandState, SVFBandState, SVFBandState, SVFBandState,
@@ -152,6 +168,10 @@ struct TideVoice {
         // Reset filter states to avoid clicks on next note
         let s = SVFBandState()
         filterStates = (s, s, s, s, s, s, s, s, s, s, s, s, s, s, s, s)
+        // Reset function generator
+        funcLevel = 1.0
+        funcPrevPhase = 0
+        funcSHValue = 1.0
     }
 
     // MARK: - Pattern Configuration
@@ -165,6 +185,67 @@ struct TideVoice {
             cachedFrames = TidePatterns.frames(for: patternIndex)
             cachedFrameCount = cachedFrames?.count ?? 1
         }
+    }
+
+    // MARK: - Function Generator
+
+    /// Compute amplitude shaping gain (0–1). Phase is derived from the tide
+    /// position so the function generator is always perfectly synced with
+    /// the spectral animation.
+    private mutating func computeFuncGen() -> Double {
+        guard funcShapeRaw != 0 else { return 1.0 }
+
+        // Smooth parameters
+        funcAmount += (funcAmountTarget - funcAmount) * 0.001
+        funcSkew += (funcSkewTarget - funcSkew) * 0.001
+
+        // Derive phase from tide position
+        let frameCount = max(1.0, Double(cachedFrameCount))
+        var funcPhase = fmod(position * Double(funcCycles) / frameCount, 1.0)
+        if funcPhase < 0 { funcPhase += 1.0 }
+
+        // Apply skew warp: remap [0,skew] → [0,0.5] and [skew,1] → [0.5,1]
+        let s = max(0.001, min(0.999, funcSkew))
+        let warped: Double
+        if funcPhase < s {
+            warped = funcPhase / s * 0.5
+        } else {
+            warped = 0.5 + (funcPhase - s) / (1.0 - s) * 0.5
+        }
+
+        // Generate waveform value in 0–1 range
+        let waveValue: Double
+        switch funcShapeRaw {
+        case 1: // sine
+            waveValue = 0.5 + 0.5 * sin(2.0 * .pi * warped)
+        case 2: // triangle
+            waveValue = warped < 0.5 ? warped * 2.0 : 2.0 - warped * 2.0
+        case 3: // ramp down
+            waveValue = 1.0 - warped
+        case 4: // ramp up
+            waveValue = warped
+        case 5: // square
+            waveValue = warped < 0.5 ? 1.0 : 0.0
+        case 6: // S&H
+            if funcPhase < funcPrevPhase {
+                // Phase wrapped — refresh held value from xorshift
+                noiseState ^= noiseState << 13
+                noiseState ^= noiseState >> 17
+                noiseState ^= noiseState << 5
+                funcSHValue = Double(noiseState & 0x7FFF_FFFF) / Double(0x7FFF_FFFF)
+            }
+            funcPrevPhase = funcPhase
+            waveValue = funcSHValue
+        default:
+            waveValue = 1.0
+        }
+
+        // gain = 1 - amount + amount × waveValue  → range [1-amount, 1]
+        let target = 1.0 - funcAmount + funcAmount * waveValue
+
+        // Smooth output (~0.3ms anti-click)
+        funcLevel += (target - funcLevel) * 0.05
+        return funcLevel
     }
 
     // MARK: - Render
@@ -259,6 +340,11 @@ struct TideVoice {
                 }
             }
         }
+
+        // Apply function generator (amplitude shaping synced to tide position)
+        let funcGain = computeFuncGen()
+        sumL *= funcGain
+        sumR *= funcGain
 
         // Apply envelope and velocity
         let env = envValue * Double(velocity)
@@ -374,8 +460,16 @@ struct TideVoice {
     private mutating func updateBandTargets(sampleRate: Double) {
         // Advance position based on rate
         let blockSeconds = Double(Self.controlBlockSize) / sampleRate
-        let rateHz = 0.05 + rateParam * 4.95 // 0.05Hz to 5Hz cycle rate
-        position += rateHz * blockSeconds
+        let positionRate: Double
+        if rateSyncEnabled && bpm > 0 {
+            // Synced: one full pattern cycle per rateDivisionBeats at current BPM
+            let secondsPerCycle = rateDivisionBeats * 60.0 / bpm
+            positionRate = Double(cachedFrameCount) / max(0.001, secondsPerCycle)
+        } else {
+            // Free: 0.05Hz to 5Hz cycle rate
+            positionRate = 0.05 + rateParam * 4.95
+        }
+        position += positionRate * blockSeconds
 
         if TidePatterns.isChaos(patternIndex) {
             updateChaosTargets()

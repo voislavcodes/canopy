@@ -167,27 +167,49 @@ struct TideVoiceManager {
     /// Apply TIDE parameters to all 8 voices.
     mutating func configureTide(
         current: Double, pattern: Int, rate: Double,
-        depth: Double, warmth: Double
+        rateSync: Bool, rateDivisionBeats: Double,
+        depth: Double, warmth: Double,
+        funcShape: Int, funcAmount: Double, funcSkew: Double, funcCycles: Int
     ) {
-        applyConfig(&voices.0, current: current, pattern: pattern, rate: rate, depth: depth, warmth: warmth)
-        applyConfig(&voices.1, current: current, pattern: pattern, rate: rate, depth: depth, warmth: warmth)
-        applyConfig(&voices.2, current: current, pattern: pattern, rate: rate, depth: depth, warmth: warmth)
-        applyConfig(&voices.3, current: current, pattern: pattern, rate: rate, depth: depth, warmth: warmth)
-        applyConfig(&voices.4, current: current, pattern: pattern, rate: rate, depth: depth, warmth: warmth)
-        applyConfig(&voices.5, current: current, pattern: pattern, rate: rate, depth: depth, warmth: warmth)
-        applyConfig(&voices.6, current: current, pattern: pattern, rate: rate, depth: depth, warmth: warmth)
-        applyConfig(&voices.7, current: current, pattern: pattern, rate: rate, depth: depth, warmth: warmth)
+        applyConfig(&voices.0, current: current, pattern: pattern, rate: rate, rateSync: rateSync, rateDivisionBeats: rateDivisionBeats, depth: depth, warmth: warmth, funcShape: funcShape, funcAmount: funcAmount, funcSkew: funcSkew, funcCycles: funcCycles)
+        applyConfig(&voices.1, current: current, pattern: pattern, rate: rate, rateSync: rateSync, rateDivisionBeats: rateDivisionBeats, depth: depth, warmth: warmth, funcShape: funcShape, funcAmount: funcAmount, funcSkew: funcSkew, funcCycles: funcCycles)
+        applyConfig(&voices.2, current: current, pattern: pattern, rate: rate, rateSync: rateSync, rateDivisionBeats: rateDivisionBeats, depth: depth, warmth: warmth, funcShape: funcShape, funcAmount: funcAmount, funcSkew: funcSkew, funcCycles: funcCycles)
+        applyConfig(&voices.3, current: current, pattern: pattern, rate: rate, rateSync: rateSync, rateDivisionBeats: rateDivisionBeats, depth: depth, warmth: warmth, funcShape: funcShape, funcAmount: funcAmount, funcSkew: funcSkew, funcCycles: funcCycles)
+        applyConfig(&voices.4, current: current, pattern: pattern, rate: rate, rateSync: rateSync, rateDivisionBeats: rateDivisionBeats, depth: depth, warmth: warmth, funcShape: funcShape, funcAmount: funcAmount, funcSkew: funcSkew, funcCycles: funcCycles)
+        applyConfig(&voices.5, current: current, pattern: pattern, rate: rate, rateSync: rateSync, rateDivisionBeats: rateDivisionBeats, depth: depth, warmth: warmth, funcShape: funcShape, funcAmount: funcAmount, funcSkew: funcSkew, funcCycles: funcCycles)
+        applyConfig(&voices.6, current: current, pattern: pattern, rate: rate, rateSync: rateSync, rateDivisionBeats: rateDivisionBeats, depth: depth, warmth: warmth, funcShape: funcShape, funcAmount: funcAmount, funcSkew: funcSkew, funcCycles: funcCycles)
+        applyConfig(&voices.7, current: current, pattern: pattern, rate: rate, rateSync: rateSync, rateDivisionBeats: rateDivisionBeats, depth: depth, warmth: warmth, funcShape: funcShape, funcAmount: funcAmount, funcSkew: funcSkew, funcCycles: funcCycles)
+    }
+
+    /// Update BPM on all voices (called when sequencer BPM changes).
+    mutating func setBPM(_ bpm: Double) {
+        voices.0.bpm = bpm
+        voices.1.bpm = bpm
+        voices.2.bpm = bpm
+        voices.3.bpm = bpm
+        voices.4.bpm = bpm
+        voices.5.bpm = bpm
+        voices.6.bpm = bpm
+        voices.7.bpm = bpm
     }
 
     private func applyConfig(
         _ voice: inout TideVoice,
         current: Double, pattern: Int, rate: Double,
-        depth: Double, warmth: Double
+        rateSync: Bool, rateDivisionBeats: Double,
+        depth: Double, warmth: Double,
+        funcShape: Int, funcAmount: Double, funcSkew: Double, funcCycles: Int
     ) {
         voice.currentTarget = current
         voice.rateTarget = rate
+        voice.rateSyncEnabled = rateSync
+        voice.rateDivisionBeats = rateDivisionBeats
         voice.depthTarget = depth
         voice.warmthTarget = warmth
+        voice.funcShapeRaw = funcShape
+        voice.funcAmountTarget = funcAmount
+        voice.funcSkewTarget = funcSkew
+        voice.funcCycles = funcCycles
         if voice.patternIndex != pattern {
             voice.setPattern(pattern)
         }

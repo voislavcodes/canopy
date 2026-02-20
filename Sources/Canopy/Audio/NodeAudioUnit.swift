@@ -906,6 +906,7 @@ final class NodeAudioUnit {
 
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
+                    tide.setBPM(bpm)
 
                 case .sequencerStop:
                     seq.stop()
@@ -913,6 +914,7 @@ final class NodeAudioUnit {
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
+                    tide.setBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -969,11 +971,16 @@ final class NodeAudioUnit {
                     break // ignored in tide path
 
                 case .setTide(let current, let pattern, let rate,
-                              let depth, let warmth, let newVolume):
+                              let rateSync, let rateDivisionBeats,
+                              let depth, let warmth, let newVolume,
+                              let funcShape, let funcAmount, let funcSkew, let funcCycles):
                     volume = newVolume
                     tide.configureTide(
                         current: current, pattern: pattern, rate: rate,
-                        depth: depth, warmth: warmth
+                        rateSync: rateSync, rateDivisionBeats: rateDivisionBeats,
+                        depth: depth, warmth: warmth,
+                        funcShape: funcShape, funcAmount: funcAmount,
+                        funcSkew: funcSkew, funcCycles: funcCycles
                     )
 
                 case .setFXChain(let chain):
@@ -1186,10 +1193,24 @@ final class NodeAudioUnit {
     }
 
     func configureTide(_ config: TideConfig) {
+        let shapeInt: Int
+        switch config.funcShape {
+        case .off: shapeInt = 0
+        case .sine: shapeInt = 1
+        case .triangle: shapeInt = 2
+        case .rampDown: shapeInt = 3
+        case .rampUp: shapeInt = 4
+        case .square: shapeInt = 5
+        case .sAndH: shapeInt = 6
+        }
         commandBuffer.push(.setTide(
             current: config.current, pattern: config.pattern,
-            rate: config.rate, depth: config.depth,
-            warmth: config.warmth, volume: config.volume
+            rate: config.rate,
+            rateSync: config.rateSync, rateDivisionBeats: config.rateDivision.beats,
+            depth: config.depth,
+            warmth: config.warmth, volume: config.volume,
+            funcShape: shapeInt, funcAmount: config.funcAmount,
+            funcSkew: config.funcSkew, funcCycles: config.funcCycles
         ))
     }
 

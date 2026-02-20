@@ -13,7 +13,15 @@ struct TidePanel: View {
     @State private var localCurrent: Double = 0.4
     @State private var localPattern: Int = 0
     @State private var localRate: Double = 0.3
+    @State private var localRateSync: Bool = false
+    @State private var localRateDivision: TideRateDivision = .oneBar
     @State private var localDepth: Double = 0.6
+
+    // Function generator
+    @State private var localFuncShape: TideFuncShape = .off
+    @State private var localFuncAmount: Double = 0.0
+    @State private var localFuncSkew: Double = 0.5
+    @State private var localFuncCycles: Int = 1
 
     // Output
     @State private var localWarmth: Double = 0.3
@@ -70,16 +78,18 @@ struct TidePanel: View {
                         commitConfig { $0.current = localCurrent }
                     } onDrag: { pushConfigToEngine() }
 
-                    paramSlider(label: "RATE", value: $localRate, range: 0...1,
-                                format: { "\(Int($0 * 100))%" }) {
-                        commitConfig { $0.rate = localRate }
-                    } onDrag: { pushConfigToEngine() }
+                    rateControl
 
                     paramSlider(label: "DPTH", value: $localDepth, range: 0...1,
                                 format: { "\(Int($0 * 100))%" }) {
                         commitConfig { $0.depth = localDepth }
                     } onDrag: { pushConfigToEngine() }
                 }
+
+                sectionDivider
+
+                // Function generator
+                funcGenSection
 
                 sectionDivider
 
@@ -143,6 +153,172 @@ struct TidePanel: View {
         }
     }
 
+    // MARK: - Rate Control (free / synced)
+
+    private var rateControl: some View {
+        VStack(spacing: 4 * cs) {
+            // Sync toggle row
+            HStack(spacing: 4 * cs) {
+                Text("RATE")
+                    .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                    .frame(width: 38 * cs, alignment: .trailing)
+
+                Button(action: {
+                    localRateSync.toggle()
+                    commitConfig {
+                        $0.rateSync = localRateSync
+                    }
+                }) {
+                    Text(localRateSync ? "SYNC" : "FREE")
+                        .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                        .foregroundColor(localRateSync ? accentColor : CanopyColors.chromeText.opacity(0.6))
+                        .padding(.horizontal, 6 * cs)
+                        .padding(.vertical, 2 * cs)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .fill(localRateSync ? accentColor.opacity(0.15) : CanopyColors.bloomPanelBorder.opacity(0.2))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .stroke(localRateSync ? accentColor.opacity(0.5) : CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+
+            if localRateSync {
+                // Beat division selector
+                rateDivisionSelector
+            } else {
+                // Free-running rate slider
+                paramSlider(label: "", value: $localRate, range: 0...1,
+                            format: { "\(Int($0 * 100))%" }) {
+                    commitConfig { $0.rate = localRate }
+                } onDrag: { pushConfigToEngine() }
+            }
+        }
+    }
+
+    private var rateDivisionSelector: some View {
+        HStack(spacing: 3 * cs) {
+            ForEach(TideRateDivision.allCases, id: \.self) { division in
+                let isSelected = localRateDivision == division
+                Button(action: {
+                    localRateDivision = division
+                    commitConfig { $0.rateDivision = division }
+                }) {
+                    Text(division.displayName)
+                        .font(.system(size: 7 * cs, weight: .bold, design: .monospaced))
+                        .foregroundColor(isSelected ? .white : CanopyColors.chromeText.opacity(0.5))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 18 * cs)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .fill(isSelected ? accentColor.opacity(0.5) : accentColor.opacity(0.05))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .stroke(isSelected ? accentColor.opacity(0.8) : accentColor.opacity(0.15), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: - Function Generator Section
+
+    private var funcGenSection: some View {
+        VStack(alignment: .leading, spacing: 5 * cs) {
+            sectionLabel("FUNC")
+
+            // Shape selector: row of small buttons
+            HStack(spacing: 3 * cs) {
+                ForEach(TideFuncShape.allCases, id: \.self) { shape in
+                    let isSelected = localFuncShape == shape
+                    Button(action: {
+                        localFuncShape = shape
+                        commitConfig { $0.funcShape = shape }
+                    }) {
+                        Text(funcShapeLabel(shape))
+                            .font(.system(size: 7 * cs, weight: .bold, design: .monospaced))
+                            .foregroundColor(isSelected ? .white : CanopyColors.chromeText.opacity(0.5))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 18 * cs)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3 * cs)
+                                    .fill(isSelected ? accentColor.opacity(0.5) : accentColor.opacity(0.05))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 3 * cs)
+                                    .stroke(isSelected ? accentColor.opacity(0.8) : accentColor.opacity(0.15), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Show AMT, SKEW, CYCLES only when shape is active
+            if localFuncShape != .off {
+                paramSlider(label: "AMT", value: $localFuncAmount, range: 0...1,
+                            format: { "\(Int($0 * 100))%" }) {
+                    commitConfig { $0.funcAmount = localFuncAmount }
+                } onDrag: { pushConfigToEngine() }
+
+                paramSlider(label: "SKEW", value: $localFuncSkew, range: 0...1,
+                            format: { "\(Int($0 * 100))%" }) {
+                    commitConfig { $0.funcSkew = localFuncSkew }
+                } onDrag: { pushConfigToEngine() }
+
+                // Cycles picker
+                HStack(spacing: 3 * cs) {
+                    Text("CYC")
+                        .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                        .frame(width: 38 * cs, alignment: .trailing)
+
+                    ForEach([1, 2, 4, 8, 16], id: \.self) { count in
+                        let isSelected = localFuncCycles == count
+                        Button(action: {
+                            localFuncCycles = count
+                            commitConfig { $0.funcCycles = count }
+                        }) {
+                            Text("\(count)x")
+                                .font(.system(size: 7 * cs, weight: .bold, design: .monospaced))
+                                .foregroundColor(isSelected ? .white : CanopyColors.chromeText.opacity(0.5))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 18 * cs)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3 * cs)
+                                        .fill(isSelected ? accentColor.opacity(0.5) : accentColor.opacity(0.05))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 3 * cs)
+                                        .stroke(isSelected ? accentColor.opacity(0.8) : accentColor.opacity(0.15), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private func funcShapeLabel(_ shape: TideFuncShape) -> String {
+        switch shape {
+        case .off: return "OFF"
+        case .sine: return "SIN"
+        case .triangle: return "TRI"
+        case .rampDown: return "\u{2193}"
+        case .rampUp: return "\u{2191}"
+        case .square: return "SQ"
+        case .sAndH: return "S&H"
+        }
+    }
+
     // MARK: - Sync
 
     private func syncFromModel() {
@@ -150,7 +326,13 @@ struct TidePanel: View {
         localCurrent = config.current
         localPattern = config.pattern
         localRate = config.rate
+        localRateSync = config.rateSync
+        localRateDivision = config.rateDivision
         localDepth = config.depth
+        localFuncShape = config.funcShape
+        localFuncAmount = config.funcAmount
+        localFuncSkew = config.funcSkew
+        localFuncCycles = config.funcCycles
         localWarmth = config.warmth
         localVolume = config.volume
         localPan = config.pan
@@ -315,10 +497,16 @@ struct TidePanel: View {
             current: localCurrent,
             pattern: localPattern,
             rate: localRate,
+            rateSync: localRateSync,
+            rateDivision: localRateDivision,
             depth: localDepth,
             warmth: localWarmth,
             volume: localVolume,
-            pan: localPan
+            pan: localPan,
+            funcShape: localFuncShape,
+            funcAmount: localFuncAmount,
+            funcSkew: localFuncSkew,
+            funcCycles: localFuncCycles
         )
         AudioEngine.shared.configureTide(config, nodeID: nodeID)
     }

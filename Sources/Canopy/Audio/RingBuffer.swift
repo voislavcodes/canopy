@@ -57,7 +57,9 @@ enum AudioCommand {
 
     // TIDE engine: spectral sequencing synthesizer
     case setTide(current: Double, pattern: Int, rate: Double,
-                 depth: Double, warmth: Double, volume: Double)
+                 rateSync: Bool, rateDivisionBeats: Double,
+                 depth: Double, warmth: Double, volume: Double,
+                 funcShape: Int, funcAmount: Double, funcSkew: Double, funcCycles: Int)
 
     // FX chain swap (per-node effect chain replacement)
     case setFXChain(EffectChain)

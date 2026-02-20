@@ -224,31 +224,119 @@ struct WestCoastConfig: Codable, Equatable {
 /// A rich oscillator feeds 16 SVF bandpass filters whose levels are cycled
 /// by an internal pattern sequencer. Holding a note produces self-animating
 /// spectral movement.
+
+/// Function generator shape for TIDE amplitude shaping.
+/// Phase is derived from the tide position, guaranteeing perfect sync with spectral animation.
+enum TideFuncShape: String, Codable, CaseIterable, Equatable {
+    case off
+    case sine
+    case triangle
+    case rampDown
+    case rampUp
+    case square
+    case sAndH
+}
+
+/// Beat-synced rate division for TIDE spectral cycling.
+enum TideRateDivision: String, Codable, CaseIterable, Equatable {
+    case fourBars
+    case twoBars
+    case oneBar
+    case half
+    case quarter
+    case eighth
+    case sixteenth
+
+    /// Number of beats for one full pattern cycle.
+    var beats: Double {
+        switch self {
+        case .fourBars: return 16
+        case .twoBars: return 8
+        case .oneBar: return 4
+        case .half: return 2
+        case .quarter: return 1
+        case .eighth: return 0.5
+        case .sixteenth: return 0.25
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .fourBars: return "4 BAR"
+        case .twoBars: return "2 BAR"
+        case .oneBar: return "1 BAR"
+        case .half: return "1/2"
+        case .quarter: return "1/4"
+        case .eighth: return "1/8"
+        case .sixteenth: return "1/16"
+        }
+    }
+}
+
 struct TideConfig: Codable, Equatable {
     var current: Double     // 0–1: oscillator richness (sine → tri → saw → pulse → noise layers)
     var pattern: Int        // 0–15: spectral journey pattern index
-    var rate: Double        // 0–1: cycle speed through pattern frames
+    var rate: Double        // 0–1: cycle speed through pattern frames (free mode)
+    var rateSync: Bool      // true = lock cycle to tempo, false = free-running Hz
+    var rateDivision: TideRateDivision // beat division when synced
     var depth: Double       // 0–1: contrast between active and inactive bands
     var warmth: Double      // 0–1: per-voice soft saturation (tanh drive)
     var volume: Double      // 0–1
     var pan: Double         // -1 to +1
 
+    // Function generator — amplitude shaping synced to tide position
+    var funcShape: TideFuncShape  // off = bypass (continuous sound)
+    var funcAmount: Double        // 0–1: modulation depth
+    var funcSkew: Double          // 0–1: phase warp (0.5 = symmetric)
+    var funcCycles: Int           // 1, 2, 4, 8, 16: func gen cycles per pattern cycle
+
     init(
         current: Double = 0.4,
         pattern: Int = 0,
         rate: Double = 0.3,
+        rateSync: Bool = false,
+        rateDivision: TideRateDivision = .oneBar,
         depth: Double = 0.6,
         warmth: Double = 0.3,
         volume: Double = 0.8,
-        pan: Double = 0.0
+        pan: Double = 0.0,
+        funcShape: TideFuncShape = .off,
+        funcAmount: Double = 0.0,
+        funcSkew: Double = 0.5,
+        funcCycles: Int = 1
     ) {
         self.current = current
         self.pattern = pattern
         self.rate = rate
+        self.rateSync = rateSync
+        self.rateDivision = rateDivision
         self.depth = depth
         self.warmth = warmth
         self.volume = volume
         self.pan = pan
+        self.funcShape = funcShape
+        self.funcAmount = funcAmount
+        self.funcSkew = funcSkew
+        self.funcCycles = funcCycles
+    }
+
+    // MARK: - Backward-compatible decoding
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        current = try container.decode(Double.self, forKey: .current)
+        pattern = try container.decode(Int.self, forKey: .pattern)
+        rate = try container.decode(Double.self, forKey: .rate)
+        rateSync = try container.decodeIfPresent(Bool.self, forKey: .rateSync) ?? false
+        rateDivision = try container.decodeIfPresent(TideRateDivision.self, forKey: .rateDivision) ?? .oneBar
+        depth = try container.decode(Double.self, forKey: .depth)
+        warmth = try container.decode(Double.self, forKey: .warmth)
+        volume = try container.decode(Double.self, forKey: .volume)
+        pan = try container.decode(Double.self, forKey: .pan)
+        funcShape = try container.decodeIfPresent(TideFuncShape.self, forKey: .funcShape) ?? .off
+        funcAmount = try container.decodeIfPresent(Double.self, forKey: .funcAmount) ?? 0.0
+        funcSkew = try container.decodeIfPresent(Double.self, forKey: .funcSkew) ?? 0.5
+        funcCycles = try container.decodeIfPresent(Int.self, forKey: .funcCycles) ?? 1
     }
 
     // MARK: - Preset Seeds
