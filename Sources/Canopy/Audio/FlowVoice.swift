@@ -1,6 +1,6 @@
 import Foundation
 
-/// Per-partial state for the FLOW engine's 16-sine additive/fluid model.
+/// Per-partial state for the FLOW engine's 32-sine additive/fluid model.
 /// Each partial is a sine oscillator whose frequency, amplitude, and phase modulation
 /// are driven by three fluid regime layers (laminar, vortex shedding, turbulence).
 struct FlowPartial {
@@ -33,7 +33,7 @@ struct FlowPartial {
 }
 
 /// Per-voice DSP for the FLOW engine.
-/// 16 sine partials embedded in a simulated fluid where Reynolds number
+/// 32 sine partials embedded in a simulated fluid where Reynolds number
 /// (derived from 5 user controls) drives continuous phase transitions between
 /// laminar purity, vortex shedding rhythm, and Kolmogorov turbulence.
 ///
@@ -44,13 +44,17 @@ struct FlowPartial {
 struct FlowVoice {
     // MARK: - Constants
 
-    static let partialCount = 16
+    static let partialCount = 32
     static let controlBlockSize = 64
     static let eddyScaleCount = 6
 
     // MARK: - Partials (inline tuple — NO heap, NO CoW, audio-thread safe)
 
     var partials: (FlowPartial, FlowPartial, FlowPartial, FlowPartial,
+                   FlowPartial, FlowPartial, FlowPartial, FlowPartial,
+                   FlowPartial, FlowPartial, FlowPartial, FlowPartial,
+                   FlowPartial, FlowPartial, FlowPartial, FlowPartial,
+                   FlowPartial, FlowPartial, FlowPartial, FlowPartial,
                    FlowPartial, FlowPartial, FlowPartial, FlowPartial,
                    FlowPartial, FlowPartial, FlowPartial, FlowPartial,
                    FlowPartial, FlowPartial, FlowPartial, FlowPartial)
@@ -114,7 +118,8 @@ struct FlowVoice {
 
     init() {
         let p = FlowPartial()
-        partials = (p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p)
+        partials = (p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p,
+                    p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p)
     }
 
     // MARK: - Note Control
