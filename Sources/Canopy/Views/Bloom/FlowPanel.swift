@@ -17,6 +17,7 @@ struct FlowPanel: View {
     @State private var localDensity: Double = 0.5
 
     // Output
+    @State private var localWarmth: Double = 0.3
     @State private var localVolume: Double = 0.8
     @State private var localPan: Double = 0.0
 
@@ -162,6 +163,7 @@ struct FlowPanel: View {
         localObstacle = config.obstacle
         localChannel = config.channel
         localDensity = config.density
+        localWarmth = config.warmth
         localVolume = config.volume
         localPan = config.pan
         guard let p = patch else { return }
@@ -181,6 +183,11 @@ struct FlowPanel: View {
     private var outputSection: some View {
         VStack(alignment: .leading, spacing: 5 * cs) {
             sectionLabel("OUTPUT")
+
+            paramSlider(label: "WARM", value: $localWarmth, range: 0...1,
+                        format: { "\(Int($0 * 100))%" }) {
+                commitConfig { $0.warmth = localWarmth }
+            } onDrag: { pushConfigToEngine() }
 
             paramSlider(label: "VOL", value: $localVolume, range: 0...1,
                         format: { "\(Int($0 * 100))%" }) {
@@ -329,6 +336,7 @@ struct FlowPanel: View {
             obstacle: localObstacle,
             channel: localChannel,
             density: localDensity,
+            warmth: localWarmth,
             volume: localVolume,
             pan: localPan
         )

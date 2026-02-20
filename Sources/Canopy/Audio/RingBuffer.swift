@@ -53,7 +53,7 @@ enum AudioCommand {
 
     // FLOW engine: 64-partial fluid simulation
     case setFlow(current: Double, viscosity: Double, obstacle: Double,
-                 channel: Double, density: Double, volume: Double)
+                 channel: Double, density: Double, warmth: Double, volume: Double)
 }
 
 /// Lock-free single-producer single-consumer ring buffer for AudioCommands.

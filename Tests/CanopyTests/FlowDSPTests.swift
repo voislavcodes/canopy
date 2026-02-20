@@ -364,7 +364,7 @@ final class FlowDSPTests: XCTestCase {
     func testVoiceNoiseDecorrelation() {
         var manager = FlowVoiceManager()
         // Set to turbulent regime
-        manager.configureFlow(current: 0.9, viscosity: 0.1, obstacle: 0.5, channel: 0.8, density: 0.8)
+        manager.configureFlow(current: 0.9, viscosity: 0.1, obstacle: 0.5, channel: 0.8, density: 0.8, warmth: 0.3)
 
         // Trigger two voices at the SAME pitch — they should get different voices
         // but identical parameters. The only difference should be noise seed.
@@ -445,7 +445,7 @@ final class FlowDSPTests: XCTestCase {
 
         for voiceCount in 1...8 {
             var manager = FlowVoiceManager()
-            manager.configureFlow(current: 0.5, viscosity: 0.3, obstacle: 0.5, channel: 0.5, density: 0.5)
+            manager.configureFlow(current: 0.5, viscosity: 0.3, obstacle: 0.5, channel: 0.5, density: 0.5, warmth: 0.3)
 
             for i in 0..<voiceCount {
                 manager.noteOn(pitch: allPitches[i], velocity: 1.0, frequency: 0)
@@ -483,7 +483,7 @@ final class FlowDSPTests: XCTestCase {
 
     func testIncrementalChordBuild() {
         var manager = FlowVoiceManager()
-        manager.configureFlow(current: 0.5, viscosity: 0.3, obstacle: 0.5, channel: 0.5, density: 0.5)
+        manager.configureFlow(current: 0.5, viscosity: 0.3, obstacle: 0.5, channel: 0.5, density: 0.5, warmth: 0.3)
 
         let chord = [60, 64, 67, 72, 76, 79, 84, 88] // C4 up
         let sr: Double = 48000
@@ -527,7 +527,7 @@ final class FlowDSPTests: XCTestCase {
     func testEightVoiceFullPolyphonyHeadroom() {
         var manager = FlowVoiceManager()
         // Mid-regime (worst case for amplitude — both vortex and turbulence active)
-        manager.configureFlow(current: 0.5, viscosity: 0.3, obstacle: 0.5, channel: 0.5, density: 0.5)
+        manager.configureFlow(current: 0.5, viscosity: 0.3, obstacle: 0.5, channel: 0.5, density: 0.5, warmth: 0.3)
 
         // Trigger all 8 voices at different pitches, full velocity
         let pitches = [48, 52, 55, 60, 64, 67, 72, 76] // C3 to E5
@@ -812,7 +812,7 @@ final class FlowDSPTests: XCTestCase {
 
     func testRapidRetriggerStress() {
         var manager = FlowVoiceManager()
-        manager.configureFlow(current: 0.4, viscosity: 0.4, obstacle: 0.4, channel: 0.5, density: 0.5)
+        manager.configureFlow(current: 0.4, viscosity: 0.4, obstacle: 0.4, channel: 0.5, density: 0.5, warmth: 0.3)
 
         let retriggerInterval = Int(sampleRate * 0.05) // 50ms
         let totalSamples = Int(sampleRate * 2) // 2 seconds

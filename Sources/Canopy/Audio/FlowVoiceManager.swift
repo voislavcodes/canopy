@@ -163,28 +163,29 @@ struct FlowVoiceManager {
     /// Apply FLOW parameters to all 8 voices.
     mutating func configureFlow(
         current: Double, viscosity: Double, obstacle: Double,
-        channel: Double, density: Double
+        channel: Double, density: Double, warmth: Double
     ) {
-        applyConfig(&voices.0, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density)
-        applyConfig(&voices.1, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density)
-        applyConfig(&voices.2, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density)
-        applyConfig(&voices.3, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density)
-        applyConfig(&voices.4, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density)
-        applyConfig(&voices.5, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density)
-        applyConfig(&voices.6, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density)
-        applyConfig(&voices.7, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density)
+        applyConfig(&voices.0, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
+        applyConfig(&voices.1, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
+        applyConfig(&voices.2, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
+        applyConfig(&voices.3, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
+        applyConfig(&voices.4, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
+        applyConfig(&voices.5, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
+        applyConfig(&voices.6, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
+        applyConfig(&voices.7, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
     }
 
     private func applyConfig(
         _ voice: inout FlowVoice,
         current: Double, viscosity: Double, obstacle: Double,
-        channel: Double, density: Double
+        channel: Double, density: Double, warmth: Double
     ) {
         voice.currentTarget = current
         voice.viscosityTarget = viscosity
         voice.obstacleTarget = obstacle
         voice.channelTarget = channel
         voice.densityTarget = density
+        voice.warmthTarget = warmth
     }
 
     /// Render one sample: sum all 8 voices, then soft-limit once.

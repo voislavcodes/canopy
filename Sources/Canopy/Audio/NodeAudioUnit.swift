@@ -712,11 +712,11 @@ final class NodeAudioUnit {
                     break // ignored in flow path
 
                 case .setFlow(let current, let viscosity, let obstacle,
-                              let channel, let density, let newVolume):
+                              let channel, let density, let warmth, let newVolume):
                     volume = newVolume
                     flow.configureFlow(
                         current: current, viscosity: viscosity, obstacle: obstacle,
-                        channel: channel, density: density
+                        channel: channel, density: density, warmth: warmth
                     )
                 }
             }
@@ -898,7 +898,8 @@ final class NodeAudioUnit {
         commandBuffer.push(.setFlow(
             current: config.current, viscosity: config.viscosity,
             obstacle: config.obstacle, channel: config.channel,
-            density: config.density, volume: config.volume
+            density: config.density, warmth: config.warmth,
+            volume: config.volume
         ))
     }
 

@@ -229,6 +229,7 @@ struct FlowConfig: Codable, Equatable {
     var obstacle: Double    // 0–1: obstacle diameter (affects vortex shedding freq)
     var channel: Double     // 0–1: channel width (confinement)
     var density: Double     // 0–1: fluid density (affects inertia)
+    var warmth: Double      // 0–1: per-voice soft saturation (tanh drive)
     var volume: Double      // 0–1
     var pan: Double         // -1 to +1
 
@@ -238,6 +239,7 @@ struct FlowConfig: Codable, Equatable {
         obstacle: Double = 0.3,
         channel: Double = 0.5,
         density: Double = 0.5,
+        warmth: Double = 0.3,
         volume: Double = 0.8,
         pan: Double = 0.0
     ) {
@@ -246,6 +248,7 @@ struct FlowConfig: Codable, Equatable {
         self.obstacle = obstacle
         self.channel = channel
         self.density = density
+        self.warmth = warmth
         self.volume = volume
         self.pan = pan
     }

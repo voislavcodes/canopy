@@ -67,6 +67,8 @@ struct FlowVoice {
     var channelTarget: Double = 0.5
     var densityParam: Double = 0.5
     var densityTarget: Double = 0.5
+    var warmthParam: Double = 0.3
+    var warmthTarget: Double = 0.3
 
     // MARK: - Note state
 
@@ -228,6 +230,7 @@ struct FlowVoice {
         obstacleParam += (obstacleTarget - obstacleParam) * paramSmooth
         channelParam += (channelTarget - channelParam) * paramSmooth
         densityParam += (densityTarget - densityParam) * paramSmooth
+        warmthParam += (warmthTarget - warmthParam) * paramSmooth
 
         // Single pointer borrow for ALL partial access (control update + render)
         var mix: Double = 0
@@ -323,7 +326,9 @@ struct FlowVoice {
 
         mix *= 0.1
         mix *= envValue * Double(velocity)
-        return Float(mix)
+        let drive = 0.3 + warmthParam * 1.2
+        let shaped = tanh(mix * drive) / drive
+        return Float(shaped)
     }
 
     // MARK: - Envelope
