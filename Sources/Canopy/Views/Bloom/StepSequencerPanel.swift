@@ -109,6 +109,24 @@ struct StepSequencerPanel: View {
                     }
                 )
 
+                // Arp toggle
+                Button(action: { toggleArp() }) {
+                    Text("ARP")
+                        .font(.system(size: 9 * cs, weight: .bold, design: .monospaced))
+                        .foregroundColor(isArpActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.4))
+                        .padding(.horizontal, 6 * cs)
+                        .padding(.vertical, 3 * cs)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .fill(isArpActive ? CanopyColors.glowColor.opacity(0.15) : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .stroke(isArpActive ? CanopyColors.glowColor.opacity(0.4) : CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 0.5)
+                        )
+                }
+                .buttonStyle(.plain)
+
                 if node != nil {
                     if isArpActive {
                         arpModePicker
@@ -180,7 +198,6 @@ struct StepSequencerPanel: View {
             .buttonStyle(.plain)
 
             if showAdvanced {
-                arpToggleControl
                 mutationControls
                 accumulatorControls
             }
