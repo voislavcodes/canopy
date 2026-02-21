@@ -142,6 +142,9 @@ enum WarmProcessor {
         let w2 = warm * warm
         let w3 = w2 * warm
 
+        // Gate noise by input signal level (fades with voice envelope, no lingering)
+        let noiseGate = min(1.0, abs(sample) * 500.0)
+
         // --- 1. Asymmetric saturation with first-order ADAA ---
         let drive: Float = 1.0 + warm * 3.0   // linear: 1→4
         let wetMix = w2                         // quadratic onset
@@ -159,8 +162,8 @@ enum WarmProcessor {
         state.dcPrevOutL = dcOut
         x = dcOut
 
-        // --- 3. Pink noise floor (cubic scaling — inaudible until WARM > 50%) ---
-        x += pinkNoise(&state) * w3 * 0.0005
+        // --- 3. Pink noise floor (cubic scaling, gated by signal presence) ---
+        x += pinkNoise(&state) * w3 * 0.0005 * noiseGate
 
         // --- 4. HF rolloff (one-pole lowpass, linear cutoff 22kHz→12kHz) ---
         let cutoff = 22000.0 - warm * 10000.0
@@ -187,6 +190,9 @@ enum WarmProcessor {
         var xR = sampleR
         let w2 = warm * warm
         let w3 = w2 * warm
+
+        // Gate noise by input signal level (fades with voice envelope, no lingering)
+        let noiseGate = min(1.0, max(abs(sampleL), abs(sampleR)) * 500.0)
 
         // --- 1. Asymmetric saturation with ADAA ---
         let drive: Float = 1.0 + warm * 3.0
@@ -216,8 +222,8 @@ enum WarmProcessor {
         state.dcPrevOutR = dcOutR
         xR = dcOutR
 
-        // --- 3. Pink noise floor ---
-        let noiseScale = w3 * 0.0005
+        // --- 3. Pink noise floor (gated by signal presence) ---
+        let noiseScale = w3 * 0.0005 * noiseGate
         xL += pinkNoise(&state) * noiseScale
         xR += pinkNoise(&state) * noiseScale
 
