@@ -279,13 +279,41 @@ class ProjectState: ObservableObject {
         }
         if let node = findNode(id: nodeID) {
             AudioEngine.shared.addNode(node)
+            // Configure engine-specific parameters after rebuilding subgraph
+            switch soundType {
+            case .quake(let config):
+                AudioEngine.shared.configureQuake(config, nodeID: nodeID)
+                AudioEngine.shared.configurePatch(
+                    waveform: 0, detune: 0, attack: 0, decay: 0,
+                    sustain: 0, release: 0, volume: config.volume, nodeID: nodeID
+                )
+            default:
+                break
+            }
         }
         markDirty()
     }
 
-    /// Swap the sequencer UI type (pitched grid vs drum grid).
+    /// Swap the sequencer UI type (pitched grid vs drum grid vs orbit).
     func swapSequencer(nodeID: UUID, to type: SequencerType) {
-        updateNode(id: nodeID) { $0.sequencerType = type }
+        updateNode(id: nodeID) { node in
+            node.sequencerType = type
+            if type == .orbit {
+                // Ensure orbit config exists
+                if node.orbitConfig == nil {
+                    node.orbitConfig = OrbitConfig()
+                }
+            }
+        }
+        // Send orbit sequencer toggle to audio thread
+        if type == .orbit {
+            if let node = findNode(id: nodeID), let orbitConfig = node.orbitConfig {
+                AudioEngine.shared.configureOrbit(orbitConfig, nodeID: nodeID)
+            }
+            AudioEngine.shared.setUseOrbitSequencer(true, nodeID: nodeID)
+        } else {
+            AudioEngine.shared.setUseOrbitSequencer(false, nodeID: nodeID)
+        }
         markDirty()
     }
 

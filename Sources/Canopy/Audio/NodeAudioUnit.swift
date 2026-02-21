@@ -27,7 +27,12 @@ final class NodeAudioUnit {
 
     private static let logger = Logger(subsystem: "com.canopy", category: "NodeAudioUnit")
 
-    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false, isTide: Bool = false, isSwarm: Bool = false,
+    /// Shared pointers for orbit body angles (written by audio thread, read by main thread for visualization).
+    private let _orbitBodyAngles = UnsafeMutablePointer<(Float, Float, Float, Float, Float, Float)>.allocate(capacity: 1)
+
+    var orbitBodyAngles: (Float, Float, Float, Float, Float, Float) { _orbitBodyAngles.pointee }
+
+    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false, isTide: Bool = false, isSwarm: Bool = false, isQuake: Bool = false,
          clockSamplePosition: UnsafeMutablePointer<Int64>, clockIsRunning: UnsafeMutablePointer<Bool>) {
         self.nodeID = nodeID
         self.commandBuffer = AudioCommandRingBuffer(capacity: 256)
@@ -35,13 +40,21 @@ final class NodeAudioUnit {
         _currentBeat.initialize(to: 0)
         _isPlaying.initialize(to: false)
         _pan.initialize(to: 0)
+        _orbitBodyAngles.initialize(to: (0, 0, 0, 0, 0, 0))
 
         let cmdBuffer = self.commandBuffer
         let beatPtr = self._currentBeat
         let playingPtr = self._isPlaying
         let panPtr = self._pan
+        let orbitAnglesPtr = self._orbitBodyAngles
 
-        if isSwarm {
+        if isQuake {
+            self.sourceNode = Self.makeQuakeSourceNode(
+                cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
+                panPtr: panPtr, orbitAnglesPtr: orbitAnglesPtr, sampleRate: sampleRate,
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+            )
+        } else if isSwarm {
             self.sourceNode = Self.makeSwarmSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, sampleRate: sampleRate,
@@ -223,6 +236,15 @@ final class NodeAudioUnit {
                     break // ignored in oscillator path
 
                 case .setSwarmImprint:
+                    break // ignored in oscillator path
+
+                case .setQuake:
+                    break // ignored in oscillator path
+
+                case .setOrbit:
+                    break // ignored in oscillator path
+
+                case .useOrbitSequencer:
                     break // ignored in oscillator path
 
                 case .setFXChain(let chain):
@@ -437,6 +459,15 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in drum kit path
 
+                case .setQuake:
+                    break // ignored in drum kit path
+
+                case .setOrbit:
+                    break // ignored in drum kit path
+
+                case .useOrbitSequencer:
+                    break // ignored in drum kit path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -504,6 +535,231 @@ final class NodeAudioUnit {
 
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
+
+            return noErr
+        }
+    }
+
+    // MARK: - Quake Render Path
+
+    private static func makeQuakeSourceNode(
+        cmdBuffer: AudioCommandRingBuffer,
+        beatPtr: UnsafeMutablePointer<Double>,
+        playingPtr: UnsafeMutablePointer<Bool>,
+        panPtr: UnsafeMutablePointer<Float>,
+        orbitAnglesPtr: UnsafeMutablePointer<(Float, Float, Float, Float, Float, Float)>,
+        sampleRate: Double,
+        clockPtr: UnsafeMutablePointer<Int64>,
+        clockRunning: UnsafeMutablePointer<Bool>
+    ) -> AVAudioSourceNode {
+        var quake = QuakeVoiceManager.defaultKit()
+        var seq = Sequencer()
+        var orbit = OrbitSequencer()
+        var useOrbit = false
+        var orbitLengthInBeats: Double = 4
+        var filter = MoogLadderFilter()
+        var lfoBank = LFOBank()
+        var fxChain = EffectChain()
+        var volume: Double = 0.8
+        var volumeSmoothed: Double = 0.8
+        let sr = sampleRate
+        let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+
+        return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            let pan = panPtr.pointee
+            let angle = Double((pan + 1) * 0.5) * .pi * 0.5
+            let gainL = Float(cos(angle))
+            let gainR = Float(sin(angle))
+
+            // Drain command buffer
+            while let cmd = cmdBuffer.pop() {
+                switch cmd {
+                case .noteOn(let pitch, let velocity):
+                    quake.trigger(pitch: pitch, velocity: velocity)
+
+                case .noteOff:
+                    break // drums are one-shot
+
+                case .allNotesOff:
+                    quake.allNotesOff()
+
+                case .setPatch(_, _, _, _, _, _, let newVolume):
+                    volume = newVolume
+
+                case .sequencerStart(let bpm):
+                    seq.start(bpm: bpm)
+                    orbit.start(bpm: bpm, lengthInBeats: orbitLengthInBeats)
+
+                case .sequencerStop:
+                    seq.stop()
+                    orbit.stop()
+                    quake.allNotesOff()
+
+                case .sequencerSetBPM(let bpm):
+                    seq.setBPM(bpm)
+                    orbit.setBPM(bpm)
+
+                case .sequencerLoad(let events, let lengthInBeats,
+                                    let direction, let mutationAmount, let mutationRange,
+                                    let scaleRootSemitone, let scaleIntervals,
+                                    let accumulatorConfig):
+                    quake.allNotesOff()
+                    orbitLengthInBeats = lengthInBeats
+                    seq.load(events: events, lengthInBeats: lengthInBeats,
+                             direction: direction,
+                             mutationAmount: mutationAmount, mutationRange: mutationRange,
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
+                             accumulatorConfig: accumulatorConfig)
+
+                case .sequencerSetGlobalProbability(let prob):
+                    seq.globalProbability = prob
+
+                case .sequencerSetMutation(let amount, let range, let rootSemitone, let intervals):
+                    seq.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
+
+                case .sequencerResetMutation:
+                    seq.resetMutation()
+
+                case .sequencerFreezeMutation:
+                    seq.freezeMutation()
+
+                case .sequencerSetArp(let active, let samplesPerStep, let gateLength, let mode):
+                    seq.setArpConfig(active: active, samplesPerStep: samplesPerStep,
+                                     gateLength: gateLength, mode: mode)
+
+                case .sequencerSetArpPool(let pitches, let velocities, let startBeats, let endBeats):
+                    seq.setArpPool(pitches: pitches, velocities: velocities, startBeats: startBeats, endBeats: endBeats)
+
+                case .setFilter(let enabled, let cutoff, let reso):
+                    filter.enabled = enabled
+                    filter.cutoffHz = cutoff
+                    filter.resonance = reso
+                    filter.updateCoefficients(sampleRate: sr)
+
+                case .setLFOSlot(let slotIndex, let enabled, let waveform,
+                                 let rateHz, let initialPhase, let depth, let parameter):
+                    lfoBank.configureSlot(slotIndex, enabled: enabled, waveform: waveform,
+                                          rateHz: rateHz, initialPhase: initialPhase,
+                                          depth: depth, parameter: parameter)
+
+                case .setLFOSlotCount(let count):
+                    lfoBank.slotCount = count
+
+                case .setQuake(let mass, let surface, let force, let sustain, let vol):
+                    quake.configureQuake(mass: mass, surface: surface, force: force, sustain: sustain)
+                    volume = vol
+
+                case .setOrbit(let grav, let bodies, let tens, let dens):
+                    orbit.configure(gravity: grav, bodyCount: bodies, tension: tens, density: dens)
+
+                case .useOrbitSequencer(let use):
+                    useOrbit = use
+
+                case .setDrumVoice:
+                    break // ignored in quake path
+
+                case .setWestCoast:
+                    break // ignored in quake path
+
+                case .setFlow:
+                    break // ignored in quake path
+
+                case .setTide:
+                    break // ignored in quake path
+
+                case .setSwarm:
+                    break // ignored in quake path
+
+                case .setFlowImprint:
+                    break // ignored in quake path
+
+                case .setTideImprint:
+                    break // ignored in quake path
+
+                case .setSwarmImprint:
+                    break // ignored in quake path
+
+                case .setFXChain(let chain):
+                    fxChain = chain
+                }
+            }
+
+            let srF = Float(sr)
+            let baseSample = clockPtr.pointee
+
+            if lfoBank.slotCount > 0 {
+                for frame in 0..<Int(frameCount) {
+                    let globalSample = baseSample + Int64(frame)
+                    if useOrbit {
+                        orbit.tickQuake(globalSample: globalSample, sampleRate: sr, receiver: &quake)
+                    } else {
+                        seq.tick(globalSample: globalSample, sampleRate: sr, receiver: &quake, detune: 0)
+                    }
+                    let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
+                    _ = resMod
+
+                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
+                    let raw = quake.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+
+                    var sample: Float
+                    if cutMod != 0 {
+                        sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
+                    } else {
+                        sample = filter.process(raw)
+                    }
+
+                    sample = fxChain.process(sample: sample, sampleRate: srF)
+
+                    let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
+                    let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
+                    let modGainL = Float(cos(modAngle))
+                    let modGainR = Float(sin(modAngle))
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                        }
+                    }
+                }
+            } else {
+                for frame in 0..<Int(frameCount) {
+                    let globalSample = baseSample + Int64(frame)
+                    if useOrbit {
+                        orbit.tickQuake(globalSample: globalSample, sampleRate: sr, receiver: &quake)
+                    } else {
+                        seq.tick(globalSample: globalSample, sampleRate: sr, receiver: &quake, detune: 0)
+                    }
+
+                    volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                    let raw = quake.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+                    var sample = filter.process(raw)
+
+                    sample = fxChain.process(sample: sample, sampleRate: srF)
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                        }
+                    }
+                }
+            }
+
+            if useOrbit {
+                playingPtr.pointee = orbit.isPlaying
+                beatPtr.pointee = orbit.currentBeat
+                orbitAnglesPtr.pointee = orbit.bodyAngles
+            } else {
+                playingPtr.pointee = seq.isPlaying
+                beatPtr.pointee = seq.currentBeat
+            }
 
             return noErr
         }
@@ -645,6 +901,15 @@ final class NodeAudioUnit {
                     break // ignored in west coast path
 
                 case .setSwarmImprint:
+                    break // ignored in west coast path
+
+                case .setQuake:
+                    break // ignored in west coast path
+
+                case .setOrbit:
+                    break // ignored in west coast path
+
+                case .useOrbitSequencer:
                     break // ignored in west coast path
 
                 case .setFXChain(let chain):
@@ -847,6 +1112,15 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in flow path
 
+                case .setQuake:
+                    break // ignored in flow path
+
+                case .setOrbit:
+                    break // ignored in flow path
+
+                case .useOrbitSequencer:
+                    break // ignored in flow path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -1044,6 +1318,15 @@ final class NodeAudioUnit {
                     break // ignored in swarm path
 
                 case .setTideImprint:
+                    break // ignored in swarm path
+
+                case .setQuake:
+                    break // ignored in swarm path
+
+                case .setOrbit:
+                    break // ignored in swarm path
+
+                case .useOrbitSequencer:
                     break // ignored in swarm path
 
                 case .setFXChain(let chain):
@@ -1263,6 +1546,15 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in tide path
 
+                case .setQuake:
+                    break // ignored in tide path
+
+                case .setOrbit:
+                    break // ignored in tide path
+
+                case .useOrbitSequencer:
+                    break // ignored in tide path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -1356,6 +1648,8 @@ final class NodeAudioUnit {
         _isPlaying.deallocate()
         _pan.deinitialize(count: 1)
         _pan.deallocate()
+        _orbitBodyAngles.deinitialize(count: 1)
+        _orbitBodyAngles.deallocate()
     }
 
     // MARK: - Public API (main thread)
@@ -1522,6 +1816,25 @@ final class NodeAudioUnit {
     /// Push SWARM imprint positions and amplitudes (64 each) or nil to clear.
     func configureSwarmImprint(positions: [Float]?, amplitudes: [Float]?) {
         commandBuffer.push(.setSwarmImprint(positions: positions, amplitudes: amplitudes))
+    }
+
+    func configureQuake(_ config: QuakeConfig) {
+        commandBuffer.push(.setQuake(
+            mass: config.mass, surface: config.surface,
+            force: config.force, sustain: config.sustain,
+            volume: config.volume
+        ))
+    }
+
+    func configureOrbit(_ config: OrbitConfig) {
+        commandBuffer.push(.setOrbit(
+            gravity: config.gravity, bodyCount: config.bodyCount,
+            tension: config.tension, density: config.density
+        ))
+    }
+
+    func setUseOrbitSequencer(_ useOrbit: Bool) {
+        commandBuffer.push(.useOrbitSequencer(useOrbit))
     }
 
     func configureWestCoast(_ config: WestCoastConfig) {

@@ -46,7 +46,7 @@ struct DrumSequencerPanel: View {
                     .foregroundColor(CanopyColors.chromeText)
 
                 ModuleSwapButton(
-                    options: [("Pitched", SequencerType.pitched), ("Drum", SequencerType.drum)],
+                    options: [("Pitched", SequencerType.pitched), ("Drum", SequencerType.drum), ("Orbit", SequencerType.orbit)],
                     current: node?.sequencerType ?? .drum,
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }

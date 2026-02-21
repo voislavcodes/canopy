@@ -61,13 +61,28 @@ struct NodePreset: Identifiable, Equatable {
         ),
         NodePreset(
             id: "drums",
-            name: "Drums",
+            name: "FM Drum",
             icon: "circle.grid.2x2",
             color: .orange,
             nodeType: .rhythmic,
             defaultPatch: SoundPatch(
-                name: "Drums",
+                name: "FM Drum",
                 soundType: .drumKit(DrumKitConfig()),
+                envelope: EnvelopeConfig(attack: 0.001, decay: 0.1, sustain: 0.0, release: 0.05)
+            ),
+            defaultLengthInBeats: 4,
+            defaultPitchRange: PitchRange(low: 36, high: 52), // C2–E3
+            defaultArpConfig: nil
+        ),
+        NodePreset(
+            id: "quake",
+            name: "Quake",
+            icon: "waveform.path.ecg",
+            color: .orange,
+            nodeType: .rhythmic,
+            defaultPatch: SoundPatch(
+                name: "Quake",
+                soundType: .quake(QuakeConfig()),
                 envelope: EnvelopeConfig(attack: 0.001, decay: 0.1, sustain: 0.0, release: 0.05)
             ),
             defaultLengthInBeats: 4,

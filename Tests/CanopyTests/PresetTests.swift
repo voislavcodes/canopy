@@ -6,15 +6,18 @@ final class PresetTests: XCTestCase {
     // MARK: - Built-in Presets
 
     func testAllBuiltInPresetsExist() {
-        XCTAssertEqual(NodePreset.builtIn.count, 7)
+        XCTAssertEqual(NodePreset.builtIn.count, 10)
         let ids = NodePreset.builtIn.map(\.id)
         XCTAssertTrue(ids.contains("melody"))
         XCTAssertTrue(ids.contains("bass"))
         XCTAssertTrue(ids.contains("drums"))
+        XCTAssertTrue(ids.contains("quake"))
         XCTAssertTrue(ids.contains("pad"))
         XCTAssertTrue(ids.contains("arp"))
         XCTAssertTrue(ids.contains("west"))
         XCTAssertTrue(ids.contains("flow"))
+        XCTAssertTrue(ids.contains("tide"))
+        XCTAssertTrue(ids.contains("swarm"))
     }
 
     func testMelodyPresetDefaults() {
@@ -49,7 +52,7 @@ final class PresetTests: XCTestCase {
 
     func testDrumsPresetDefaults() {
         let preset = NodePreset.find("drums")!
-        XCTAssertEqual(preset.name, "Drums")
+        XCTAssertEqual(preset.name, "FM Drum")
         XCTAssertEqual(preset.color, .orange)
         XCTAssertEqual(preset.nodeType, .rhythmic)
     }

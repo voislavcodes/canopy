@@ -63,7 +63,7 @@ struct WestCoastPanel: View {
                     .foregroundColor(CanopyColors.chromeText)
 
                 ModuleSwapButton(
-                    options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm")],
+                    options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm")],
                     current: "west",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
@@ -71,6 +71,8 @@ struct WestCoastPanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .oscillator(OscillatorConfig()))
                         } else if type == "drum" {
                             projectState.swapEngine(nodeID: nodeID, to: .drumKit(DrumKitConfig()))
+                        } else if type == "quake" {
+                            projectState.swapEngine(nodeID: nodeID, to: .quake(QuakeConfig()))
                         } else if type == "flow" {
                             projectState.swapEngine(nodeID: nodeID, to: .flow(FlowConfig()))
                         } else if type == "tide" {

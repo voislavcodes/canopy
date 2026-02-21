@@ -61,7 +61,9 @@ final class TreeAudioGraph {
         if case .tide = node.patch.soundType { isTide = true } else { isTide = false }
         let isSwarm: Bool
         if case .swarm = node.patch.soundType { isSwarm = true } else { isSwarm = false }
-        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow, isTide: isTide, isSwarm: isSwarm,
+        let isQuake: Bool
+        if case .quake = node.patch.soundType { isQuake = true } else { isQuake = false }
+        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow, isTide: isTide, isSwarm: isSwarm, isQuake: isQuake,
                                  clockSamplePosition: clockSamplePosition, clockIsRunning: clockIsRunning)
         engine.attach(unit.sourceNode)
         // Connect directly to main mixer — same pattern as Phase 2.
@@ -174,6 +176,12 @@ final class TreeAudioGraph {
             if config.triggerSource == .imprint, let imprint = config.imprint {
                 unit.configureSwarmImprint(positions: imprint.peakRatios, amplitudes: imprint.peakAmplitudes)
             }
+        case .quake(let config):
+            unit.configureQuake(config)
+            // Set volume via setPatch (only volume field matters for quake)
+            unit.configurePatch(waveform: 0, detune: 0,
+                               attack: 0, decay: 0, sustain: 0, release: 0,
+                               volume: config.volume)
         default:
             break
         }
@@ -232,6 +240,13 @@ final class TreeAudioGraph {
                            velocities: Array(pool.velocities.prefix(pool.count)),
                            startBeats: Array(pool.startBeats.prefix(pool.count)),
                            endBeats: Array(pool.endBeats.prefix(pool.count)))
+        }
+
+        // Send orbit config if node uses orbit sequencer
+        if node.sequencerType == .orbit {
+            let orbitConfig = node.orbitConfig ?? OrbitConfig()
+            unit.configureOrbit(orbitConfig)
+            unit.setUseOrbitSequencer(true)
         }
 
         for child in node.children {

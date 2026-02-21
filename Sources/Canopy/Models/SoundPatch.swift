@@ -601,6 +601,7 @@ enum SoundType: Codable, Equatable {
     case flow(FlowConfig)
     case tide(TideConfig)
     case swarm(SwarmConfig)
+    case quake(QuakeConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }

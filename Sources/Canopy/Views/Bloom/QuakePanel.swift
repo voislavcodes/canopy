@@ -1,51 +1,45 @@
 import SwiftUI
 
-/// Bloom panel: FM drum voice editor with per-voice parameter sliders.
-/// Voice selector: 8 small labeled buttons. Per-voice sliders for FM synthesis parameters.
-/// Uses same local-drag-state pattern as SynthControlsPanel.
-struct DrumVoicePanel: View {
+/// Bloom panel: QUAKE physics-based percussion engine controls.
+/// 4 physics sliders (Mass, Surface, Force, Sustain) control all 8 drum voices.
+/// Voice regime buttons for audition. Volume and pan output controls.
+struct QuakePanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
 
-    @State private var selectedVoiceIndex: Int = 0
-
     // Local drag state for continuous sliders
+    @State private var localMass: Double = 0.5
+    @State private var localSurface: Double = 0.3
+    @State private var localForce: Double = 0.5
+    @State private var localSustain: Double = 0.3
     @State private var localVolume: Double = 0.8
     @State private var localPan: Double = 0
-    @State private var localCarrierFreq: Double = 180
-    @State private var localModRatio: Double = 1.5
-    @State private var localFMDepth: Double = 5.0
-    @State private var localNoiseMix: Double = 0.0
-    @State private var localAmpDecay: Double = 0.3
-    @State private var localPitchEnv: Double = 2.0
-    @State private var localPitchDecay: Double = 0.05
-    @State private var localLevel: Double = 0.8
 
     private var node: Node? { projectState.selectedNode }
     private var patch: SoundPatch? { node?.patch }
 
-    private var drumKitConfig: DrumKitConfig? {
+    private var quakeConfig: QuakeConfig? {
         guard let patch else { return nil }
-        if case .drumKit(let config) = patch.soundType { return config }
+        if case .quake(let config) = patch.soundType { return config }
         return nil
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {
             HStack {
-                Text("FM DRUM")
+                Text("QUAKE")
                     .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText)
 
                 ModuleSwapButton(
                     options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm")],
-                    current: "drum",
+                    current: "quake",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
                         if type == "osc" {
                             projectState.swapEngine(nodeID: nodeID, to: .oscillator(OscillatorConfig()))
-                        } else if type == "quake" {
-                            projectState.swapEngine(nodeID: nodeID, to: .quake(QuakeConfig()))
+                        } else if type == "drum" {
+                            projectState.swapEngine(nodeID: nodeID, to: .drumKit(DrumKitConfig()))
                         } else if type == "west" {
                             projectState.swapEngine(nodeID: nodeID, to: .westCoast(WestCoastConfig()))
                         } else if type == "flow" {
@@ -59,18 +53,21 @@ struct DrumVoicePanel: View {
                 )
             }
 
-            if let kit = drumKitConfig {
-                // Voice selector
+            if quakeConfig != nil {
+                // Voice regime buttons
                 voiceSelector
-
-                // Per-voice sliders
-                voiceSliders(kit: kit)
 
                 Divider()
                     .background(CanopyColors.bloomPanelBorder.opacity(0.3))
 
-                // Global volume/pan
-                globalControls
+                // Physics controls
+                physicsSliders
+
+                Divider()
+                    .background(CanopyColors.bloomPanelBorder.opacity(0.3))
+
+                // Output controls
+                outputControls
             }
         }
         .padding(.top, 36 * cs)
@@ -86,54 +83,46 @@ struct DrumVoicePanel: View {
         .onTapGesture { }
         .onAppear { syncFromModel() }
         .onChange(of: projectState.selectedNodeID) { _ in syncFromModel() }
-        .onChange(of: selectedVoiceIndex) { _ in syncVoiceFromModel() }
     }
 
     // MARK: - Sync
 
     private func syncFromModel() {
-        guard let patch else { return }
-        localVolume = patch.volume
-        localPan = patch.pan
-        syncVoiceFromModel()
+        guard let config = quakeConfig else { return }
+        localMass = config.mass
+        localSurface = config.surface
+        localForce = config.force
+        localSustain = config.sustain
+        localVolume = config.volume
+        localPan = config.pan
     }
 
-    private func syncVoiceFromModel() {
-        guard let kit = drumKitConfig,
-              selectedVoiceIndex < kit.voices.count else { return }
-        let voice = kit.voices[selectedVoiceIndex]
-        localCarrierFreq = voice.carrierFreq
-        localModRatio = voice.modulatorRatio
-        localFMDepth = voice.fmDepth
-        localNoiseMix = voice.noiseMix
-        localAmpDecay = voice.ampDecay
-        localPitchEnv = voice.pitchEnvAmount
-        localPitchDecay = voice.pitchDecay
-        localLevel = voice.level
-    }
-
-    // MARK: - Voice Selector
+    // MARK: - Voice Regime Selector
 
     private var voiceSelector: some View {
-        let names = FMDrumKit.voiceNames
-        let drumColor = CanopyColors.nodeRhythmic
+        let names = QuakeVoiceManager.voiceNames
+        let quakeColor = CanopyColors.nodeRhythmic
 
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3 * cs), count: 4), spacing: 3 * cs) {
-            ForEach(0..<FMDrumKit.voiceCount, id: \.self) { i in
-                let isSelected = selectedVoiceIndex == i
-                Button(action: { selectedVoiceIndex = i }) {
+            ForEach(0..<QuakeVoiceManager.voiceCount, id: \.self) { i in
+                Button(action: {
+                    // Audition: trigger voice via audio engine
+                    guard let nodeID = projectState.selectedNodeID else { return }
+                    let pitch = QuakeVoiceManager.midiPitches[i]
+                    AudioEngine.shared.noteOn(pitch: pitch, velocity: 0.8, nodeID: nodeID)
+                }) {
                     Text(names[i])
                         .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
-                        .foregroundColor(isSelected ? .white : CanopyColors.chromeText.opacity(0.6))
+                        .foregroundColor(CanopyColors.chromeText.opacity(0.6))
                         .frame(maxWidth: .infinity)
                         .frame(height: 18 * cs)
                         .background(
                             RoundedRectangle(cornerRadius: 3 * cs)
-                                .fill(isSelected ? drumColor.opacity(0.5) : drumColor.opacity(0.1))
+                                .fill(quakeColor.opacity(0.1))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 3 * cs)
-                                .stroke(isSelected ? drumColor.opacity(0.8) : drumColor.opacity(0.2), lineWidth: 1)
+                                .stroke(quakeColor.opacity(0.2), lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
@@ -141,72 +130,46 @@ struct DrumVoicePanel: View {
         }
     }
 
-    // MARK: - Voice Sliders
+    // MARK: - Physics Sliders
 
-    @ViewBuilder
-    private func voiceSliders(kit: DrumKitConfig) -> some View {
-        let drumColor = CanopyColors.nodeRhythmic
+    private var physicsSliders: some View {
+        let quakeColor = CanopyColors.nodeRhythmic
 
-        VStack(spacing: 5 * cs) {
-            paramSlider(label: "FREQ", value: $localCarrierFreq, range: 20...2000, logarithmic: true, color: drumColor, format: { "\(Int($0))Hz" }) {
-                commitVoice { $0.carrierFreq = localCarrierFreq }
+        return VStack(spacing: 5 * cs) {
+            paramSlider(label: "MASS", value: $localMass, range: 0...1, color: quakeColor, format: { "\(Int($0 * 100))%" }) {
+                commitConfig { $0.mass = localMass }
             } onDrag: {
-                pushVoiceToEngine()
+                pushToEngine()
             }
 
-            paramSlider(label: "RATIO", value: $localModRatio, range: 0.1...16.0, color: drumColor, format: { String(format: "%.1f", $0) }) {
-                commitVoice { $0.modulatorRatio = localModRatio }
+            paramSlider(label: "SURFACE", value: $localSurface, range: 0...1, color: quakeColor, format: { "\(Int($0 * 100))%" }) {
+                commitConfig { $0.surface = localSurface }
             } onDrag: {
-                pushVoiceToEngine()
+                pushToEngine()
             }
 
-            paramSlider(label: "FM", value: $localFMDepth, range: 0...20, color: drumColor, format: { String(format: "%.1f", $0) }) {
-                commitVoice { $0.fmDepth = localFMDepth }
+            paramSlider(label: "FORCE", value: $localForce, range: 0...1, color: quakeColor, format: { "\(Int($0 * 100))%" }) {
+                commitConfig { $0.force = localForce }
             } onDrag: {
-                pushVoiceToEngine()
+                pushToEngine()
             }
 
-            paramSlider(label: "NOISE", value: $localNoiseMix, range: 0...1, color: drumColor, format: { "\(Int($0 * 100))%" }) {
-                commitVoice { $0.noiseMix = localNoiseMix }
+            paramSlider(label: "SUSTAIN", value: $localSustain, range: 0...1, color: quakeColor, format: { "\(Int($0 * 100))%" }) {
+                commitConfig { $0.sustain = localSustain }
             } onDrag: {
-                pushVoiceToEngine()
-            }
-
-            paramSlider(label: "DECAY", value: $localAmpDecay, range: 0.01...3.0, color: drumColor, format: { String(format: "%.2fs", $0) }) {
-                commitVoice { $0.ampDecay = localAmpDecay }
-            } onDrag: {
-                pushVoiceToEngine()
-            }
-
-            paramSlider(label: "P.ENV", value: $localPitchEnv, range: 0...8, color: drumColor, format: { String(format: "%.1f", $0) }) {
-                commitVoice { $0.pitchEnvAmount = localPitchEnv }
-            } onDrag: {
-                pushVoiceToEngine()
-            }
-
-            paramSlider(label: "P.DEC", value: $localPitchDecay, range: 0.001...0.5, color: drumColor, format: { String(format: "%.3fs", $0) }) {
-                commitVoice { $0.pitchDecay = localPitchDecay }
-            } onDrag: {
-                pushVoiceToEngine()
-            }
-
-            paramSlider(label: "LEVEL", value: $localLevel, range: 0...1, color: drumColor, format: { "\(Int($0 * 100))%" }) {
-                commitVoice { $0.level = localLevel }
-            } onDrag: {
-                pushVoiceToEngine()
+                pushToEngine()
             }
         }
     }
 
-    // MARK: - Global Controls
+    // MARK: - Output Controls
 
-    private var globalControls: some View {
+    private var outputControls: some View {
         VStack(spacing: 5 * cs) {
             paramSlider(label: "VOL", value: $localVolume, range: 0...1, color: CanopyColors.nodeRhythmic, format: { "\(Int($0 * 100))%" }) {
-                commitPatch { $0.volume = localVolume }
+                commitConfig { $0.volume = localVolume }
             } onDrag: {
-                guard let nodeID = projectState.selectedNodeID else { return }
-                AudioEngine.shared.setNodeVolume(Float(localVolume), nodeID: nodeID)
+                pushToEngine()
             }
 
             HStack(spacing: 4 * cs) {
@@ -253,7 +216,7 @@ struct DrumVoicePanel: View {
                         AudioEngine.shared.setNodePan(Float(localPan), nodeID: nodeID)
                     }
                     .onEnded { _ in
-                        commitPatch { $0.pan = localPan }
+                        commitConfig { $0.pan = localPan }
                     }
             )
         }
@@ -263,20 +226,17 @@ struct DrumVoicePanel: View {
     // MARK: - Param Slider
 
     private func paramSlider(label: String, value: Binding<Double>, range: ClosedRange<Double>,
-                              logarithmic: Bool = false, color: Color,
-                              format: @escaping (Double) -> String,
+                              color: Color, format: @escaping (Double) -> String,
                               onCommit: @escaping () -> Void, onDrag: @escaping () -> Void) -> some View {
         HStack(spacing: 4 * cs) {
             Text(label)
                 .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                .frame(width: 38 * cs, alignment: .trailing)
+                .frame(width: 48 * cs, alignment: .trailing)
 
             GeometryReader { geo in
                 let width = geo.size.width
-                let fraction: CGFloat = logarithmic
-                    ? CGFloat((log(value.wrappedValue) - log(range.lowerBound)) / (log(range.upperBound) - log(range.lowerBound)))
-                    : CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
+                let fraction = CGFloat((value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound))
                 let filledWidth = max(0, min(width, width * fraction))
 
                 ZStack(alignment: .leading) {
@@ -292,11 +252,7 @@ struct DrumVoicePanel: View {
                     DragGesture(minimumDistance: 0)
                         .onChanged { drag in
                             let frac = Double(max(0, min(1, drag.location.x / width)))
-                            if logarithmic {
-                                value.wrappedValue = exp(log(range.lowerBound) + frac * (log(range.upperBound) - log(range.lowerBound)))
-                            } else {
-                                value.wrappedValue = range.lowerBound + frac * (range.upperBound - range.lowerBound)
-                            }
+                            value.wrappedValue = range.lowerBound + frac * (range.upperBound - range.lowerBound)
                             onDrag()
                         }
                         .onEnded { _ in
@@ -309,43 +265,33 @@ struct DrumVoicePanel: View {
             Text(format(value.wrappedValue))
                 .font(.system(size: 8 * cs, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.6))
-                .frame(width: 40 * cs, alignment: .trailing)
+                .frame(width: 36 * cs, alignment: .trailing)
         }
     }
 
     // MARK: - Commit Helpers
 
-    private func commitVoice(_ transform: (inout DrumVoiceConfig) -> Void) {
+    private func commitConfig(_ transform: (inout QuakeConfig) -> Void) {
         guard let nodeID = projectState.selectedNodeID else { return }
         projectState.updateNode(id: nodeID) { node in
-            if case .drumKit(var kit) = node.patch.soundType,
-               selectedVoiceIndex < kit.voices.count {
-                transform(&kit.voices[selectedVoiceIndex])
-                node.patch.soundType = .drumKit(kit)
+            if case .quake(var config) = node.patch.soundType {
+                transform(&config)
+                node.patch.soundType = .quake(config)
             }
         }
-        pushVoiceToEngine()
+        pushToEngine()
     }
 
-    private func commitPatch(_ transform: (inout SoundPatch) -> Void) {
+    private func pushToEngine() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            transform(&node.patch)
-        }
-    }
-
-    private func pushVoiceToEngine() {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        let config = DrumVoiceConfig(
-            carrierFreq: localCarrierFreq,
-            modulatorRatio: localModRatio,
-            fmDepth: localFMDepth,
-            noiseMix: localNoiseMix,
-            ampDecay: localAmpDecay,
-            pitchEnvAmount: localPitchEnv,
-            pitchDecay: localPitchDecay,
-            level: localLevel
+        let config = QuakeConfig(
+            mass: localMass,
+            surface: localSurface,
+            force: localForce,
+            sustain: localSustain,
+            volume: localVolume,
+            pan: localPan
         )
-        AudioEngine.shared.configureDrumVoice(index: selectedVoiceIndex, config: config, nodeID: nodeID)
+        AudioEngine.shared.configureQuake(config, nodeID: nodeID)
     }
 }

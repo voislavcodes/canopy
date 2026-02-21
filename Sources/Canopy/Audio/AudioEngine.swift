@@ -229,6 +229,21 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.configureSwarm(config)
     }
 
+    /// Configure QUAKE parameters on a specific node.
+    func configureQuake(_ config: QuakeConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureQuake(config)
+    }
+
+    /// Configure ORBIT sequencer parameters on a specific node.
+    func configureOrbit(_ config: OrbitConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureOrbit(config)
+    }
+
+    /// Toggle orbit vs standard sequencer on a specific node.
+    func setUseOrbitSequencer(_ useOrbit: Bool, nodeID: UUID) {
+        graph.unit(for: nodeID)?.setUseOrbitSequencer(useOrbit)
+    }
+
     // MARK: - Imprint
 
     /// Push FLOW imprint harmonic amplitudes to a specific node.

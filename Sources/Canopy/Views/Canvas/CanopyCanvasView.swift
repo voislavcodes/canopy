@@ -277,9 +277,14 @@ struct CanopyCanvasView: View {
             return false
         }()
 
+        let isQuakeEngine: Bool = {
+            if case .quake = node.patch.soundType { return true }
+            return false
+        }()
+
         // Resolve effective module types (override or derive from SoundType)
-        let effectiveSeqType = node.sequencerType ?? (isDrumEngine ? .drum : .pitched)
-        let effectiveInputMode = node.inputMode ?? (isDrumEngine ? .padGrid : .keyboard)
+        let effectiveSeqType = node.sequencerType ?? ((isDrumEngine || isQuakeEngine) ? .drum : .pitched)
+        let effectiveInputMode = node.inputMode ?? ((isDrumEngine || isQuakeEngine) ? .padGrid : .keyboard)
 
         // Focus mode: show dimming overlay + single centered panel
         if let focused = bloomState.focusedPanel {
@@ -292,6 +297,7 @@ struct CanopyCanvasView: View {
                 isFlowEngine: isFlowEngine,
                 isTideEngine: isTideEngine,
                 isSwarmEngine: isSwarmEngine,
+                isQuakeEngine: isQuakeEngine,
                 effectiveSeqType: effectiveSeqType,
                 effectiveInputMode: effectiveInputMode
             )
@@ -308,7 +314,9 @@ struct CanopyCanvasView: View {
                 // Left panel: voice/synth controls (always follows engine type)
                 DraggableBloomPanel(panel: .synth, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: synthScreen) {
                     Group {
-                        if isDrumEngine {
+                        if isQuakeEngine {
+                            QuakePanel(projectState: projectState)
+                        } else if isDrumEngine {
                             DrumVoicePanel(projectState: projectState)
                         } else if isWestCoastEngine {
                             WestCoastPanel(projectState: projectState)
@@ -327,7 +335,9 @@ struct CanopyCanvasView: View {
                 // Right panel: sequencer (swappable)
                 DraggableBloomPanel(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: seqScreen) {
                     Group {
-                        if effectiveSeqType == .drum {
+                        if effectiveSeqType == .orbit {
+                            OrbitSequencerPanel(projectState: projectState, transportState: transportState)
+                        } else if effectiveSeqType == .drum {
                             DrumSequencerPanel(projectState: projectState, transportState: transportState)
                         } else {
                             StepSequencerPanel(projectState: projectState, transportState: transportState)
@@ -388,6 +398,7 @@ struct CanopyCanvasView: View {
         isFlowEngine: Bool = false,
         isTideEngine: Bool = false,
         isSwarmEngine: Bool = false,
+        isQuakeEngine: Bool = false,
         effectiveSeqType: SequencerType,
         effectiveInputMode: InputMode
     ) -> some View {
@@ -406,7 +417,9 @@ struct CanopyCanvasView: View {
             Group {
                 switch focused {
                 case .synth:
-                    if isDrumEngine {
+                    if isQuakeEngine {
+                        QuakePanel(projectState: projectState)
+                    } else if isDrumEngine {
                         DrumVoicePanel(projectState: projectState)
                     } else if isWestCoastEngine {
                         WestCoastPanel(projectState: projectState)
@@ -420,7 +433,9 @@ struct CanopyCanvasView: View {
                         SynthControlsPanel(projectState: projectState)
                     }
                 case .sequencer:
-                    if effectiveSeqType == .drum {
+                    if effectiveSeqType == .orbit {
+                        OrbitSequencerPanel(projectState: projectState, transportState: transportState)
+                    } else if effectiveSeqType == .drum {
                         DrumSequencerPanel(projectState: projectState, transportState: transportState)
                     } else {
                         StepSequencerPanel(projectState: projectState, transportState: transportState)

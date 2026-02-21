@@ -13,6 +13,7 @@ enum NodeType: String, Codable, Equatable {
 enum SequencerType: String, Codable, Equatable {
     case pitched
     case drum
+    case orbit
 }
 
 /// Which input UI to show. nil = derive from SoundType.
@@ -41,6 +42,8 @@ struct Node: Codable, Equatable, Identifiable {
     var sequencerType: SequencerType?
     /// Override for input UI. nil = derive from SoundType.
     var inputMode: InputMode?
+    /// Orbit sequencer configuration. nil = not using orbit.
+    var orbitConfig: OrbitConfig?
 
     init(
         id: UUID = UUID(),
@@ -57,7 +60,8 @@ struct Node: Codable, Equatable, Identifiable {
         scaleOverride: MusicalKey? = nil,
         presetID: String? = nil,
         sequencerType: SequencerType? = nil,
-        inputMode: InputMode? = nil
+        inputMode: InputMode? = nil,
+        orbitConfig: OrbitConfig? = nil
     ) {
         self.id = id
         self.name = name
@@ -74,6 +78,7 @@ struct Node: Codable, Equatable, Identifiable {
         self.presetID = presetID
         self.sequencerType = sequencerType
         self.inputMode = inputMode
+        self.orbitConfig = orbitConfig
     }
 
     // Backward-compatible decoding — old files lack presetID
@@ -94,6 +99,7 @@ struct Node: Codable, Equatable, Identifiable {
         presetID = try container.decodeIfPresent(String.self, forKey: .presetID)
         sequencerType = try container.decodeIfPresent(SequencerType.self, forKey: .sequencerType)
         inputMode = try container.decodeIfPresent(InputMode.self, forKey: .inputMode)
+        orbitConfig = try container.decodeIfPresent(OrbitConfig.self, forKey: .orbitConfig)
     }
 }
 

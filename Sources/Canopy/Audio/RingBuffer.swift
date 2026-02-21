@@ -65,6 +65,15 @@ enum AudioCommand {
     case setSwarm(gravity: Double, energy: Double, flock: Double, scatter: Double,
                   warmth: Double, volume: Double)
 
+    // QUAKE engine: physics-based percussion
+    case setQuake(mass: Double, surface: Double, force: Double, sustain: Double, volume: Double)
+
+    // ORBIT sequencer: gravitational rhythm
+    case setOrbit(gravity: Double, bodyCount: Int, tension: Double, density: Double)
+
+    // Toggle orbit vs standard sequencer
+    case useOrbitSequencer(Bool)
+
     // IMPRINT: spectral injection into engines
     case setFlowImprint([Float]?)           // 64 harmonic amplitudes, or nil to clear
     case setTideImprint([TideFrame]?)       // imprint frames for pattern 16, or nil to clear
