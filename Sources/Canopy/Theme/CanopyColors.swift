@@ -50,6 +50,7 @@ enum CanopyColors {
     static let nodeTide = Color(red: 0.2, green: 0.65, blue: 0.75)     // Ocean teal for spectral
     static let nodeSwarm = Color(red: 0.5, green: 0.9, blue: 0.2)     // Lime green for emergent
     static let nodeSpore = Color(red: 0.85, green: 0.65, blue: 0.35)  // Warm amber for stochastic
+    static let nodeFuse = Color(red: 0.9, green: 0.4, blue: 0.2)      // Molten orange for coupled
 
     /// Map a PresetColor to a SwiftUI Color.
     static func presetColor(_ pc: PresetColor) -> Color {

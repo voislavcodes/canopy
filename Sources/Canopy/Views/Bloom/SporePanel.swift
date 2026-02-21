@@ -88,7 +88,7 @@ struct SporePanel: View {
                 Spacer()
 
                 ModuleSwapButton(
-                    options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm"), ("Spore", "spore")],
+                    options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm"), ("Spore", "spore"), ("Fuse", "fuse")],
                     current: "spore",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
@@ -106,6 +106,8 @@ struct SporePanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .tide(TideConfig()))
                         } else if type == "swarm" {
                             projectState.swapEngine(nodeID: nodeID, to: .swarm(SwarmConfig()))
+                        } else if type == "fuse" {
+                            projectState.swapEngine(nodeID: nodeID, to: .fuse(FuseConfig()))
                         }
                     }
                 )

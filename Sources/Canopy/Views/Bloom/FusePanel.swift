@@ -1,84 +1,50 @@
 import SwiftUI
 
-/// Bloom panel: SWARM engine controls.
-/// 4 physics parameters (Gravity, Energy, Flock, Scatter) + output section.
-/// 64-dot visualization showing partials in frequency space.
-struct SwarmPanel: View {
+/// Bloom panel: FUSE engine controls.
+/// 5 coupled oscillator parameters + volume/pan/warmth output section.
+/// Uses same local-drag-state pattern as FlowPanel.
+struct FusePanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
 
     // MARK: - Local drag state
 
-    // Physics
-    @State private var localGravity: Double = 0.5
-    @State private var localEnergy: Double = 0.3
-    @State private var localFlock: Double = 0.2
-    @State private var localScatter: Double = 0.3
+    // Coupled oscillator parameters
+    @State private var localCharacter: Double = 0.1
+    @State private var localTune: Double = 0.0
+    @State private var localCouple: Double = 0.0
+    @State private var localFilter: Double = 0.7
+    @State private var localFeedback: Double = 0.0
 
     // Output
     @State private var localWarmth: Double = 0.3
-    @State private var localVolume: Double = 0.7
+    @State private var localVolume: Double = 0.8
     @State private var localPan: Double = 0.0
-
-    // Imprint
-    @StateObject private var imprintRecorder = ImprintRecorder()
 
     private var node: Node? { projectState.selectedNode }
     private var patch: SoundPatch? { node?.patch }
 
-    private var swarmConfig: SwarmConfig? {
+    private var fuseConfig: FuseConfig? {
         guard let patch else { return nil }
-        if case .swarm(let config) = patch.soundType { return config }
+        if case .fuse(let config) = patch.soundType { return config }
         return nil
     }
 
-    private let accentColor = CanopyColors.nodeSwarm
+    private let accentColor = CanopyColors.nodeFuse
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {
             // Header
             HStack {
-                Text("SWARM")
+                Text("FUSE")
                     .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText)
-
-                Text("\u{2726}")
-                    .font(.system(size: 10 * cs))
-                    .foregroundColor(accentColor.opacity(0.6))
-
-                ImprintButton(
-                    recorder: imprintRecorder,
-                    accentColor: accentColor,
-                    onImprint: { imprint in
-                        guard let nodeID = projectState.selectedNodeID else { return }
-                        commitConfig {
-                            $0.imprint = imprint
-                            $0.triggerSource = .imprint
-                        }
-                        AudioEngine.shared.configureSwarmImprint(
-                            positions: imprint.peakRatios,
-                            amplitudes: imprint.peakAmplitudes,
-                            nodeID: nodeID
-                        )
-                    },
-                    onClear: {
-                        guard let nodeID = projectState.selectedNodeID else { return }
-                        commitConfig {
-                            $0.imprint = nil
-                            $0.triggerSource = .harmonic
-                        }
-                        AudioEngine.shared.configureSwarmImprint(
-                            positions: nil, amplitudes: nil, nodeID: nodeID
-                        )
-                    },
-                    hasImprint: swarmConfig?.triggerSource == .imprint
-                )
 
                 Spacer()
 
                 ModuleSwapButton(
                     options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm"), ("Spore", "spore"), ("Fuse", "fuse")],
-                    current: "swarm",
+                    current: "fuse",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
                         if type == "osc" {
@@ -93,52 +59,44 @@ struct SwarmPanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .flow(FlowConfig()))
                         } else if type == "tide" {
                             projectState.swapEngine(nodeID: nodeID, to: .tide(TideConfig()))
+                        } else if type == "swarm" {
+                            projectState.swapEngine(nodeID: nodeID, to: .swarm(SwarmConfig()))
                         } else if type == "spore" {
                             projectState.swapEngine(nodeID: nodeID, to: .spore(SporeConfig()))
-                        } else if type == "fuse" {
-                            projectState.swapEngine(nodeID: nodeID, to: .fuse(FuseConfig()))
                         }
                     }
                 )
             }
 
-            // Spectral silhouette when imprinted
-            if let imprint = swarmConfig?.imprint, swarmConfig?.triggerSource == .imprint {
-                SpectralSilhouetteView(values: imprint.peakAmplitudes, accentColor: accentColor)
-            }
-
-            if swarmConfig != nil {
-                // Visualization: 64 dots on frequency axis
-                swarmVisualization
-                    .frame(height: 60 * cs)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4 * cs)
-                            .fill(Color.black.opacity(0.3))
-                    )
-
+            if fuseConfig != nil {
                 HStack(alignment: .top, spacing: 10 * cs) {
-                    // Left column: Physics
+                    // Left column: Coupled oscillator controls
                     VStack(alignment: .leading, spacing: 8 * cs) {
-                        sectionLabel("PHYSICS")
+                        sectionLabel("OSCILLATORS")
 
-                        paramSlider(label: "GRAV", value: $localGravity, range: 0...1,
+                        paramSlider(label: "CHAR", value: $localCharacter, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.gravity = localGravity }
+                            commitConfig { $0.character = localCharacter }
                         } onDrag: { pushConfigToEngine() }
 
-                        paramSlider(label: "ENRG", value: $localEnergy, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.energy = localEnergy }
+                        paramSlider(label: "TUNE", value: $localTune, range: 0...1,
+                                    format: { tuneDisplayText($0) }) {
+                            commitConfig { $0.tune = localTune }
                         } onDrag: { pushConfigToEngine() }
 
-                        paramSlider(label: "FLOC", value: $localFlock, range: 0...1,
+                        paramSlider(label: "COUP", value: $localCouple, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.flock = localFlock }
+                            commitConfig { $0.couple = localCouple }
                         } onDrag: { pushConfigToEngine() }
 
-                        paramSlider(label: "SCTR", value: $localScatter, range: 0...1,
+                        paramSlider(label: "FILT", value: $localFilter, range: 0...1,
+                                    format: { filterDisplayText($0) }) {
+                            commitConfig { $0.filter = localFilter }
+                        } onDrag: { pushConfigToEngine() }
+
+                        paramSlider(label: "FDBK", value: $localFeedback, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.scatter = localScatter }
+                            commitConfig { $0.feedback = localFeedback }
                         } onDrag: { pushConfigToEngine() }
                     }
                     .frame(maxWidth: .infinity)
@@ -171,90 +129,21 @@ struct SwarmPanel: View {
         .onChange(of: projectState.selectedNodeID) { _ in syncFromModel() }
     }
 
-    // MARK: - Visualization
-
-    /// 64 dots showing partial positions and amplitudes.
-    /// Static preview based on current control values (no audio-thread bridge needed).
-    private var swarmVisualization: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-            Canvas { context, size in
-                let w = size.width
-                let h = size.height
-
-                // Draw faint harmonic lines
-                for harmonic in 1...16 {
-                    let x = (CGFloat(harmonic) / 32.0) * w
-                    var path = Path()
-                    path.move(to: CGPoint(x: x, y: 0))
-                    path.addLine(to: CGPoint(x: x, y: h))
-                    context.stroke(path, with: .color(accentColor.opacity(0.1)), lineWidth: 1)
-                }
-
-                // Compute approximate partial positions from control values
-                let gravity = Float(localGravity)
-                let scatter = Float(localScatter)
-                let range = 0.12 + scatter * 0.88
-                let timeBits = Int(timeline.date.timeIntervalSinceReferenceDate * 100)
-                let seed = UInt32(truncatingIfNeeded: timeBits) &+ 42
-
-                for i in 0..<64 {
-                    let harmonicRatio = Float(i + 1)
-                    let rangeScale = range * 0.75 + 0.25
-                    let basePosition = harmonicRatio * rangeScale
-
-                    // Simple drift simulation based on controls
-                    var noiseSeed = seed &+ UInt32(i) &* 2654435761
-                    noiseSeed = noiseSeed &* 1664525 &+ 1013904223
-                    let noise = Float(Int32(bitPattern: noiseSeed)) / Float(Int32.max)
-                    let drift = noise * (1.0 - gravity) * 0.5
-
-                    let position = max(0.5, min(32.0, basePosition + drift))
-
-                    // Amplitude from bloom
-                    let nearestHarmonic = roundf(position)
-                    let bloom = 0.2 + gravity * 0.6
-                    let naturalAmp = 1.0 / max(1.0, Float(i + 1))
-                    let harmonicDist = abs(position - nearestHarmonic)
-                    let proximityReward = max(0.0, 1.0 - harmonicDist * 4.0 * bloom)
-                    let amp = naturalAmp * (1.0 - bloom + bloom * proximityReward)
-
-                    // Map to screen
-                    let x = CGFloat(position / 32.0) * w
-                    let y = h - CGFloat(amp) * h * 0.85 - h * 0.05
-
-                    let dotSize: CGFloat = max(2 * cs, 3 * cs * CGFloat(amp))
-                    let brightness = max(0.2, CGFloat(amp))
-
-                    context.fill(
-                        Path(ellipseIn: CGRect(x: x - dotSize / 2, y: y - dotSize / 2, width: dotSize, height: dotSize)),
-                        with: .color(accentColor.opacity(brightness))
-                    )
-                }
-            }
-        }
-    }
-
     // MARK: - Sync
 
     private func syncFromModel() {
-        guard let config = swarmConfig else { return }
-        localGravity = config.gravity
-        localEnergy = config.energy
-        localFlock = config.flock
-        localScatter = config.scatter
+        guard let config = fuseConfig else { return }
+        localCharacter = config.character
+        localTune = config.tune
+        localCouple = config.couple
+        localFilter = config.filter
+        localFeedback = config.feedback
         localWarmth = config.warmth
         localVolume = config.volume
         localPan = config.pan
         guard let p = patch else { return }
         localVolume = p.volume
         localPan = p.pan
-    }
-
-    // MARK: - Section Divider
-
-    private var sectionDivider: some View {
-        Divider()
-            .background(CanopyColors.bloomPanelBorder.opacity(0.3))
     }
 
     // MARK: - Output Section
@@ -287,6 +176,8 @@ struct SwarmPanel: View {
             }
         }
     }
+
+    // MARK: - Pan Slider
 
     private var panSlider: some View {
         GeometryReader { geo in
@@ -380,14 +271,38 @@ struct SwarmPanel: View {
         }
     }
 
+    // MARK: - Display Helpers
+
+    private func tuneDisplayText(_ v: Double) -> String {
+        if v < 0.1 {
+            let cents = v / 0.1 * 7.0
+            return String(format: "±%.0fc", cents)
+        } else if v < 0.25 {
+            return "INT"
+        } else if v < 0.5 {
+            return "HAR"
+        } else if v < 0.75 {
+            return "ENH"
+        } else {
+            return "XTR"
+        }
+    }
+
+    private func filterDisplayText(_ v: Double) -> String {
+        let hz = 60.0 * pow(300.0, v)
+        if hz < 1000 { return "\(Int(hz))Hz" }
+        if hz >= 17000 { return "OPEN" }
+        return String(format: "%.1fk", hz / 1000.0)
+    }
+
     // MARK: - Commit Helpers
 
-    private func commitConfig(_ transform: (inout SwarmConfig) -> Void) {
+    private func commitConfig(_ transform: (inout FuseConfig) -> Void) {
         guard let nodeID = projectState.selectedNodeID else { return }
         projectState.updateNode(id: nodeID) { node in
-            if case .swarm(var config) = node.patch.soundType {
+            if case .fuse(var config) = node.patch.soundType {
                 transform(&config)
-                node.patch.soundType = .swarm(config)
+                node.patch.soundType = .fuse(config)
             }
         }
         pushConfigToEngine()
@@ -402,15 +317,16 @@ struct SwarmPanel: View {
 
     private func pushConfigToEngine() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let config = SwarmConfig(
-            gravity: localGravity,
-            energy: localEnergy,
-            flock: localFlock,
-            scatter: localScatter,
+        let config = FuseConfig(
+            character: localCharacter,
+            tune: localTune,
+            couple: localCouple,
+            filter: localFilter,
+            feedback: localFeedback,
             warmth: localWarmth,
             volume: localVolume,
             pan: localPan
         )
-        AudioEngine.shared.configureSwarm(config, nodeID: nodeID)
+        AudioEngine.shared.configureFuse(config, nodeID: nodeID)
     }
 }

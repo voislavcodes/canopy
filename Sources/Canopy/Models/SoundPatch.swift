@@ -921,6 +921,76 @@ struct SporeSeqConfig: Codable, Equatable {
     static let lullaby = SporeSeqConfig(subdivision: .eighth, density: 0.35, focus: 0.7, drift: 0.1, memory: 0.7, rangeOctaves: 2)
 }
 
+/// FUSE engine: coupled nonlinear oscillator synthesis.
+/// Three analog-modeled oscillators form a mutual influence network where
+/// coupling strength, frequency relationships, and feedback create a continuous space
+/// that unifies subtractive, FM, hard sync, ring mod, cross-modulation, and waveshaping.
+struct FuseConfig: Codable, Equatable {
+    var character: Double    // 0–1: waveshaping (sine → saturation → wavefolding)
+    var tune: Double         // 0–1: oscillator frequency relationships
+    var couple: Double       // 0–1: mutual coupling strength
+    var filter: Double       // 0–1: SVF filter cutoff (60Hz–18kHz)
+    var feedback: Double     // 0–1: global feedback loop intensity
+    var warmth: Double       // 0–1: per-voice WARM analog processing
+    var volume: Double       // 0–1
+    var pan: Double          // -1 to +1
+
+    init(
+        character: Double = 0.1,
+        tune: Double = 0.0,
+        couple: Double = 0.0,
+        filter: Double = 0.7,
+        feedback: Double = 0.0,
+        warmth: Double = 0.3,
+        volume: Double = 0.8,
+        pan: Double = 0.0
+    ) {
+        self.character = character
+        self.tune = tune
+        self.couple = couple
+        self.filter = filter
+        self.feedback = feedback
+        self.warmth = warmth
+        self.volume = volume
+        self.pan = pan
+    }
+
+    // MARK: - Preset Seeds
+
+    /// Warm analog pad: gentle character, minimal coupling.
+    static let analogPad = FuseConfig(character: 0.15, tune: 0.05, couple: 0.1, filter: 0.6, feedback: 0.05)
+    /// Crystalline keys: moderate waveshaping, harmonic tuning.
+    static let glassKeys = FuseConfig(character: 0.4, tune: 0.35, couple: 0.25, filter: 0.8, feedback: 0.1)
+    /// Hard sync lead: high character, close interval tuning.
+    static let syncLead = FuseConfig(character: 0.7, tune: 0.2, couple: 0.6, filter: 0.75, feedback: 0.15)
+    /// Acid bass: saturated, filtered, moderate feedback.
+    static let acidBass = FuseConfig(character: 0.5, tune: 0.12, couple: 0.3, filter: 0.35, feedback: 0.2)
+    /// Deep sub: pure sine, minimal everything.
+    static let deepSub = FuseConfig(character: 0.0, tune: 0.0, couple: 0.0, filter: 0.9, feedback: 0.0)
+    /// Brass stab: bright, coupled, punchy.
+    static let brassStab = FuseConfig(character: 0.55, tune: 0.3, couple: 0.45, filter: 0.7, feedback: 0.1)
+    /// Crystal ring mod: harmonic ratios, strong coupling.
+    static let crystalRing = FuseConfig(character: 0.3, tune: 0.45, couple: 0.7, filter: 0.85, feedback: 0.05)
+    /// Chaos drone: high everything.
+    static let chaosDrone = FuseConfig(character: 0.8, tune: 0.75, couple: 0.85, filter: 0.5, feedback: 0.7)
+    /// West coast: wavefolding territory, moderate coupling.
+    static let westCoastPreset = FuseConfig(character: 0.85, tune: 0.15, couple: 0.35, filter: 0.65, feedback: 0.15)
+    /// Organ: harmonic tuning, low character.
+    static let organ = FuseConfig(character: 0.1, tune: 0.35, couple: 0.2, filter: 0.9, feedback: 0.0)
+    /// Noir piano: detuned, dark filtered, subtle feedback.
+    static let noirPiano = FuseConfig(character: 0.25, tune: 0.08, couple: 0.15, filter: 0.4, feedback: 0.08)
+    /// Feedback flute: sine with feedback, breathy.
+    static let feedbackFlute = FuseConfig(character: 0.05, tune: 0.0, couple: 0.05, filter: 0.55, feedback: 0.4)
+    /// Industrial: harsh, enharmonic, heavy feedback.
+    static let industrial = FuseConfig(character: 0.9, tune: 0.65, couple: 0.7, filter: 0.6, feedback: 0.6)
+    /// Soft PWM: subtle asymmetric saturation, detuned.
+    static let softPWM = FuseConfig(character: 0.35, tune: 0.06, couple: 0.4, filter: 0.7, feedback: 0.0)
+    /// Frozen lake: metallic, sparse, filtered.
+    static let frozenLake = FuseConfig(character: 0.45, tune: 0.55, couple: 0.5, filter: 0.3, feedback: 0.12)
+    /// Transformer: extreme modulation, robotic.
+    static let transformer = FuseConfig(character: 0.65, tune: 0.85, couple: 0.9, filter: 0.45, feedback: 0.5)
+}
+
 enum SoundType: Codable, Equatable {
     case oscillator(OscillatorConfig)
     case drumKit(DrumKitConfig)
@@ -930,6 +1000,7 @@ enum SoundType: Codable, Equatable {
     case swarm(SwarmConfig)
     case quake(QuakeConfig)
     case spore(SporeConfig)
+    case fuse(FuseConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }

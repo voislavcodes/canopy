@@ -241,6 +241,11 @@ final class AudioEngine {
                                                       force: force, sustain: sustain)
     }
 
+    /// Configure FUSE parameters on a specific node.
+    func configureFuse(_ config: FuseConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureFuse(config)
+    }
+
     /// Configure SPORE parameters on a specific node.
     func configureSpore(_ config: SporeConfig, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureSpore(config)
