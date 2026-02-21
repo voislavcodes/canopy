@@ -24,11 +24,13 @@ struct SpectralImprint: Codable, Equatable {
     var timestamp: Date
 
     /// Convert spectral frames (arrays of 16 Float) to TideFrame structs.
+    /// Uses narrower Q (5.0) than default patterns so the imprint's spectral
+    /// shape cuts through clearly — wider bands blur the voice character.
     static func tideFrames(from spectralFrames: [[Float]]) -> [TideFrame] {
-        let defaultQ: (Float, Float, Float, Float, Float, Float, Float, Float,
+        let imprintQ: (Float, Float, Float, Float, Float, Float, Float, Float,
                        Float, Float, Float, Float, Float, Float, Float, Float)
-            = (2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5,
-               2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5)
+            = (5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0,
+               5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0)
         return spectralFrames.map { bandLevels in
             var levels: (Float, Float, Float, Float, Float, Float, Float, Float,
                          Float, Float, Float, Float, Float, Float, Float, Float)
@@ -40,7 +42,7 @@ struct SpectralImprint: Codable, Equatable {
                     }
                 }
             }
-            return TideFrame(levels: levels, qs: defaultQ, oddEvenBalance: 0, spectralTilt: 0)
+            return TideFrame(levels: levels, qs: imprintQ, oddEvenBalance: 0, spectralTilt: 0)
         }
     }
 }

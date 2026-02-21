@@ -328,13 +328,14 @@ enum SpectralAnalyser {
             }
         }
 
-        // Boost contrast: square the normalized values so quiet bands
+        // Boost contrast: cube the normalized values so quiet bands
         // become much quieter while loud bands stay prominent.
-        // Without this, voice spectra are too flat for audible TIDE animation.
+        // Squaring was too subtle — voice spectra need aggressive contrast
+        // to produce audible spectral shaping through TIDE's bandpass bank.
         for i in 0..<allBandLevels.count {
             for j in 0..<bandCount {
                 let v = allBandLevels[i][j]
-                allBandLevels[i][j] = v * v
+                allBandLevels[i][j] = v * v * v
             }
         }
 

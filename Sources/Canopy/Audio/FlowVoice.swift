@@ -103,6 +103,18 @@ struct FlowVoice {
     /// Set by trigger() when imprintAmplitudes is non-nil. Persists across steal-fade.
     var useImprint: Bool = false
 
+    /// Cached imprint amplitudes for steal-fade retrigger. When trigger() enters steal-fade
+    /// with imprint data, the UnsafePointer goes out of scope before advanceEnvelope()
+    /// completes the fade. This tuple caches the 64 values so beginNote() can use them.
+    var pendingImprintAmps: (Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float)?
+
     // MARK: - Control-rate state
 
     private var controlCounter: Int = 0
@@ -150,8 +162,24 @@ struct FlowVoice {
             cachedSampleRate = sampleRate
             stealFadeRate = 1.0 / max(1, 0.005 * sampleRate)
             envPhase = 4
+            // Cache imprint data so it survives the steal-fade gap.
+            // The UnsafePointer is only valid inside triggerVoiceAt's closure scope.
+            if let ptr = imprintAmplitudes {
+                pendingImprintAmps = ptr.withMemoryRebound(to: (Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                Float, Float, Float, Float, Float, Float, Float, Float).self,
+                                                           capacity: 1) { $0.pointee }
+            } else {
+                pendingImprintAmps = nil
+            }
             return
         }
+        pendingImprintAmps = nil
         beginNote(pitch: pitch, velocity: velocity, sampleRate: sampleRate,
                   imprintAmplitudes: imprintAmplitudes)
     }
@@ -387,7 +415,17 @@ struct FlowVoice {
             if envValue <= 0.001 {
                 envValue = 0
                 if pendingPitch >= 0 {
-                    beginNote(pitch: pendingPitch, velocity: pendingVelocity, sampleRate: cachedSampleRate)
+                    if var cached = pendingImprintAmps {
+                        pendingImprintAmps = nil
+                        withUnsafeMutablePointer(to: &cached) { tuplePtr in
+                            tuplePtr.withMemoryRebound(to: Float.self, capacity: Self.partialCount) { ptr in
+                                beginNote(pitch: pendingPitch, velocity: pendingVelocity,
+                                          sampleRate: cachedSampleRate, imprintAmplitudes: ptr)
+                            }
+                        }
+                    } else {
+                        beginNote(pitch: pendingPitch, velocity: pendingVelocity, sampleRate: cachedSampleRate)
+                    }
                 } else {
                     envPhase = 0
                     isActive = false

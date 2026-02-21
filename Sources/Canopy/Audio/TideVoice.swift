@@ -508,7 +508,11 @@ struct TideVoice {
         let frameB = frames[nextIdx]
         let depth = Float(depthParam)
 
-        // Set band targets by interpolating between frames, scaled by depth
+        // Set band targets by interpolating between frames, scaled by depth.
+        // Imprint pattern uses a lower baseline so the spectral shape is carved
+        // out more aggressively — voice character needs near-silent bands to read.
+        let isImprintPattern = TidePatterns.isImprint(patternIndex)
+        let baseline: Float = isImprintPattern ? 0.02 : 0.15
         withUnsafeMutablePointer(to: &bandTargets) { ptr in
             ptr.withMemoryRebound(to: Float.self, capacity: Self.bandCount) { targets in
                 for i in 0..<Self.bandCount {
@@ -516,7 +520,6 @@ struct TideVoice {
                     let b = TideFrame.level(frameB, at: i)
                     let interpolated = a + (b - a) * frac
                     // Depth controls contrast: at depth=0 all bands equal, at depth=1 full pattern
-                    let baseline: Float = 0.15
                     targets[i] = baseline + interpolated * depth
                 }
             }

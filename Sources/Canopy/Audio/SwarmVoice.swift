@@ -98,6 +98,27 @@ struct SwarmVoice {
     // spectral fingerprint persists as physics operates. 1.0 = full bloom,
     // lower values suppress that partial. Set during beginNote when imprint active.
     var useImprintWeights: Bool = false
+
+    /// Cached imprint positions for steal-fade retrigger. The UnsafePointer from
+    /// triggerVoiceAt goes out of scope before advanceEnvelope completes the fade.
+    var pendingImprintPos: (Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float)?
+
+    /// Cached imprint amplitudes for steal-fade retrigger.
+    var pendingImprintAmps: (Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float,
+                             Float, Float, Float, Float, Float, Float, Float, Float)?
     var imprintWeights: (Float, Float, Float, Float, Float, Float, Float, Float,
                          Float, Float, Float, Float, Float, Float, Float, Float,
                          Float, Float, Float, Float, Float, Float, Float, Float,
@@ -156,8 +177,34 @@ struct SwarmVoice {
             cachedSampleRate = sampleRate
             stealFadeRate = 1.0 / max(1, 0.005 * sampleRate)
             envStage = 4 // steal-fade
+            // Cache imprint data so it survives the steal-fade gap.
+            if let posPtr = imprintPositions, let ampPtr = imprintAmplitudes {
+                pendingImprintPos = posPtr.withMemoryRebound(to: (Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                  Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                  Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                  Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                  Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                  Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                  Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                  Float, Float, Float, Float, Float, Float, Float, Float).self,
+                                                             capacity: 1) { $0.pointee }
+                pendingImprintAmps = ampPtr.withMemoryRebound(to: (Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                   Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                   Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                   Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                   Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                   Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                   Float, Float, Float, Float, Float, Float, Float, Float,
+                                                                   Float, Float, Float, Float, Float, Float, Float, Float).self,
+                                                              capacity: 1) { $0.pointee }
+            } else {
+                pendingImprintPos = nil
+                pendingImprintAmps = nil
+            }
             return
         }
+        pendingImprintPos = nil
+        pendingImprintAmps = nil
         beginNote(pitch: pitch, velocity: velocity, gravity: gravity,
                   energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate,
                   imprintPositions: imprintPositions, imprintAmplitudes: imprintAmplitudes)
@@ -388,10 +435,28 @@ struct SwarmVoice {
             if envValue <= 0.001 {
                 envValue = 0
                 if pendingPitch >= 0 {
-                    beginNote(pitch: pendingPitch, velocity: pendingVelocity,
-                              gravity: gravitySmooth, energy: energySmooth,
-                              flock: flockSmooth, scatter: scatterSmooth,
-                              sampleRate: cachedSampleRate)
+                    if var cachedPos = pendingImprintPos, var cachedAmps = pendingImprintAmps {
+                        pendingImprintPos = nil
+                        pendingImprintAmps = nil
+                        withUnsafeMutablePointer(to: &cachedPos) { posPtr in
+                            posPtr.withMemoryRebound(to: Float.self, capacity: Self.partialCount) { posP in
+                                withUnsafeMutablePointer(to: &cachedAmps) { ampPtr in
+                                    ampPtr.withMemoryRebound(to: Float.self, capacity: Self.partialCount) { ampP in
+                                        beginNote(pitch: pendingPitch, velocity: pendingVelocity,
+                                                  gravity: gravitySmooth, energy: energySmooth,
+                                                  flock: flockSmooth, scatter: scatterSmooth,
+                                                  sampleRate: cachedSampleRate,
+                                                  imprintPositions: posP, imprintAmplitudes: ampP)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        beginNote(pitch: pendingPitch, velocity: pendingVelocity,
+                                  gravity: gravitySmooth, energy: energySmooth,
+                                  flock: flockSmooth, scatter: scatterSmooth,
+                                  sampleRate: cachedSampleRate)
+                    }
                 } else {
                     envStage = 0
                     isActive = false
@@ -491,17 +556,21 @@ struct SwarmVoice {
                                                     // Position clamp (Rule 8)
                                                     pos[i] = max(0.25, min(80.0, pos[i]))
 
-                                                    // 6. AMPLITUDE — bloom, scaled by imprint weight
+                                                    // 6. AMPLITUDE — bloom, blended with imprint weight
                                                     let naturalAmp = 1.0 / max(1.0, powf(p, ampFalloff))
                                                     let harmonicDist = abs(p - nearestHarmonic)
                                                     let proximityReward = max(0.0, 1.0 - harmonicDist * 4.0 * bloom)
-                                                    var targetAmp = naturalAmp * (1.0 - bloom + bloom * proximityReward)
-                                                    // Imprint weights scale the bloom target so the spectral
-                                                    // fingerprint persists permanently as physics operates.
-                                                    // Partials where the voice had energy stay loud;
-                                                    // partials where it didn't stay suppressed.
+                                                    let physicsAmp = naturalAmp * (1.0 - bloom + bloom * proximityReward)
+                                                    // Imprint: interpolate between physics target and imprint
+                                                    // weight so the spectral fingerprint can BOOST partials
+                                                    // above their natural 1/n falloff, not just suppress.
+                                                    // 60% imprint / 40% physics keeps the swarm alive while
+                                                    // preserving the voice character.
+                                                    let targetAmp: Float
                                                     if hasIW {
-                                                        targetAmp *= iw[i]
+                                                        targetAmp = physicsAmp * 0.4 + iw[i] * 0.6
+                                                    } else {
+                                                        targetAmp = physicsAmp
                                                     }
                                                     amp[i] += (max(0.0, min(1.0, targetAmp)) - amp[i]) * 0.01
                                                 }
