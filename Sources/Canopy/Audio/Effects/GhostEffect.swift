@@ -48,6 +48,11 @@ struct GhostEffect {
     private var dcX1R: Double = 0
     private var dcY1R: Double = 0
 
+    // MARK: - Envelope followers (fast attack / slow release, per channel)
+
+    private var envelopeL: Float = 0
+    private var envelopeR: Float = 0
+
     // MARK: - Shared state
 
     private var pitchDrift: Double = 0       // Accumulated pitch drift (cents, shared)
@@ -177,9 +182,29 @@ struct GhostEffect {
         // Accumulate pitch drift
         updatePitchDrift()
 
-        // Feedback: write to L buffer
+        // Per-iteration decay: base amplitude reduction independent of shift.
+        // life=0 → 0.60 (fast fade), life=1 → 0.98 (long tail, still mortal)
+        let iterationDecay = Float(0.60 + lifeSmoothed * 0.38)
+        processed *= iterationDecay
+
+        // Envelope follower: track peak amplitude, apply soft gain reduction
+        // Fast attack (instantaneous), slow release (~100ms at 48kHz)
+        let releaseCoeff: Float = 1.0 - 1.0 / (0.1 * sampleRate) // ~100ms release
+        let absLevel = abs(processed)
+        envelopeL = absLevel > envelopeL ? absLevel : envelopeL * releaseCoeff
+
+        // Soft gain reduction: ceiling at 0.7, gentle knee
+        let ceiling: Float = 0.7
+        let gainReduction: Float = envelopeL > ceiling
+            ? ceiling / envelopeL
+            : 1.0
+        processed *= gainReduction
+
+        // Feedback write: scale input contribution to prevent accumulation
+        // Only a fraction of the input enters the feedback loop
+        let inputFeed: Float = 0.4
         let feedback = Float(lifeSmoothed * 0.95)
-        bufferL[writeIndex] = Self.tanhClip(sample + processed * feedback)
+        bufferL[writeIndex] = Self.tanhClip(sample * inputFeed + processed * feedback)
 
         // Advance write index
         writeIndex += 1
@@ -263,15 +288,36 @@ struct GhostEffect {
         // Accumulate pitch drift (shared)
         updatePitchDrift()
 
+        // Per-iteration decay: base amplitude reduction independent of shift.
+        // life=0 → 0.60 (fast fade), life=1 → 0.98 (long tail, still mortal)
+        let iterationDecay = Float(0.60 + lifeSmoothed * 0.38)
+        procL *= iterationDecay
+        procR *= iterationDecay
+
         // Stereo wander: cross-blend L/R based on panModulation
         let panAmt = Float(panModSmoothed * wanderSmoothed)
-        let wanderedL = procL * (1.0 - abs(panAmt)) + procR * max(0, panAmt)
-        let wanderedR = procR * (1.0 - abs(panAmt)) + procL * max(0, -panAmt)
+        var wanderedL = procL * (1.0 - abs(panAmt)) + procR * max(0, panAmt)
+        var wanderedR = procR * (1.0 - abs(panAmt)) + procL * max(0, -panAmt)
 
-        // Feedback: write to L and R buffers with tanh bounding
+        // Envelope followers: track peak amplitude per channel, apply soft gain reduction
+        let releaseCoeff: Float = 1.0 - 1.0 / (0.1 * sampleRate) // ~100ms release
+        let ceiling: Float = 0.7
+
+        let absL = abs(wanderedL)
+        envelopeL = absL > envelopeL ? absL : envelopeL * releaseCoeff
+        let gainL: Float = envelopeL > ceiling ? ceiling / envelopeL : 1.0
+        wanderedL *= gainL
+
+        let absR = abs(wanderedR)
+        envelopeR = absR > envelopeR ? absR : envelopeR * releaseCoeff
+        let gainR: Float = envelopeR > ceiling ? ceiling / envelopeR : 1.0
+        wanderedR *= gainR
+
+        // Feedback write: scale input contribution to prevent accumulation
+        let inputFeed: Float = 0.4
         let feedback = Float(lifeSmoothed * 0.95)
-        bufferL[writeIndex] = Self.tanhClip(sampleL + wanderedL * feedback)
-        bufferR[writeIndex] = Self.tanhClip(sampleR + wanderedR * feedback)
+        bufferL[writeIndex] = Self.tanhClip(sampleL * inputFeed + wanderedL * feedback)
+        bufferR[writeIndex] = Self.tanhClip(sampleR * inputFeed + wanderedR * feedback)
 
         // Advance write index (shared)
         writeIndex += 1
@@ -425,6 +471,7 @@ struct GhostEffect {
         hpStateL = 0; hpStateR = 0
         dcX1L = 0; dcY1L = 0
         dcX1R = 0; dcY1R = 0
+        envelopeL = 0; envelopeR = 0
         pitchDrift = 0
         wanderPhase = 0
         blurMod = 0; shiftMod = 0
