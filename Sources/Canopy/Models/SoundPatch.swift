@@ -602,13 +602,26 @@ struct SporeConfig: Codable, Equatable {
     var density: Double = 0.5       // 0–1: grain rate (0.2–12000 grains/sec exponential)
     var form: Double = 0.0          // 0–1: waveform morph (sine→tri→saw→FM→noise)
     var focus: Double = 0.5         // 0–1: frequency distribution (free spectrum → inharmonic → harmonic)
+    var snap: Double = 0.0          // 0–1: pitch quantization toward scale degrees
     var size: Double = 0.4          // 0–1: grain duration (1ms–2000ms exponential)
     var chirp: Double = 0.0         // -1 to +1: grain pitch sweep (negative=rises, positive=falls)
     var evolve: Double = 0.3        // 0–1: evolution rate on all dimensions
-    var filter: Double = 1.0        // 0–1: per-voice SVF lowpass cutoff (200Hz–bypass)
+    var sync: Bool = false          // true = regular grain intervals, false = Poisson (async)
+    var filter: Double = 1.0        // 0–1: per-voice SVF cutoff (200Hz–bypass)
+    var filterMode: Int = 0         // 0=LP, 1=BP, 2=HP
+    var width: Double = 0.5         // 0–1: stereo spread (independent of focus)
+    var attack: Double = 0.01       // 0–1: voice envelope attack (1ms–500ms exponential)
+    var decay: Double = 0.3         // 0–1: voice envelope decay (50ms–5000ms exponential)
     var warmth: Double = 0.3        // 0–1: per-voice tanh drive
     var volume: Double = 0.7        // 0–1: output level
     var pan: Double = 0.0           // -1 to +1: stereo position
+
+    // Function generator (amplitude modulation)
+    var funcShape: Int = 0          // 0=off, 1=sine, 2=tri, 3=rampDown, 4=rampUp, 5=square, 6=S&H
+    var funcRate: Double = 0.3      // 0–1: free rate (maps to 0.05–10 Hz)
+    var funcAmount: Double = 0.0    // 0–1: modulation depth
+    var funcSync: Bool = false      // true = lock to tempo
+    var funcDiv: Int = 4            // beat division when synced (1,2,4,8,16 beats per cycle)
 
     // IMPRINT
     var imprint: SpectralImprint?
@@ -618,26 +631,48 @@ struct SporeConfig: Codable, Equatable {
         density: Double = 0.5,
         form: Double = 0.0,
         focus: Double = 0.5,
+        snap: Double = 0.0,
         size: Double = 0.4,
         chirp: Double = 0.0,
         evolve: Double = 0.3,
+        sync: Bool = false,
         filter: Double = 1.0,
+        filterMode: Int = 0,
+        width: Double = 0.5,
+        attack: Double = 0.01,
+        decay: Double = 0.3,
         warmth: Double = 0.3,
         volume: Double = 0.7,
         pan: Double = 0.0,
+        funcShape: Int = 0,
+        funcRate: Double = 0.3,
+        funcAmount: Double = 0.0,
+        funcSync: Bool = false,
+        funcDiv: Int = 4,
         imprint: SpectralImprint? = nil,
         spectralSource: SpectralSource = .default
     ) {
         self.density = density
         self.form = form
         self.focus = focus
+        self.snap = snap
         self.size = size
         self.chirp = chirp
         self.evolve = evolve
+        self.sync = sync
         self.filter = filter
+        self.filterMode = filterMode
+        self.width = width
+        self.attack = attack
+        self.decay = decay
         self.warmth = warmth
         self.volume = volume
         self.pan = pan
+        self.funcShape = funcShape
+        self.funcRate = funcRate
+        self.funcAmount = funcAmount
+        self.funcSync = funcSync
+        self.funcDiv = funcDiv
         self.imprint = imprint
         self.spectralSource = spectralSource
     }
@@ -645,7 +680,9 @@ struct SporeConfig: Codable, Equatable {
     // MARK: - Backward-compatible decoding
 
     private enum CodingKeys: String, CodingKey {
-        case density, form, focus, size, grain, chirp, evolve, filter, warmth, volume, pan
+        case density, form, focus, snap, size, grain, chirp, evolve, sync
+        case filter, filterMode, width, attack, decay, warmth, volume, pan
+        case funcShape, funcRate, funcAmount, funcSync, funcDiv
         case imprint, spectralSource
     }
 
@@ -654,6 +691,7 @@ struct SporeConfig: Codable, Equatable {
         density = try container.decode(Double.self, forKey: .density)
         form = try container.decodeIfPresent(Double.self, forKey: .form) ?? 0.0
         focus = try container.decode(Double.self, forKey: .focus)
+        snap = try container.decodeIfPresent(Double.self, forKey: .snap) ?? 0.0
         // Try 'size' first, fall back to 'grain' for old files
         if let s = try container.decodeIfPresent(Double.self, forKey: .size) {
             size = s
@@ -662,10 +700,20 @@ struct SporeConfig: Codable, Equatable {
         }
         chirp = try container.decodeIfPresent(Double.self, forKey: .chirp) ?? 0.0
         evolve = try container.decode(Double.self, forKey: .evolve)
+        sync = try container.decodeIfPresent(Bool.self, forKey: .sync) ?? false
         filter = try container.decodeIfPresent(Double.self, forKey: .filter) ?? 1.0
+        filterMode = try container.decodeIfPresent(Int.self, forKey: .filterMode) ?? 0
+        width = try container.decodeIfPresent(Double.self, forKey: .width) ?? 0.5
+        attack = try container.decodeIfPresent(Double.self, forKey: .attack) ?? 0.01
+        decay = try container.decodeIfPresent(Double.self, forKey: .decay) ?? 0.3
         warmth = try container.decode(Double.self, forKey: .warmth)
         volume = try container.decode(Double.self, forKey: .volume)
         pan = try container.decode(Double.self, forKey: .pan)
+        funcShape = try container.decodeIfPresent(Int.self, forKey: .funcShape) ?? 0
+        funcRate = try container.decodeIfPresent(Double.self, forKey: .funcRate) ?? 0.3
+        funcAmount = try container.decodeIfPresent(Double.self, forKey: .funcAmount) ?? 0.0
+        funcSync = try container.decodeIfPresent(Bool.self, forKey: .funcSync) ?? false
+        funcDiv = try container.decodeIfPresent(Int.self, forKey: .funcDiv) ?? 4
         imprint = try container.decodeIfPresent(SpectralImprint.self, forKey: .imprint)
         spectralSource = try container.decodeIfPresent(SpectralSource.self, forKey: .spectralSource) ?? .default
     }
@@ -675,13 +723,24 @@ struct SporeConfig: Codable, Equatable {
         try container.encode(density, forKey: .density)
         try container.encode(form, forKey: .form)
         try container.encode(focus, forKey: .focus)
+        try container.encode(snap, forKey: .snap)
         try container.encode(size, forKey: .size)
         try container.encode(chirp, forKey: .chirp)
         try container.encode(evolve, forKey: .evolve)
+        try container.encode(sync, forKey: .sync)
         try container.encode(filter, forKey: .filter)
+        try container.encode(filterMode, forKey: .filterMode)
+        try container.encode(width, forKey: .width)
+        try container.encode(attack, forKey: .attack)
+        try container.encode(decay, forKey: .decay)
         try container.encode(warmth, forKey: .warmth)
         try container.encode(volume, forKey: .volume)
         try container.encode(pan, forKey: .pan)
+        try container.encode(funcShape, forKey: .funcShape)
+        try container.encode(funcRate, forKey: .funcRate)
+        try container.encode(funcAmount, forKey: .funcAmount)
+        try container.encode(funcSync, forKey: .funcSync)
+        try container.encode(funcDiv, forKey: .funcDiv)
         try container.encodeIfPresent(imprint, forKey: .imprint)
         try container.encode(spectralSource, forKey: .spectralSource)
     }

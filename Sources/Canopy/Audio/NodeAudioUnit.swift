@@ -1710,6 +1710,7 @@ final class NodeAudioUnit {
 
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
+                    spore.setBPM(bpm)
                     if useSporeSeq {
                         sporeSeq.start(bpm: bpm)
                     }
@@ -1722,6 +1723,7 @@ final class NodeAudioUnit {
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     sporeSeq.bpm = bpm
+                    spore.setBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -1768,13 +1770,22 @@ final class NodeAudioUnit {
                 case .setLFOSlotCount(let count):
                     lfoBank.slotCount = count
 
-                case .setSpore(let density, let form, let focus, let size,
-                               let chirp, let evolve, let filter,
-                               let warmth, let newVolume):
+                case .setSpore(let density, let form, let focus, let snap, let size,
+                               let chirp, let evolve, let sync,
+                               let filter, let filterMode, let width,
+                               let attack, let decay,
+                               let warmth, let newVolume,
+                               let funcShape, let funcRate, let funcAmount,
+                               let funcSync, let funcDiv):
                     volume = newVolume
                     spore.configureSpore(
-                        density: density, form: form, focus: focus, size: size,
-                        chirp: chirp, evolve: evolve, filter: filter, warmth: warmth
+                        density: density, form: form, focus: focus, snap: snap, size: size,
+                        chirp: chirp, evolve: evolve, sync: sync,
+                        filter: filter, filterMode: filterMode, width: width,
+                        attack: attack, decay: decay,
+                        warmth: warmth,
+                        funcShape: funcShape, funcRate: funcRate, funcAmount: funcAmount,
+                        funcSync: funcSync, funcDiv: funcDiv
                     )
 
                 case .setSporeImprint(let amplitudes):
@@ -1791,6 +1802,7 @@ final class NodeAudioUnit {
 
                 case .setSporeSeqScale(let rootSemitone, let intervals):
                     sporeSeq.setScale(rootSemitone: rootSemitone, intervals: intervals)
+                    spore.setScale(rootSemitone: rootSemitone, intervals: intervals)
 
                 case .sporeSeqStart(let bpm):
                     useSporeSeq = true
@@ -2096,8 +2108,13 @@ final class NodeAudioUnit {
     func configureSpore(_ config: SporeConfig) {
         commandBuffer.push(.setSpore(
             density: config.density, form: config.form, focus: config.focus,
-            size: config.size, chirp: config.chirp, evolve: config.evolve,
-            filter: config.filter, warmth: config.warmth, volume: config.volume
+            snap: config.snap, size: config.size,
+            chirp: config.chirp, evolve: config.evolve, sync: config.sync,
+            filter: config.filter, filterMode: config.filterMode, width: config.width,
+            attack: config.attack, decay: config.decay,
+            warmth: config.warmth, volume: config.volume,
+            funcShape: config.funcShape, funcRate: config.funcRate, funcAmount: config.funcAmount,
+            funcSync: config.funcSync, funcDiv: config.funcDiv
         ))
         // Push imprint if present
         if config.spectralSource == .imprint, let imprint = config.imprint {

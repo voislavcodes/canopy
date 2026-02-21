@@ -238,32 +238,77 @@ struct SporeVoiceManager {
 
     /// Apply SPORE parameters to all 8 voices.
     mutating func configureSpore(
-        density: Double, form: Double, focus: Double, size: Double,
-        chirp: Double, evolve: Double, filter: Double, warmth: Double
+        density: Double, form: Double, focus: Double, snap: Double, size: Double,
+        chirp: Double, evolve: Double, sync: Bool,
+        filter: Double, filterMode: Int, width: Double,
+        attack: Double, decay: Double,
+        warmth: Double,
+        funcShape: Int, funcRate: Double, funcAmount: Double,
+        funcSync: Bool, funcDiv: Int
     ) {
-        applyConfig(&voices.0, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
-        applyConfig(&voices.1, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
-        applyConfig(&voices.2, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
-        applyConfig(&voices.3, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
-        applyConfig(&voices.4, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
-        applyConfig(&voices.5, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
-        applyConfig(&voices.6, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
-        applyConfig(&voices.7, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
+        applyConfig(&voices.0, density: density, form: form, focus: focus, snap: snap, size: size, chirp: chirp, evolve: evolve, sync: sync, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay, warmth: warmth, funcShape: funcShape, funcRate: funcRate, funcAmount: funcAmount, funcSync: funcSync, funcDiv: funcDiv)
+        applyConfig(&voices.1, density: density, form: form, focus: focus, snap: snap, size: size, chirp: chirp, evolve: evolve, sync: sync, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay, warmth: warmth, funcShape: funcShape, funcRate: funcRate, funcAmount: funcAmount, funcSync: funcSync, funcDiv: funcDiv)
+        applyConfig(&voices.2, density: density, form: form, focus: focus, snap: snap, size: size, chirp: chirp, evolve: evolve, sync: sync, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay, warmth: warmth, funcShape: funcShape, funcRate: funcRate, funcAmount: funcAmount, funcSync: funcSync, funcDiv: funcDiv)
+        applyConfig(&voices.3, density: density, form: form, focus: focus, snap: snap, size: size, chirp: chirp, evolve: evolve, sync: sync, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay, warmth: warmth, funcShape: funcShape, funcRate: funcRate, funcAmount: funcAmount, funcSync: funcSync, funcDiv: funcDiv)
+        applyConfig(&voices.4, density: density, form: form, focus: focus, snap: snap, size: size, chirp: chirp, evolve: evolve, sync: sync, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay, warmth: warmth, funcShape: funcShape, funcRate: funcRate, funcAmount: funcAmount, funcSync: funcSync, funcDiv: funcDiv)
+        applyConfig(&voices.5, density: density, form: form, focus: focus, snap: snap, size: size, chirp: chirp, evolve: evolve, sync: sync, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay, warmth: warmth, funcShape: funcShape, funcRate: funcRate, funcAmount: funcAmount, funcSync: funcSync, funcDiv: funcDiv)
+        applyConfig(&voices.6, density: density, form: form, focus: focus, snap: snap, size: size, chirp: chirp, evolve: evolve, sync: sync, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay, warmth: warmth, funcShape: funcShape, funcRate: funcRate, funcAmount: funcAmount, funcSync: funcSync, funcDiv: funcDiv)
+        applyConfig(&voices.7, density: density, form: form, focus: focus, snap: snap, size: size, chirp: chirp, evolve: evolve, sync: sync, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay, warmth: warmth, funcShape: funcShape, funcRate: funcRate, funcAmount: funcAmount, funcSync: funcSync, funcDiv: funcDiv)
     }
 
     private func applyConfig(
         _ voice: inout SporeVoice,
-        density: Double, form: Double, focus: Double, size: Double,
-        chirp: Double, evolve: Double, filter: Double, warmth: Double
+        density: Double, form: Double, focus: Double, snap: Double, size: Double,
+        chirp: Double, evolve: Double, sync: Bool,
+        filter: Double, filterMode: Int, width: Double,
+        attack: Double, decay: Double,
+        warmth: Double,
+        funcShape: Int, funcRate: Double, funcAmount: Double,
+        funcSync: Bool, funcDiv: Int
     ) {
         voice.densityTarget = density
         voice.formTarget = form
         voice.focusTarget = focus
+        voice.snapTarget = snap
         voice.sizeTarget = size
         voice.chirpTarget = chirp
         voice.evolveTarget = evolve
+        voice.syncParam = sync
         voice.filterTarget = filter
+        voice.filterModeParam = filterMode
+        voice.widthTarget = width
+        voice.attackTarget = attack
+        voice.decayTarget = decay
         voice.warmthTarget = warmth
+        voice.funcShapeRaw = funcShape
+        voice.funcRateParam = funcRate
+        voice.funcAmountTarget = funcAmount
+        voice.funcSyncEnabled = funcSync
+        voice.funcDivBeats = Double(max(1, funcDiv))
+    }
+
+    /// Forward scale data to all 8 voices for SNAP pitch quantization.
+    mutating func setScale(rootSemitone: Int, intervals: [Int]) {
+        voices.0.setScale(rootSemitone: rootSemitone, intervals: intervals)
+        voices.1.setScale(rootSemitone: rootSemitone, intervals: intervals)
+        voices.2.setScale(rootSemitone: rootSemitone, intervals: intervals)
+        voices.3.setScale(rootSemitone: rootSemitone, intervals: intervals)
+        voices.4.setScale(rootSemitone: rootSemitone, intervals: intervals)
+        voices.5.setScale(rootSemitone: rootSemitone, intervals: intervals)
+        voices.6.setScale(rootSemitone: rootSemitone, intervals: intervals)
+        voices.7.setScale(rootSemitone: rootSemitone, intervals: intervals)
+    }
+
+    /// Forward BPM to all 8 voices for tempo-synced func gen.
+    mutating func setBPM(_ bpm: Double) {
+        voices.0.bpm = bpm
+        voices.1.bpm = bpm
+        voices.2.bpm = bpm
+        voices.3.bpm = bpm
+        voices.4.bpm = bpm
+        voices.5.bpm = bpm
+        voices.6.bpm = bpm
+        voices.7.bpm = bpm
     }
 
     /// Render one stereo sample: sum all 8 voices, then safety tanh.

@@ -89,10 +89,41 @@ struct SporeVoice {
     var chirpTarget: Double = 0.0
     var evolveParam: Double = 0.3
     var evolveTarget: Double = 0.3
+    var snapParam: Double = 0.0
+    var snapTarget: Double = 0.0
+    var syncParam: Bool = false
     var filterParam: Double = 1.0
     var filterTarget: Double = 1.0
+    var filterModeParam: Int = 0       // 0=LP, 1=BP, 2=HP
+    var widthParam: Double = 0.5
+    var widthTarget: Double = 0.5
+    var attackParam: Double = 0.01
+    var attackTarget: Double = 0.01
+    var decayParam: Double = 0.3
+    var decayTarget: Double = 0.3
     var warmthParam: Double = 0.3
     var warmthTarget: Double = 0.3
+
+    // MARK: - Function generator state
+
+    var funcShapeRaw: Int = 0           // 0=off, 1=sine, 2=tri, 3=rampDown, 4=rampUp, 5=square, 6=S&H
+    var funcAmountParam: Double = 0.0
+    var funcAmountTarget: Double = 0.0
+    var funcRateParam: Double = 0.3     // 0–1: maps to 0.05–10 Hz
+    var funcSyncEnabled: Bool = false
+    var funcDivBeats: Double = 4.0
+    var bpm: Double = 120
+    var funcPhase: Double = 0           // free-running accumulator
+    var funcLevel: Double = 1.0         // smoothed output
+    var funcSHValue: Double = 1.0
+    var funcPrevPhase: Double = 0
+
+    // MARK: - Scale state (for SNAP pitch quantization)
+
+    var scaleIntervals: (Int, Int, Int, Int, Int, Int, Int, Int,
+                         Int, Int, Int, Int) = (0, 2, 4, 5, 7, 9, 11, 0, 0, 0, 0, 0)
+    var scaleCount: Int = 7
+    var rootSemitone: Int = 0
 
     // MARK: - Note state
 
@@ -204,10 +235,11 @@ struct SporeVoice {
         self.envValue = 0
         self.cachedSampleRate = sampleRate
 
-        // SIZE-derived voice envelope: attack 5-50ms, release 100-1000ms
-        let effectiveSize = max(0, min(1, sizeParam))
-        let attackSec = 0.005 + effectiveSize * 0.045
-        let releaseSec = 0.1 + effectiveSize * 0.9
+        // ATK/DCY voice envelope: attack 1ms–500ms, decay 50ms–5000ms (exponential)
+        let atkNorm = max(0, min(1, attackParam))
+        let dcyNorm = max(0, min(1, decayParam))
+        let attackSec = 0.001 * pow(500.0, atkNorm)
+        let releaseSec = 0.05 * pow(100.0, dcyNorm)
         self.attackRate = 1.0 / max(1, attackSec * sampleRate)
         self.releaseRate = 1.0 / max(1, releaseSec * sampleRate)
 
@@ -231,6 +263,12 @@ struct SporeVoice {
         svfLowR = 0
         svfBandR = 0
 
+        // Reset func gen state
+        funcPhase = 0
+        funcLevel = 1.0
+        funcPrevPhase = 0
+        funcSHValue = 1.0
+
         // Kill all active grains
         withUnsafeMutablePointer(to: &grains) { ptr in
             ptr.withMemoryRebound(to: SporeGrain.self, capacity: Self.grainCount) { p in
@@ -245,9 +283,9 @@ struct SporeVoice {
     mutating func release(sampleRate: Double) {
         if envPhase != 0 {
             envPhase = 3
-            // SIZE-derived release
-            let effectiveSize = max(0, min(1, sizeParam))
-            let releaseSec = 0.1 + effectiveSize * 0.9
+            // ATK/DCY voice envelope decay: 50ms–5000ms
+            let dcyNorm = max(0, min(1, decayParam))
+            let releaseSec = 0.05 * pow(100.0, dcyNorm)
             releaseRate = 1.0 / max(1, releaseSec * sampleRate)
         }
     }
@@ -288,10 +326,14 @@ struct SporeVoice {
         densityParam += (densityTarget - densityParam) * paramSmooth
         formParam += (formTarget - formParam) * paramSmooth
         focusParam += (focusTarget - focusParam) * paramSmooth
+        snapParam += (snapTarget - snapParam) * paramSmooth
         sizeParam += (sizeTarget - sizeParam) * paramSmooth
         chirpParam += (chirpTarget - chirpParam) * paramSmooth
         evolveParam += (evolveTarget - evolveParam) * paramSmooth
         filterParam += (filterTarget - filterParam) * paramSmooth
+        widthParam += (widthTarget - widthParam) * paramSmooth
+        attackParam += (attackTarget - attackParam) * paramSmooth
+        decayParam += (decayTarget - decayParam) * paramSmooth
         warmthParam += (warmthTarget - warmthParam) * paramSmooth
 
         // Control-rate: evolution (every 64 samples)
@@ -381,7 +423,12 @@ struct SporeVoice {
         mixL *= compensation
         mixR *= compensation
 
-        // Per-voice SVF lowpass filter
+        // Function generator amplitude modulation (before SVF filter)
+        let funcGain = computeFuncGen(sampleRate: sampleRate)
+        mixL *= Float(funcGain)
+        mixR *= Float(funcGain)
+
+        // Per-voice SVF filter (LP/BP/HP selectable)
         let effectiveFilter = max(0, min(1, filterParam + filterModulation))
         if effectiveFilter < 0.99 {
             let cutoff = 200.0 * pow(80.0, effectiveFilter)  // 200Hz to 16kHz
@@ -394,13 +441,24 @@ struct SporeVoice {
             svfLowL += f * svfBandL
             let highL = Double(mixL) - svfLowL - q * svfBandL
             svfBandL += f * highL
-            mixL = Float(svfLowL)
 
             // Right channel
             svfLowR += f * svfBandR
             let highR = Double(mixR) - svfLowR - q * svfBandR
             svfBandR += f * highR
-            mixR = Float(svfLowR)
+
+            // Select filter output by mode
+            switch filterModeParam {
+            case 1: // Bandpass
+                mixL = Float(svfBandL)
+                mixR = Float(svfBandR)
+            case 2: // Highpass
+                mixL = Float(highL)
+                mixR = Float(highR)
+            default: // Lowpass
+                mixL = Float(svfLowL)
+                mixR = Float(svfLowR)
+            }
         }
 
         // Apply voice envelope and velocity
@@ -565,9 +623,9 @@ struct SporeVoice {
             amp = max(0.01, ampBase + ampVar)
         }
 
-        // Draw pan: centered with some spread, modulated by evolution
+        // Draw pan: WIDTH controls stereo spread independently from focus
         let panBase = Float(centroidShift * 0.5)
-        let panSpread = Float(xorshiftNorm()) * 0.4 * Float(1.0 - focus)
+        let panSpread = Float(xorshiftNorm()) * 0.8 * Float(widthParam)
         let panVal = max(-1, min(1, panBase + panSpread + Float(panModulation * 0.3)))
 
         // Grain duration: maps 0–1 to 1ms–2000ms (exponential)
@@ -595,8 +653,10 @@ struct SporeVoice {
     /// FOCS > 0.7: harmonic series + tight scatter.
     /// FOCS 0.3–0.7: inharmonic blend (bell/metal/glass).
     /// FOCS < 0.3: free spectrum (pink-weighted 20Hz–16kHz).
+    /// After drawing, apply SNAP pitch quantization toward scale degrees.
     private mutating func drawFrequency(f0: Double, focus: Double, sampleRate: Double) -> Double {
         let nyquist = sampleRate * 0.5 - 100
+        var freq: Double
 
         if focus > 0.7 {
             // HARMONIC MODE: weighted harmonic series + tight scatter (2% of f0)
@@ -613,7 +673,7 @@ struct SporeVoice {
             let harmonicFreq = f0 * Double(harmonic)
             let scatter = gaussianRandom() * f0 * 0.02
             let centroidOffset = centroidShift * f0 * 0.5
-            return max(20, min(nyquist, harmonicFreq + scatter + centroidOffset))
+            freq = max(20, min(nyquist, harmonicFreq + scatter + centroidOffset))
 
         } else if focus >= 0.3 {
             // INHARMONIC MODE: blend between harmonics and inharmonic ratios
@@ -624,9 +684,9 @@ struct SporeVoice {
                 let ratio = drawInharmonicRatio()
                 // Random octave shift: 0.5x, 1x, 2x, 4x
                 let octaveShift = pow(2.0, Double(Int(xorshiftUnit() * 4.0)) - 1.0)
-                let freq = f0 * ratio * octaveShift
+                let f = f0 * ratio * octaveShift
                 let scatter = gaussianRandom() * f0 * 0.03
-                return max(20, min(nyquist, freq + scatter))
+                freq = max(20, min(nyquist, f + scatter))
             } else {
                 // Draw from harmonics
                 var numHarmonics = Self.harmonicCount
@@ -640,7 +700,7 @@ struct SporeVoice {
                 let harmonic = drawWeightedHarmonic(numHarmonics: numHarmonics)
                 let harmonicFreq = f0 * Double(harmonic)
                 let scatter = gaussianRandom() * f0 * 0.05
-                return max(20, min(nyquist, harmonicFreq + scatter))
+                freq = max(20, min(nyquist, harmonicFreq + scatter))
             }
 
         } else {
@@ -649,7 +709,7 @@ struct SporeVoice {
             let logLow = log2(20.0)
             let logHigh = log2(min(16000.0, nyquist))
             let logFreq = logLow + xorshiftUnit() * (logHigh - logLow)
-            var freq = pow(2.0, logFreq)
+            freq = pow(2.0, logFreq)
 
             // Gentle attraction toward f0's region proportional to remaining focus
             let attraction = focus / 0.3  // 0 at focus=0, 1 at focus=0.3
@@ -658,8 +718,16 @@ struct SporeVoice {
                 freq += pull
             }
 
-            return max(20, min(nyquist, freq))
+            freq = max(20, min(nyquist, freq))
         }
+
+        // SNAP: pitch quantization toward nearest scale degree
+        if snapParam > 0.01 {
+            let snappedFreq = nearestScaleFreq(freq, f0: f0)
+            freq = freq + (snappedFreq - freq) * snapParam
+        }
+
+        return freq
     }
 
     /// Draw an inharmonic ratio from the 16-element tuple.
@@ -709,14 +777,20 @@ struct SporeVoice {
 
     // MARK: - Poisson Clock
 
-    /// Schedule the next grain using exponential random inter-arrival time.
+    /// Schedule the next grain. Poisson (async) or fixed interval (sync).
     private mutating func scheduleNextGrain(density: Double, sampleRate: Double) {
         let rate = densityToRate(density)
-        // Exponential random: -ln(U) / rate, where U is uniform (0,1]
-        let u = max(1e-10, xorshiftUnit())
-        let intervalSec = -log(u) / rate
-        let intervalSamples = max(1, Int(intervalSec * sampleRate))
-        samplesUntilNextGrain = intervalSamples
+        if syncParam {
+            // SYNC: fixed interval = sampleRate / rate
+            let intervalSamples = max(1, Int(sampleRate / rate))
+            samplesUntilNextGrain = intervalSamples
+        } else {
+            // Poisson: exponential random inter-arrival time
+            let u = max(1e-10, xorshiftUnit())
+            let intervalSec = -log(u) / rate
+            let intervalSamples = max(1, Int(intervalSec * sampleRate))
+            samplesUntilNextGrain = intervalSamples
+        }
     }
 
     /// Map density 0–1 to grain rate: 0.2 * pow(60000, density) grains/sec.
@@ -840,6 +914,114 @@ struct SporeVoice {
     /// Set evolution noise seed (called by manager for per-voice decorrelation).
     mutating func setEvolveSeed(_ seed: UInt32) {
         evolveNoiseState = seed
+    }
+
+    /// Set the scale for pitch quantization (SNAP).
+    mutating func setScale(rootSemitone: Int, intervals: [Int]) {
+        self.rootSemitone = rootSemitone
+        let count = min(12, intervals.count)
+        self.scaleCount = count
+        withUnsafeMutablePointer(to: &scaleIntervals) { ptr in
+            ptr.withMemoryRebound(to: Int.self, capacity: 12) { p in
+                for i in 0..<12 {
+                    p[i] = i < count ? intervals[i] : 0
+                }
+            }
+        }
+    }
+
+    /// Snap a frequency to the nearest scale degree.
+    /// Works in MIDI-space: convert to MIDI, find nearest scale pitch, convert back.
+    private func nearestScaleFreq(_ freq: Double, f0: Double) -> Double {
+        guard scaleCount > 0 else { return freq }
+
+        // freq → MIDI note number (continuous)
+        let midi = 12.0 * log2(freq / 440.0) + 69.0
+
+        // Find nearest scale degree
+        var bestDist = 1000.0
+        var bestMidi = midi
+
+        withUnsafePointer(to: scaleIntervals) { ptr in
+            ptr.withMemoryRebound(to: Int.self, capacity: 12) { p in
+                // Search across several octaves centered on the note
+                let centerOctave = Int(midi / 12.0)
+                for oct in (centerOctave - 1)...(centerOctave + 1) {
+                    for i in 0..<scaleCount {
+                        let scaleMidi = Double(rootSemitone + p[i] + oct * 12)
+                        let dist = abs(midi - scaleMidi)
+                        if dist < bestDist {
+                            bestDist = dist
+                            bestMidi = scaleMidi
+                        }
+                    }
+                }
+            }
+        }
+
+        // MIDI → frequency
+        return 440.0 * pow(2.0, (bestMidi - 69.0) / 12.0)
+    }
+
+    // MARK: - Function Generator
+
+    /// Compute function generator amplitude modulation.
+    /// Free-running or tempo-synced, same shapes as TideVoice.
+    private mutating func computeFuncGen(sampleRate: Double) -> Double {
+        guard funcShapeRaw != 0 else { return 1.0 }
+
+        // Smooth amount
+        funcAmountParam += (funcAmountTarget - funcAmountParam) * 0.001
+
+        // Advance phase
+        let rateHz: Double
+        if funcSyncEnabled {
+            // Tempo-synced: one cycle per funcDivBeats beats
+            let beatsPerSec = bpm / 60.0
+            rateHz = beatsPerSec / max(0.25, funcDivBeats)
+        } else {
+            // Free: map 0–1 to 0.05–10 Hz (exponential)
+            rateHz = 0.05 * pow(200.0, funcRateParam)
+        }
+
+        funcPhase += rateHz / sampleRate
+        funcPhase -= Double(Int(funcPhase)) // wrap to 0–1
+
+        let phase = funcPhase
+
+        // Generate waveform value in 0–1 range
+        let waveValue: Double
+        switch funcShapeRaw {
+        case 1: // sine
+            waveValue = 0.5 + 0.5 * sin(2.0 * .pi * phase)
+        case 2: // triangle
+            waveValue = phase < 0.5 ? phase * 2.0 : 2.0 - phase * 2.0
+        case 3: // ramp down
+            waveValue = 1.0 - phase
+        case 4: // ramp up
+            waveValue = phase
+        case 5: // square
+            waveValue = phase < 0.5 ? 1.0 : 0.0
+        case 6: // S&H
+            if phase < funcPrevPhase {
+                // Phase wrapped — refresh held value from xorshift
+                evolveNoiseState ^= evolveNoiseState << 13
+                evolveNoiseState ^= evolveNoiseState >> 17
+                evolveNoiseState ^= evolveNoiseState << 5
+                funcSHValue = Double(evolveNoiseState & 0x7FFF_FFFF) / Double(0x7FFF_FFFF)
+            }
+            funcPrevPhase = phase
+            waveValue = funcSHValue
+        default:
+            waveValue = 1.0
+        }
+
+        // gain = 1 - amount + amount × waveValue  → range [1-amount, 1]
+        let target = 1.0 - funcAmountParam + funcAmountParam * waveValue
+
+        // Smooth output (~0.3ms anti-click)
+        funcLevel += (target - funcLevel) * 0.05
+        return funcLevel
     }
 }
 

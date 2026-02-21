@@ -1,21 +1,37 @@
 import SwiftUI
 
 /// Bloom panel: SPORE engine controls.
-/// 6 source sliders + filter/warmth/volume/pan output section.
+/// Source sliders + func gen + filter/output section.
 struct SporePanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
 
-    // MARK: - Local drag state
+    // MARK: - Local drag state — Source
 
     @State private var localDensity: Double = 0.5
     @State private var localForm: Double = 0.0
     @State private var localFocus: Double = 0.5
+    @State private var localSnap: Double = 0.0
     @State private var localSize: Double = 0.4
     @State private var localChirp: Double = 0.0
     @State private var localEvolve: Double = 0.3
+    @State private var localSync: Bool = false
+
+    // MARK: - Local drag state — Func gen
+
+    @State private var localFuncShape: Int = 0
+    @State private var localFuncRate: Double = 0.3
+    @State private var localFuncAmount: Double = 0.0
+    @State private var localFuncSync: Bool = false
+    @State private var localFuncDiv: Int = 4
+
+    // MARK: - Local drag state — Output
 
     @State private var localFilter: Double = 1.0
+    @State private var localFilterMode: Int = 0
+    @State private var localWidth: Double = 0.5
+    @State private var localAttack: Double = 0.01
+    @State private var localDecay: Double = 0.3
     @State private var localWarmth: Double = 0.3
     @State private var localVolume: Double = 0.7
     @State private var localPan: Double = 0.0
@@ -33,6 +49,11 @@ struct SporePanel: View {
     }
 
     private let accentColor = CanopyColors.nodeSpore
+
+    private let funcShapeLabels = ["OFF", "SIN", "TRI", "SAW\u{2193}", "SAW\u{2191}", "SQR", "S&H"]
+    private let funcDivOptions = [1, 2, 4, 8, 16]
+    private let funcDivLabels = ["1", "1/2", "1/4", "1/8", "1/16"]
+    private let filterModeLabels = ["LP", "BP", "HP"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {
@@ -97,14 +118,22 @@ struct SporePanel: View {
 
             if sporeConfig != nil {
                 HStack(alignment: .top, spacing: 10 * cs) {
-                    // Left column: Source (6 sliders)
+                    // Left column: Source + Func gen
                     VStack(alignment: .leading, spacing: 8 * cs) {
                         sectionLabel("SOURCE")
 
-                        paramSlider(label: "DENS", value: $localDensity, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.density = localDensity }
-                        } onDrag: { pushConfigToEngine() }
+                        // DENS + SYNC toggle
+                        HStack(spacing: 2 * cs) {
+                            paramSlider(label: "DENS", value: $localDensity, range: 0...1,
+                                        format: { "\(Int($0 * 100))%" }) {
+                                commitConfig { $0.density = localDensity }
+                            } onDrag: { pushConfigToEngine() }
+
+                            syncToggle(isOn: $localSync) {
+                                commitConfig { $0.sync = localSync }
+                                pushConfigToEngine()
+                            }
+                        }
 
                         paramSlider(label: "FORM", value: $localForm, range: 0...1,
                                     format: { formDisplayText($0) }) {
@@ -114,6 +143,11 @@ struct SporePanel: View {
                         paramSlider(label: "FOCS", value: $localFocus, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
                             commitConfig { $0.focus = localFocus }
+                        } onDrag: { pushConfigToEngine() }
+
+                        paramSlider(label: "SNAP", value: $localSnap, range: 0...1,
+                                    format: { "\(Int($0 * 100))%" }) {
+                            commitConfig { $0.snap = localSnap }
                         } onDrag: { pushConfigToEngine() }
 
                         paramSlider(label: "SIZE", value: $localSize, range: 0...1,
@@ -130,6 +164,32 @@ struct SporePanel: View {
                                     format: { "\(Int($0 * 100))%" }) {
                             commitConfig { $0.evolve = localEvolve }
                         } onDrag: { pushConfigToEngine() }
+
+                        // FUNC section
+                        sectionLabel("FUNC")
+                        funcShapeSelector
+                        if localFuncShape != 0 {
+                            HStack(spacing: 2 * cs) {
+                                paramSlider(label: "RATE", value: $localFuncRate, range: 0...1,
+                                            format: { funcRateDisplayText($0) }) {
+                                    commitConfig { $0.funcRate = localFuncRate }
+                                } onDrag: { pushConfigToEngine() }
+
+                                syncToggle(isOn: $localFuncSync) {
+                                    commitConfig { $0.funcSync = localFuncSync }
+                                    pushConfigToEngine()
+                                }
+                            }
+
+                            if localFuncSync {
+                                funcDivSelector
+                            }
+
+                            paramSlider(label: "AMNT", value: $localFuncAmount, range: 0...1,
+                                        format: { "\(Int($0 * 100))%" }) {
+                                commitConfig { $0.funcAmount = localFuncAmount }
+                            } onDrag: { pushConfigToEngine() }
+                        }
                     }
                     .frame(maxWidth: .infinity)
 
@@ -143,6 +203,23 @@ struct SporePanel: View {
                         paramSlider(label: "FILT", value: $localFilter, range: 0...1,
                                     format: { filterDisplayText($0) }) {
                             commitConfig { $0.filter = localFilter }
+                        } onDrag: { pushConfigToEngine() }
+
+                        filterModeSelector
+
+                        paramSlider(label: "WDTH", value: $localWidth, range: 0...1,
+                                    format: { "\(Int($0 * 100))%" }) {
+                            commitConfig { $0.width = localWidth }
+                        } onDrag: { pushConfigToEngine() }
+
+                        paramSlider(label: "ATK", value: $localAttack, range: 0...1,
+                                    format: { attackDisplayText($0) }) {
+                            commitConfig { $0.attack = localAttack }
+                        } onDrag: { pushConfigToEngine() }
+
+                        paramSlider(label: "DCY", value: $localDecay, range: 0...1,
+                                    format: { decayDisplayText($0) }) {
+                            commitConfig { $0.decay = localDecay }
                         } onDrag: { pushConfigToEngine() }
 
                         paramSlider(label: "WARM", value: $localWarmth, range: 0...1,
@@ -218,6 +295,29 @@ struct SporePanel: View {
         return String(format: "%.1fk", hz / 1000.0)
     }
 
+    private func attackDisplayText(_ v: Double) -> String {
+        let ms = 0.001 * pow(500.0, v) * 1000
+        if ms < 10 { return String(format: "%.1fms", ms) }
+        if ms < 1000 { return "\(Int(ms))ms" }
+        return String(format: "%.1fs", ms / 1000.0)
+    }
+
+    private func decayDisplayText(_ v: Double) -> String {
+        let ms = 0.05 * pow(100.0, v) * 1000
+        if ms < 1000 { return "\(Int(ms))ms" }
+        return String(format: "%.1fs", ms / 1000.0)
+    }
+
+    private func funcRateDisplayText(_ v: Double) -> String {
+        if localFuncSync {
+            let idx = funcDivOptions.firstIndex(of: localFuncDiv) ?? 2
+            return funcDivLabels[idx]
+        }
+        let hz = 0.05 * pow(200.0, v)
+        if hz < 1 { return String(format: "%.2fHz", hz) }
+        return String(format: "%.1fHz", hz)
+    }
+
     // MARK: - Sync
 
     private func syncFromModel() {
@@ -225,16 +325,132 @@ struct SporePanel: View {
         localDensity = config.density
         localForm = config.form
         localFocus = config.focus
+        localSnap = config.snap
         localSize = config.size
         localChirp = config.chirp
         localEvolve = config.evolve
+        localSync = config.sync
         localFilter = config.filter
+        localFilterMode = config.filterMode
+        localWidth = config.width
+        localAttack = config.attack
+        localDecay = config.decay
         localWarmth = config.warmth
         localVolume = config.volume
         localPan = config.pan
+        localFuncShape = config.funcShape
+        localFuncRate = config.funcRate
+        localFuncAmount = config.funcAmount
+        localFuncSync = config.funcSync
+        localFuncDiv = config.funcDiv
         guard let p = patch else { return }
         localVolume = p.volume
         localPan = p.pan
+    }
+
+    // MARK: - Sync Toggle
+
+    private func syncToggle(isOn: Binding<Bool>, onChange: @escaping () -> Void) -> some View {
+        Button(action: {
+            isOn.wrappedValue.toggle()
+            onChange()
+        }) {
+            Text("\u{26A1}")
+                .font(.system(size: 9 * cs))
+                .foregroundColor(isOn.wrappedValue ? accentColor : CanopyColors.chromeText.opacity(0.3))
+                .frame(width: 16 * cs, height: 16 * cs)
+                .background(
+                    RoundedRectangle(cornerRadius: 3 * cs)
+                        .fill(isOn.wrappedValue ? accentColor.opacity(0.15) : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Filter Mode Selector
+
+    private var filterModeSelector: some View {
+        HStack(spacing: 3 * cs) {
+            Text("    ")
+                .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                .frame(width: 38 * cs, alignment: .trailing)
+
+            ForEach(0..<3, id: \.self) { mode in
+                Button(action: {
+                    localFilterMode = mode
+                    commitConfig { $0.filterMode = mode }
+                    pushConfigToEngine()
+                }) {
+                    Text(filterModeLabels[mode])
+                        .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                        .foregroundColor(localFilterMode == mode ? accentColor : CanopyColors.chromeText.opacity(0.35))
+                        .padding(.horizontal, 5 * cs)
+                        .padding(.vertical, 2 * cs)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .fill(localFilterMode == mode ? accentColor.opacity(0.15) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+    }
+
+    // MARK: - Func Shape Selector
+
+    private var funcShapeSelector: some View {
+        HStack(spacing: 2 * cs) {
+            ForEach(0..<funcShapeLabels.count, id: \.self) { i in
+                Button(action: {
+                    localFuncShape = i
+                    commitConfig { $0.funcShape = i }
+                    pushConfigToEngine()
+                }) {
+                    Text(funcShapeLabels[i])
+                        .font(.system(size: 7 * cs, weight: .bold, design: .monospaced))
+                        .foregroundColor(localFuncShape == i ? accentColor : CanopyColors.chromeText.opacity(0.35))
+                        .padding(.horizontal, 3 * cs)
+                        .padding(.vertical, 2 * cs)
+                        .background(
+                            RoundedRectangle(cornerRadius: 2 * cs)
+                                .fill(localFuncShape == i ? accentColor.opacity(0.15) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: - Func Division Selector
+
+    private var funcDivSelector: some View {
+        HStack(spacing: 2 * cs) {
+            Text("DIV")
+                .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                .frame(width: 38 * cs, alignment: .trailing)
+
+            ForEach(0..<funcDivOptions.count, id: \.self) { i in
+                Button(action: {
+                    localFuncDiv = funcDivOptions[i]
+                    commitConfig { $0.funcDiv = funcDivOptions[i] }
+                    pushConfigToEngine()
+                }) {
+                    Text(funcDivLabels[i])
+                        .font(.system(size: 7 * cs, weight: .bold, design: .monospaced))
+                        .foregroundColor(localFuncDiv == funcDivOptions[i] ? accentColor : CanopyColors.chromeText.opacity(0.35))
+                        .padding(.horizontal, 3 * cs)
+                        .padding(.vertical, 2 * cs)
+                        .background(
+                            RoundedRectangle(cornerRadius: 2 * cs)
+                                .fill(localFuncDiv == funcDivOptions[i] ? accentColor.opacity(0.15) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
     }
 
     // MARK: - Pan Slider
@@ -419,13 +635,24 @@ struct SporePanel: View {
             density: localDensity,
             form: localForm,
             focus: localFocus,
+            snap: localSnap,
             size: localSize,
             chirp: localChirp,
             evolve: localEvolve,
+            sync: localSync,
             filter: localFilter,
+            filterMode: localFilterMode,
+            width: localWidth,
+            attack: localAttack,
+            decay: localDecay,
             warmth: localWarmth,
             volume: localVolume,
-            pan: localPan
+            pan: localPan,
+            funcShape: localFuncShape,
+            funcRate: localFuncRate,
+            funcAmount: localFuncAmount,
+            funcSync: localFuncSync,
+            funcDiv: localFuncDiv
         )
         AudioEngine.shared.configureSpore(config, nodeID: nodeID)
     }
