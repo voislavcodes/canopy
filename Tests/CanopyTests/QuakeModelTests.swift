@@ -6,7 +6,11 @@ final class QuakeModelTests: XCTestCase {
     // MARK: - QuakeConfig Codable
 
     func testQuakeConfigCodableRoundTrip() throws {
-        let config = QuakeConfig(mass: 0.7, surface: 0.4, force: 0.8, sustain: 0.6, volume: 0.9, pan: -0.3)
+        var config = QuakeConfig()
+        config.voices[0] = QuakeVoiceSlot(mass: 0.7, surface: 0.4, force: 0.8, sustain: 0.6)
+        config.voices[1] = QuakeVoiceSlot(mass: 0.2, surface: 0.9, force: 0.1, sustain: 0.5)
+        config.volume = 0.9
+        config.pan = -0.3
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(QuakeConfig.self, from: data)
         XCTAssertEqual(decoded, config)
@@ -14,38 +18,67 @@ final class QuakeModelTests: XCTestCase {
 
     func testQuakeConfigDefaultValues() {
         let config = QuakeConfig()
-        XCTAssertEqual(config.mass, 0.5)
-        XCTAssertEqual(config.surface, 0.3)
-        XCTAssertEqual(config.force, 0.5)
-        XCTAssertEqual(config.sustain, 0.3)
+        XCTAssertEqual(config.voices.count, 8)
+        XCTAssertEqual(config.voices[0].mass, 0.5)
+        XCTAssertEqual(config.voices[0].surface, 0.3)
+        XCTAssertEqual(config.voices[0].force, 0.5)
+        XCTAssertEqual(config.voices[0].sustain, 0.3)
         XCTAssertEqual(config.volume, 0.8)
         XCTAssertEqual(config.pan, 0.0)
     }
 
+    func testQuakeConfigPerVoiceIndependence() {
+        var config = QuakeConfig()
+        config.voices[0] = QuakeVoiceSlot(mass: 0.9, surface: 0.1, force: 0.9, sustain: 0.1)
+        config.voices[1] = QuakeVoiceSlot(mass: 0.1, surface: 0.9, force: 0.1, sustain: 0.9)
+        XCTAssertNotEqual(config.voices[0], config.voices[1])
+        // Other voices should still be defaults
+        XCTAssertEqual(config.voices[2].mass, 0.5)
+    }
+
     func testQuakeConfigBackwardCompat() throws {
-        // Minimal JSON without volume/pan (tests decodeIfPresent defaults)
+        // Legacy shared-control format (old JSON without voices array)
         let json = """
-        {"mass":0.5,"surface":0.3,"force":0.5,"sustain":0.3}
+        {"mass":0.7,"surface":0.4,"force":0.8,"sustain":0.6}
         """
         let data = json.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(QuakeConfig.self, from: data)
+        XCTAssertEqual(decoded.voices.count, 8)
+        // All voices should have the shared values
+        for v in decoded.voices {
+            XCTAssertEqual(v.mass, 0.7)
+            XCTAssertEqual(v.surface, 0.4)
+            XCTAssertEqual(v.force, 0.8)
+            XCTAssertEqual(v.sustain, 0.6)
+        }
         XCTAssertEqual(decoded.volume, 0.8, "Volume should default to 0.8")
         XCTAssertEqual(decoded.pan, 0.0, "Pan should default to 0.0")
     }
 
     func testQuakePresetSeeds() {
-        // All preset seeds should be constructible
         let presets: [QuakeConfig] = [
             .cleanKit, .eightOhEight, .industrial, .glassy, .tribal,
             .machine, .gamelan, .thunder, .whisper, .droneKit
         ]
         XCTAssertEqual(presets.count, 10)
         for preset in presets {
-            XCTAssertGreaterThanOrEqual(preset.mass, 0)
-            XCTAssertLessThanOrEqual(preset.mass, 1)
-            XCTAssertGreaterThanOrEqual(preset.force, 0)
-            XCTAssertLessThanOrEqual(preset.force, 1)
+            XCTAssertEqual(preset.voices.count, 8)
+            for voice in preset.voices {
+                XCTAssertGreaterThanOrEqual(voice.mass, 0)
+                XCTAssertLessThanOrEqual(voice.mass, 1)
+                XCTAssertGreaterThanOrEqual(voice.force, 0)
+                XCTAssertLessThanOrEqual(voice.force, 1)
+            }
         }
+    }
+
+    // MARK: - QuakeVoiceSlot Codable
+
+    func testQuakeVoiceSlotCodableRoundTrip() throws {
+        let slot = QuakeVoiceSlot(mass: 0.8, surface: 0.6, force: 0.4, sustain: 0.2)
+        let data = try JSONEncoder().encode(slot)
+        let decoded = try JSONDecoder().decode(QuakeVoiceSlot.self, from: data)
+        XCTAssertEqual(decoded, slot)
     }
 
     // MARK: - OrbitConfig Codable

@@ -238,7 +238,7 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in oscillator path
 
-                case .setQuake:
+                case .setQuakeVoice, .setQuakeVolume:
                     break // ignored in oscillator path
 
                 case .setOrbit:
@@ -459,7 +459,7 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in drum kit path
 
-                case .setQuake:
+                case .setQuakeVoice, .setQuakeVolume:
                     break // ignored in drum kit path
 
                 case .setOrbit:
@@ -646,8 +646,10 @@ final class NodeAudioUnit {
                 case .setLFOSlotCount(let count):
                     lfoBank.slotCount = count
 
-                case .setQuake(let mass, let surface, let force, let sustain, let vol):
-                    quake.configureQuake(mass: mass, surface: surface, force: force, sustain: sustain)
+                case .setQuakeVoice(let idx, let mass, let surface, let force, let sustain):
+                    quake.configureVoice(index: idx, mass: mass, surface: surface, force: force, sustain: sustain)
+
+                case .setQuakeVolume(let vol):
                     volume = vol
 
                 case .setOrbit(let grav, let bodies, let tens, let dens):
@@ -903,7 +905,7 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in west coast path
 
-                case .setQuake:
+                case .setQuakeVoice, .setQuakeVolume:
                     break // ignored in west coast path
 
                 case .setOrbit:
@@ -1112,7 +1114,7 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in flow path
 
-                case .setQuake:
+                case .setQuakeVoice, .setQuakeVolume:
                     break // ignored in flow path
 
                 case .setOrbit:
@@ -1320,7 +1322,7 @@ final class NodeAudioUnit {
                 case .setTideImprint:
                     break // ignored in swarm path
 
-                case .setQuake:
+                case .setQuakeVoice, .setQuakeVolume:
                     break // ignored in swarm path
 
                 case .setOrbit:
@@ -1546,7 +1548,7 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in tide path
 
-                case .setQuake:
+                case .setQuakeVoice, .setQuakeVolume:
                     break // ignored in tide path
 
                 case .setOrbit:
@@ -1819,11 +1821,18 @@ final class NodeAudioUnit {
     }
 
     func configureQuake(_ config: QuakeConfig) {
-        commandBuffer.push(.setQuake(
-            mass: config.mass, surface: config.surface,
-            force: config.force, sustain: config.sustain,
-            volume: config.volume
-        ))
+        for i in 0..<min(config.voices.count, 8) {
+            let v = config.voices[i]
+            commandBuffer.push(.setQuakeVoice(
+                index: i, mass: v.mass, surface: v.surface,
+                force: v.force, sustain: v.sustain
+            ))
+        }
+        commandBuffer.push(.setQuakeVolume(config.volume))
+    }
+
+    func configureQuakeVoice(index: Int, mass: Double, surface: Double, force: Double, sustain: Double) {
+        commandBuffer.push(.setQuakeVoice(index: index, mass: mass, surface: surface, force: force, sustain: sustain))
     }
 
     func configureOrbit(_ config: OrbitConfig) {

@@ -38,16 +38,15 @@ struct QuakeVoiceManager {
         return -1
     }
 
-    /// Configure shared physics controls on all voices.
-    mutating func configureQuake(mass: Double, surface: Double, force: Double, sustain: Double) {
+    /// Configure physics controls on a single voice by index.
+    mutating func configureVoice(index: Int, mass: Double, surface: Double, force: Double, sustain: Double) {
+        guard index >= 0 && index < 8 else { return }
         withUnsafeMutablePointer(to: &voices) { ptr in
             ptr.withMemoryRebound(to: QuakeVoice.self, capacity: 8) { p in
-                for i in 0..<8 {
-                    p[i].mass = mass
-                    p[i].surface = surface
-                    p[i].force = force
-                    p[i].sustain = sustain
-                }
+                p[index].mass = mass
+                p[index].surface = surface
+                p[index].force = force
+                p[index].sustain = sustain
             }
         }
     }

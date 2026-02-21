@@ -65,8 +65,10 @@ enum AudioCommand {
     case setSwarm(gravity: Double, energy: Double, flock: Double, scatter: Double,
                   warmth: Double, volume: Double)
 
-    // QUAKE engine: physics-based percussion
-    case setQuake(mass: Double, surface: Double, force: Double, sustain: Double, volume: Double)
+    // QUAKE engine: per-voice physics controls
+    case setQuakeVoice(index: Int, mass: Double, surface: Double, force: Double, sustain: Double)
+    // QUAKE engine: volume only
+    case setQuakeVolume(Double)
 
     // ORBIT sequencer: gravitational rhythm
     case setOrbit(gravity: Double, bodyCount: Int, tension: Double, density: Double)

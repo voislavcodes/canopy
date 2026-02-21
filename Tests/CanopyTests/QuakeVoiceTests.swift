@@ -116,16 +116,45 @@ final class QuakeVoiceTests: XCTestCase {
         XCTAssertFalse(notTriggered, "Should not trigger at unknown pitch")
     }
 
-    func testConfigureQuake() {
+    func testConfigureVoice() {
         var kit = QuakeVoiceManager.defaultKit()
-        kit.configureQuake(mass: 0.8, surface: 0.5, force: 0.9, sustain: 0.2)
+        kit.configureVoice(index: 0, mass: 0.8, surface: 0.5, force: 0.9, sustain: 0.2)
         // Trigger and verify it still produces output
         kit.trigger(pitch: 36, velocity: 0.8)
         var sum: Float = 0
         for _ in 0..<100 {
             sum += abs(kit.renderSample(sampleRate: 44100))
         }
-        XCTAssertGreaterThan(sum, 0, "Configured kit should produce output")
+        XCTAssertGreaterThan(sum, 0, "Configured voice should produce output")
+    }
+
+    func testPerVoiceIndependence() {
+        var kit = QuakeVoiceManager.defaultKit()
+        // Configure kick and snare differently
+        kit.configureVoice(index: 0, mass: 0.9, surface: 0.1, force: 0.9, sustain: 0.1) // heavy kick
+        kit.configureVoice(index: 1, mass: 0.1, surface: 0.8, force: 0.3, sustain: 0.5) // light snare
+
+        // Trigger kick, collect samples
+        kit.trigger(pitch: 36, velocity: 0.8)
+        var kickSum: Float = 0
+        for _ in 0..<200 {
+            kickSum += abs(kit.renderSample(sampleRate: 44100))
+        }
+
+        // Reset and trigger snare
+        var kit2 = QuakeVoiceManager.defaultKit()
+        kit2.configureVoice(index: 0, mass: 0.9, surface: 0.1, force: 0.9, sustain: 0.1)
+        kit2.configureVoice(index: 1, mass: 0.1, surface: 0.8, force: 0.3, sustain: 0.5)
+        kit2.trigger(pitch: 38, velocity: 0.8)
+        var snareSum: Float = 0
+        for _ in 0..<200 {
+            snareSum += abs(kit2.renderSample(sampleRate: 44100))
+        }
+
+        // Both should produce output but sound different
+        XCTAssertGreaterThan(kickSum, 0)
+        XCTAssertGreaterThan(snareSum, 0)
+        XCTAssertNotEqual(kickSum, snareSum, accuracy: 0.001, "Different voice configs should produce different output")
     }
 
     func testAllVoicesRenderSimultaneously() {

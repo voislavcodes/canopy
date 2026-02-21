@@ -1,17 +1,21 @@
 import SwiftUI
 
 /// Bloom panel: QUAKE physics-based percussion engine controls.
-/// 4 physics sliders (Mass, Surface, Force, Sustain) control all 8 drum voices.
-/// Voice regime buttons for audition. Volume and pan output controls.
+/// Per-voice physics sliders (Mass, Surface, Force, Sustain) for each of 8 drum voices.
+/// Voice selector buttons with audition. Volume and pan output controls.
 struct QuakePanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
 
-    // Local drag state for continuous sliders
+    @State private var selectedVoiceIndex: Int = 0
+
+    // Per-voice local drag state
     @State private var localMass: Double = 0.5
     @State private var localSurface: Double = 0.3
     @State private var localForce: Double = 0.5
     @State private var localSustain: Double = 0.3
+
+    // Global output
     @State private var localVolume: Double = 0.8
     @State private var localPan: Double = 0
 
@@ -54,13 +58,13 @@ struct QuakePanel: View {
             }
 
             if quakeConfig != nil {
-                // Voice regime buttons
+                // Voice selector
                 voiceSelector
 
                 Divider()
                     .background(CanopyColors.bloomPanelBorder.opacity(0.3))
 
-                // Physics controls
+                // Per-voice physics controls
                 physicsSliders
 
                 Divider()
@@ -83,21 +87,29 @@ struct QuakePanel: View {
         .onTapGesture { }
         .onAppear { syncFromModel() }
         .onChange(of: projectState.selectedNodeID) { _ in syncFromModel() }
+        .onChange(of: selectedVoiceIndex) { _ in syncVoiceFromModel() }
     }
 
     // MARK: - Sync
 
     private func syncFromModel() {
         guard let config = quakeConfig else { return }
-        localMass = config.mass
-        localSurface = config.surface
-        localForce = config.force
-        localSustain = config.sustain
         localVolume = config.volume
         localPan = config.pan
+        syncVoiceFromModel()
     }
 
-    // MARK: - Voice Regime Selector
+    private func syncVoiceFromModel() {
+        guard let config = quakeConfig,
+              selectedVoiceIndex < config.voices.count else { return }
+        let slot = config.voices[selectedVoiceIndex]
+        localMass = slot.mass
+        localSurface = slot.surface
+        localForce = slot.force
+        localSustain = slot.sustain
+    }
+
+    // MARK: - Voice Selector
 
     private var voiceSelector: some View {
         let names = QuakeVoiceManager.voiceNames
@@ -105,7 +117,9 @@ struct QuakePanel: View {
 
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3 * cs), count: 4), spacing: 3 * cs) {
             ForEach(0..<QuakeVoiceManager.voiceCount, id: \.self) { i in
+                let isSelected = selectedVoiceIndex == i
                 Button(action: {
+                    selectedVoiceIndex = i
                     // Audition: trigger voice via audio engine
                     guard let nodeID = projectState.selectedNodeID else { return }
                     let pitch = QuakeVoiceManager.midiPitches[i]
@@ -113,16 +127,16 @@ struct QuakePanel: View {
                 }) {
                     Text(names[i])
                         .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.6))
+                        .foregroundColor(isSelected ? .white : CanopyColors.chromeText.opacity(0.6))
                         .frame(maxWidth: .infinity)
                         .frame(height: 18 * cs)
                         .background(
                             RoundedRectangle(cornerRadius: 3 * cs)
-                                .fill(quakeColor.opacity(0.1))
+                                .fill(isSelected ? quakeColor.opacity(0.5) : quakeColor.opacity(0.1))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 3 * cs)
-                                .stroke(quakeColor.opacity(0.2), lineWidth: 1)
+                                .stroke(isSelected ? quakeColor.opacity(0.8) : quakeColor.opacity(0.2), lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
@@ -137,27 +151,27 @@ struct QuakePanel: View {
 
         return VStack(spacing: 5 * cs) {
             paramSlider(label: "MASS", value: $localMass, range: 0...1, color: quakeColor, format: { "\(Int($0 * 100))%" }) {
-                commitConfig { $0.mass = localMass }
+                commitVoice { $0.mass = localMass }
             } onDrag: {
-                pushToEngine()
+                pushVoiceToEngine()
             }
 
             paramSlider(label: "SURFACE", value: $localSurface, range: 0...1, color: quakeColor, format: { "\(Int($0 * 100))%" }) {
-                commitConfig { $0.surface = localSurface }
+                commitVoice { $0.surface = localSurface }
             } onDrag: {
-                pushToEngine()
+                pushVoiceToEngine()
             }
 
             paramSlider(label: "FORCE", value: $localForce, range: 0...1, color: quakeColor, format: { "\(Int($0 * 100))%" }) {
-                commitConfig { $0.force = localForce }
+                commitVoice { $0.force = localForce }
             } onDrag: {
-                pushToEngine()
+                pushVoiceToEngine()
             }
 
             paramSlider(label: "SUSTAIN", value: $localSustain, range: 0...1, color: quakeColor, format: { "\(Int($0 * 100))%" }) {
-                commitConfig { $0.sustain = localSustain }
+                commitVoice { $0.sustain = localSustain }
             } onDrag: {
-                pushToEngine()
+                pushVoiceToEngine()
             }
         }
     }
@@ -169,7 +183,8 @@ struct QuakePanel: View {
             paramSlider(label: "VOL", value: $localVolume, range: 0...1, color: CanopyColors.nodeRhythmic, format: { "\(Int($0 * 100))%" }) {
                 commitConfig { $0.volume = localVolume }
             } onDrag: {
-                pushToEngine()
+                guard let nodeID = projectState.selectedNodeID else { return }
+                AudioEngine.shared.setNodeVolume(Float(localVolume), nodeID: nodeID)
             }
 
             HStack(spacing: 4 * cs) {
@@ -271,6 +286,20 @@ struct QuakePanel: View {
 
     // MARK: - Commit Helpers
 
+    /// Commit per-voice physics controls to the model.
+    private func commitVoice(_ transform: (inout QuakeVoiceSlot) -> Void) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        projectState.updateNode(id: nodeID) { node in
+            if case .quake(var config) = node.patch.soundType,
+               selectedVoiceIndex < config.voices.count {
+                transform(&config.voices[selectedVoiceIndex])
+                node.patch.soundType = .quake(config)
+            }
+        }
+        pushVoiceToEngine()
+    }
+
+    /// Commit global config (volume, pan) to the model.
     private func commitConfig(_ transform: (inout QuakeConfig) -> Void) {
         guard let nodeID = projectState.selectedNodeID else { return }
         projectState.updateNode(id: nodeID) { node in
@@ -279,19 +308,16 @@ struct QuakePanel: View {
                 node.patch.soundType = .quake(config)
             }
         }
-        pushToEngine()
     }
 
-    private func pushToEngine() {
+    /// Push current voice's physics controls to the audio engine.
+    private func pushVoiceToEngine() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let config = QuakeConfig(
-            mass: localMass,
-            surface: localSurface,
-            force: localForce,
-            sustain: localSustain,
-            volume: localVolume,
-            pan: localPan
+        AudioEngine.shared.configureQuakeVoice(
+            index: selectedVoiceIndex,
+            mass: localMass, surface: localSurface,
+            force: localForce, sustain: localSustain,
+            nodeID: nodeID
         )
-        AudioEngine.shared.configureQuake(config, nodeID: nodeID)
     }
 }

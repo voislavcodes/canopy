@@ -229,9 +229,16 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.configureSwarm(config)
     }
 
-    /// Configure QUAKE parameters on a specific node.
+    /// Configure all QUAKE voice parameters on a specific node.
     func configureQuake(_ config: QuakeConfig, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureQuake(config)
+    }
+
+    /// Configure a single QUAKE voice slot on a specific node.
+    func configureQuakeVoice(index: Int, mass: Double, surface: Double,
+                              force: Double, sustain: Double, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureQuakeVoice(index: index, mass: mass, surface: surface,
+                                                      force: force, sustain: sustain)
     }
 
     /// Configure ORBIT sequencer parameters on a specific node.
