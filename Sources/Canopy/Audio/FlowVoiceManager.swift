@@ -13,6 +13,9 @@ struct FlowVoiceManager {
 
     static let voiceCount = 8
 
+    /// Sample rate stored from render callback — used by NoteReceiver methods.
+    var sampleRate: Double = 48000
+
     init() {
         voices = (FlowVoice(), FlowVoice(), FlowVoice(), FlowVoice(),
                   FlowVoice(), FlowVoice(), FlowVoice(), FlowVoice())
@@ -239,14 +242,14 @@ struct FlowVoiceManager {
 extension FlowVoiceManager: NoteReceiver {
     mutating func noteOn(pitch: Int, velocity: Double, frequency: Double) {
         // frequency parameter ignored — FlowVoice computes its own from pitch
-        allocateVoice(pitch: pitch, velocity: velocity, sampleRate: 44100)
+        allocateVoice(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
     }
 
     mutating func noteOff(pitch: Int) {
         // Release all voices playing this pitch (reads Bool directly, no FlowVoice copy)
         for i in 0..<Self.voiceCount {
             if pitchAt(i) == pitch && isVoiceActive(i) {
-                releaseVoiceAt(i, sampleRate: 44100)
+                releaseVoiceAt(i, sampleRate: sampleRate)
                 return
             }
         }

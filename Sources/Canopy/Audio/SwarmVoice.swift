@@ -89,7 +89,7 @@ struct SwarmVoice {
     private var pendingPitch: Int = -1
     private var pendingVelocity: Float = 0
     private var stealFadeRate: Float = 0
-    private var cachedSampleRate: Float = 44100
+    private var cachedSampleRate: Float = 48000
 
     // Base noise seed for this voice (set by manager for decorrelation)
     var noiseSeedBase: UInt32 = 12345

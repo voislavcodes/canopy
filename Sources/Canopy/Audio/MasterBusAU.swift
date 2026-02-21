@@ -42,6 +42,9 @@ final class MasterBusAU: AUAudioUnit {
     // Master volume
     private let volumePtr: UnsafeMutablePointer<Float>
 
+    // Sample rate for render block (updated in allocateRenderResources)
+    private let sampleRatePtr: UnsafeMutablePointer<Float>
+
     // Tree clock slots — pointer-to-optional-pointer pattern because MasterBusAU
     // is instantiated by Apple's AU framework (can't pass constructor args).
     // Set via setClockPointers() after instantiation.
@@ -81,6 +84,9 @@ final class MasterBusAU: AUAudioUnit {
         volumePtr = .allocate(capacity: 1)
         volumePtr.initialize(to: 1.0)
 
+        sampleRatePtr = .allocate(capacity: 1)
+        sampleRatePtr.initialize(to: 48000)
+
         clockPositionSlot = .allocate(capacity: 1)
         clockPositionSlot.initialize(to: nil)
         clockRunningSlot = .allocate(capacity: 1)
@@ -101,6 +107,7 @@ final class MasterBusAU: AUAudioUnit {
         let shore = shorePtr
         let fxChain = fxChainPtr
         let vol = volumePtr
+        let srPtr = sampleRatePtr
         let posSlot = clockPositionSlot
         let runSlot = clockRunningSlot
 
@@ -121,7 +128,7 @@ final class MasterBusAU: AUAudioUnit {
             let bufR = abl[1].mData?.assumingMemoryBound(to: Float.self)
             guard let leftBuf = bufL, let rightBuf = bufR else { return noErr }
 
-            let sampleRate = Float(48000.0) // Updated when format changes
+            let sampleRate = srPtr.pointee
             let volume = vol.pointee
 
             for frame in 0..<Int(frameCount) {
@@ -162,6 +169,8 @@ final class MasterBusAU: AUAudioUnit {
         fxChainPtr.deallocate()
         volumePtr.deinitialize(count: 1)
         volumePtr.deallocate()
+        sampleRatePtr.deinitialize(count: 1)
+        sampleRatePtr.deallocate()
         clockPositionSlot.deinitialize(count: 1)
         clockPositionSlot.deallocate()
         clockRunningSlot.deinitialize(count: 1)
@@ -178,8 +187,9 @@ final class MasterBusAU: AUAudioUnit {
     override func allocateRenderResources() throws {
         try super.allocateRenderResources()
 
-        // Update Shore sample rate from actual format
+        // Update Shore and render block sample rate from actual format
         let sr = Float(inputBusses[0].format.sampleRate)
+        sampleRatePtr.pointee = sr
         shorePtr.pointee = StereoShore(lookaheadSamples: 48, releaseMs: 100,
                                         ceiling: shorePtr.pointee.ceiling,
                                         sampleRate: sr)

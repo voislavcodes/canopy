@@ -97,7 +97,7 @@ struct FlowVoice {
     private var pendingPitch: Int = -1
     private var pendingVelocity: Double = 0
     private var stealFadeRate: Double = 0
-    private var cachedSampleRate: Double = 44100
+    private var cachedSampleRate: Double = 48000
 
     // MARK: - Control-rate state
 

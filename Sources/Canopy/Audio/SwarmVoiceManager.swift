@@ -14,6 +14,7 @@ struct SwarmVoiceManager {
     static let voiceCount = 8
 
     // Shared controls
+    var sampleRate: Float = 48000
     var gravity: Float = 0.5
     var energy: Float = 0.3
     var flock: Float = 0.2
@@ -243,13 +244,13 @@ struct SwarmVoiceManager {
 
 extension SwarmVoiceManager: NoteReceiver {
     mutating func noteOn(pitch: Int, velocity: Double, frequency: Double) {
-        allocateVoice(pitch: pitch, velocity: Float(velocity), sampleRate: 44100)
+        allocateVoice(pitch: pitch, velocity: Float(velocity), sampleRate: sampleRate)
     }
 
     mutating func noteOff(pitch: Int) {
         for i in 0..<Self.voiceCount {
             if pitchAt(i) == pitch && isVoiceActive(i) {
-                releaseVoiceAt(i, sampleRate: 44100)
+                releaseVoiceAt(i, sampleRate: sampleRate)
                 return
             }
         }

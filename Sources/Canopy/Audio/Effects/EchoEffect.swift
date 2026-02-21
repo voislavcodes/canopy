@@ -7,7 +7,7 @@ import Foundation
 /// - `decay`: Feedback amount (0.0–1.0)
 /// - `diffuse`: Lowpass in feedback path (0.0–1.0). Higher = darker echoes.
 ///
-/// Uses a pre-allocated circular buffer (48000 samples = 1s at 48kHz).
+/// Uses a pre-allocated circular buffer (96000 samples = 1s at 96kHz, 2s at 48kHz).
 /// Feedback is bounded by tanh to prevent runaway.
 struct EchoEffect {
     /// Delay buffer — pre-allocated, never resized.
@@ -30,8 +30,8 @@ struct EchoEffect {
     private let smoothCoeff: Double = 0.0005  // Slow smoothing for delay time
 
     init() {
-        // 1 second at 48kHz
-        bufferSize = 48000
+        // 1 second at 96kHz (2s at 48kHz) — supports up to 96kHz without truncating max delay
+        bufferSize = 96000
         buffer = .allocate(capacity: bufferSize)
         buffer.initialize(repeating: 0, count: bufferSize)
     }

@@ -625,6 +625,7 @@ final class NodeAudioUnit {
                 }
             }
 
+            westCoast.sampleRate = sr
             let srF = Float(sr)
 
             // Read tree clock once at top of callback
@@ -815,6 +816,7 @@ final class NodeAudioUnit {
                 }
             }
 
+            flow.sampleRate = sr
             let srF = Float(sr)
 
             // Read tree clock once at top of callback
@@ -1004,6 +1006,8 @@ final class NodeAudioUnit {
                     fxChain = chain
                 }
             }
+
+            swarm.sampleRate = srF
 
             // Read tree clock once at top of callback
             let baseSample = clockPtr.pointee
@@ -1211,6 +1215,7 @@ final class NodeAudioUnit {
                 }
             }
 
+            tide.sampleRate = sr
             let srF = Float(sr)
 
             // Read tree clock once at top of callback

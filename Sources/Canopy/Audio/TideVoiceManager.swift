@@ -13,6 +13,9 @@ struct TideVoiceManager {
 
     static let voiceCount = 8
 
+    /// Sample rate stored from render callback — used by NoteReceiver methods.
+    var sampleRate: Double = 48000
+
     init() {
         voices = (TideVoice(), TideVoice(), TideVoice(), TideVoice(),
                   TideVoice(), TideVoice(), TideVoice(), TideVoice())
@@ -268,13 +271,13 @@ struct TideVoiceManager {
 extension TideVoiceManager: NoteReceiver {
     mutating func noteOn(pitch: Int, velocity: Double, frequency: Double) {
         // frequency parameter ignored — TideVoice computes its own from pitch
-        allocateVoice(pitch: pitch, velocity: velocity, sampleRate: 44100)
+        allocateVoice(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
     }
 
     mutating func noteOff(pitch: Int) {
         for i in 0..<Self.voiceCount {
             if pitchAt(i) == pitch && isVoiceActive(i) {
-                releaseVoiceAt(i, sampleRate: 44100)
+                releaseVoiceAt(i, sampleRate: sampleRate)
                 return
             }
         }
