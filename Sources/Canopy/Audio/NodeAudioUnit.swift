@@ -1978,6 +1978,7 @@ final class NodeAudioUnit {
                                     let scaleRootSemitone, let scaleIntervals,
                                     let accumulatorConfig):
                     spore.allNotesOff()
+                    spore.setScale(rootSemitone: scaleRootSemitone, intervals: scaleIntervals)
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
