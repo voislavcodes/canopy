@@ -166,7 +166,7 @@ struct FXPopoverPanel: View {
         case .tide:     return [("rate", "rate"), ("depth", "depth")]
         case .terrain:  return [("low", "low"), ("mid", "mid"), ("high", "high")]
         case .level:    return [("amount", "level")]
-        case .ghost:    return [("life", "life"), ("blur", "blur"), ("shift", "shift"), ("wander", "wander")]
+        case .ghost:    return [("life", "life"), ("blur", "blur"), ("shift", "shift"), ("wander", "wander"), ("delayTime", "time")]
         default:        return []
         }
     }
