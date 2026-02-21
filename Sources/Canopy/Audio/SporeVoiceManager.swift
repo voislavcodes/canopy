@@ -16,6 +16,9 @@ struct SporeVoiceManager {
     /// Sample rate stored from render callback.
     var sampleRate: Double = 48000
 
+    /// WARM node-level state for inter-voice power sag.
+    var warmNodeState: WarmNodeState = WarmNodeState()
+
     /// Imprint harmonic amplitudes (64 values). When set, new notes use these
     /// as harmonic weights instead of the default 1/h falloff.
     var imprintAmplitudes: (Float, Float, Float, Float, Float, Float, Float, Float,
@@ -51,6 +54,16 @@ struct SporeVoiceManager {
         voices.5.detuneRatio = SporeVoice.detuneRatios.5
         voices.6.detuneRatio = SporeVoice.detuneRatios.6
         voices.7.detuneRatio = SporeVoice.detuneRatios.7
+
+        // WARM: unique analog tolerance per voice
+        WarmProcessor.seedVoice(&voices.0.warmState, voiceIndex: 0)
+        WarmProcessor.seedVoice(&voices.1.warmState, voiceIndex: 1)
+        WarmProcessor.seedVoice(&voices.2.warmState, voiceIndex: 2)
+        WarmProcessor.seedVoice(&voices.3.warmState, voiceIndex: 3)
+        WarmProcessor.seedVoice(&voices.4.warmState, voiceIndex: 4)
+        WarmProcessor.seedVoice(&voices.5.warmState, voiceIndex: 5)
+        WarmProcessor.seedVoice(&voices.6.warmState, voiceIndex: 6)
+        WarmProcessor.seedVoice(&voices.7.warmState, voiceIndex: 7)
     }
 
     // MARK: - Imprint
@@ -337,6 +350,10 @@ struct SporeVoiceManager {
         if !voices.5.isActive && pitches.5 != -1 { pitches.5 = -1 }
         if !voices.6.isActive && pitches.6 != -1 { pitches.6 = -1 }
         if !voices.7.isActive && pitches.7 != -1 { pitches.7 = -1 }
+
+        // WARM: inter-voice power sag (before safety tanh)
+        let warmLevel = Float(voices.0.warmthParam)
+        (mixL, mixR) = WarmProcessor.applyPowerSag(&warmNodeState, sampleL: mixL, sampleR: mixR, warm: warmLevel)
 
         // Manager-level safety tanh (Rule 6): catches multi-voice sum peaks
         let outL = Float(tanh(Double(mixL) * 0.5) * 6.0)

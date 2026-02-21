@@ -16,6 +16,9 @@ struct FlowVoiceManager {
     /// Sample rate stored from render callback — used by NoteReceiver methods.
     var sampleRate: Double = 48000
 
+    /// WARM node-level state for inter-voice power sag.
+    var warmNodeState: WarmNodeState = WarmNodeState()
+
     /// Imprint harmonic amplitudes (64 values). When set, beginNote uses these
     /// instead of the default 1/harmonic^1.5 falloff. Stored as a tuple for
     /// audio-thread safety (no heap, no CoW).
@@ -42,6 +45,16 @@ struct FlowVoiceManager {
         voices.5.noiseState = 0xBAAD_F00D
         voices.6.noiseState = 0xD00D_BEAD
         voices.7.noiseState = 0xC0DE_F00D
+
+        // WARM: unique analog tolerance per voice
+        WarmProcessor.seedVoice(&voices.0.warmState, voiceIndex: 0)
+        WarmProcessor.seedVoice(&voices.1.warmState, voiceIndex: 1)
+        WarmProcessor.seedVoice(&voices.2.warmState, voiceIndex: 2)
+        WarmProcessor.seedVoice(&voices.3.warmState, voiceIndex: 3)
+        WarmProcessor.seedVoice(&voices.4.warmState, voiceIndex: 4)
+        WarmProcessor.seedVoice(&voices.5.warmState, voiceIndex: 5)
+        WarmProcessor.seedVoice(&voices.6.warmState, voiceIndex: 6)
+        WarmProcessor.seedVoice(&voices.7.warmState, voiceIndex: 7)
     }
 
     // MARK: - Imprint
@@ -267,6 +280,10 @@ struct FlowVoiceManager {
         if !voices.5.isActive && pitches.5 != -1 { pitches.5 = -1 }
         if !voices.6.isActive && pitches.6 != -1 { pitches.6 = -1 }
         if !voices.7.isActive && pitches.7 != -1 { pitches.7 = -1 }
+
+        // WARM: inter-voice power sag (before safety tanh)
+        let warmLevel = Float(voices.0.warmthParam)
+        mix = WarmProcessor.applyPowerSagMono(&warmNodeState, sample: mix, warm: warmLevel)
 
         // Two-stage output: gentle tanh tames peaks, then linear gain boosts volume.
         // tanh(mix * 0.7) barely compresses single voices but catches multi-voice peaks.

@@ -132,6 +132,9 @@ struct FlowVoice {
     private var eddyState: (Double, Double, Double, Double, Double, Double) = (0, 0, 0, 0, 0, 0)
     var noiseState: UInt32 = 12345  // xorshift RNG state (internal so manager can set unique seeds)
 
+    // WARM analog physics state (seeded per-voice by manager)
+    var warmState: WarmVoiceState = WarmVoiceState()
+
     // Control-rate cached values (computed once per 64 samples, used in render)
     private var cachedSheddingSin: Double = 0
     private var cachedSheddingCos: Double = 0
@@ -281,6 +284,9 @@ struct FlowVoice {
             controlCounter = 0
             doControlUpdate = true
             computeControlRate(sampleRate: sampleRate)
+            // WARM pitch drift (control rate)
+            let driftCents = WarmProcessor.computePitchOffset(&warmState, warm: Float(warmthParam), sampleRate: Float(sampleRate))
+            warmState.cachedDriftMul = powf(2.0, driftCents / 1200.0)
         }
 
         // Smooth control parameters (per-sample)
@@ -305,6 +311,7 @@ struct FlowVoice {
         let shedSin = cachedSheddingSin
         let shedCos = cachedSheddingCos
         let noises = cachedNoises
+        let driftMul = Double(warmState.cachedDriftMul)
 
         withUnsafeMutablePointer(to: &partials) { ptr in
             ptr.withMemoryRebound(to: FlowPartial.self, capacity: Self.partialCount) { p in
@@ -366,7 +373,7 @@ struct FlowVoice {
                     p[i].ampScale += p[i].ampScaleStep
                     p[i].pmDepth += p[i].pmDepthStep
 
-                    let rawFreq = p[i].baseFreq + p[i].freqOffset
+                    let rawFreq = p[i].baseFreq * driftMul + p[i].freqOffset
                     guard rawFreq < nyquist else { continue }
                     let freq = max(rawFreq, 20)
 
@@ -386,9 +393,9 @@ struct FlowVoice {
 
         mix *= 0.1
         mix *= envValue * Double(velocity)
-        let drive = 0.3 + warmthParam * 1.2
-        let shaped = tanh(mix * drive) / drive
-        return Float(shaped)
+        var out = Float(mix)
+        out = WarmProcessor.processSample(&warmState, sample: out, warm: Float(warmthParam), sampleRate: Float(sampleRate))
+        return out
     }
 
     // MARK: - Envelope

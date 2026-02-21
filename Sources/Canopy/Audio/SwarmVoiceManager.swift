@@ -15,6 +15,9 @@ struct SwarmVoiceManager {
 
     // Shared controls
     var sampleRate: Float = 48000
+
+    /// WARM node-level state for inter-voice power sag.
+    var warmNodeState: WarmNodeState = WarmNodeState()
     var gravity: Float = 0.5
     var energy: Float = 0.3
     var flock: Float = 0.2
@@ -56,6 +59,16 @@ struct SwarmVoiceManager {
         voices.5.noiseSeedBase = 0xBAAD_F00D
         voices.6.noiseSeedBase = 0xD00D_BEAD
         voices.7.noiseSeedBase = 0xC0DE_F00D
+
+        // WARM: unique analog tolerance per voice
+        WarmProcessor.seedVoice(&voices.0.warmState, voiceIndex: 0)
+        WarmProcessor.seedVoice(&voices.1.warmState, voiceIndex: 1)
+        WarmProcessor.seedVoice(&voices.2.warmState, voiceIndex: 2)
+        WarmProcessor.seedVoice(&voices.3.warmState, voiceIndex: 3)
+        WarmProcessor.seedVoice(&voices.4.warmState, voiceIndex: 4)
+        WarmProcessor.seedVoice(&voices.5.warmState, voiceIndex: 5)
+        WarmProcessor.seedVoice(&voices.6.warmState, voiceIndex: 6)
+        WarmProcessor.seedVoice(&voices.7.warmState, voiceIndex: 7)
     }
 
     // MARK: - Imprint
@@ -294,6 +307,9 @@ struct SwarmVoiceManager {
         if !voices.5.isActive && pitches.5 != -1 { pitches.5 = -1 }
         if !voices.6.isActive && pitches.6 != -1 { pitches.6 = -1 }
         if !voices.7.isActive && pitches.7 != -1 { pitches.7 = -1 }
+
+        // WARM: inter-voice power sag (before safety tanh)
+        (mixL, mixR) = WarmProcessor.applyPowerSag(&warmNodeState, sampleL: mixL, sampleR: mixR, warm: warmth)
 
         // Manager-level safety tanh (Rule 6)
         mixL = tanhf(mixL * 0.5)

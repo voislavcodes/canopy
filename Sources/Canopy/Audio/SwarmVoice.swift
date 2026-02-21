@@ -94,6 +94,9 @@ struct SwarmVoice {
     // Base noise seed for this voice (set by manager for decorrelation)
     var noiseSeedBase: UInt32 = 12345
 
+    // WARM analog physics state (seeded per-voice by manager)
+    var warmState: WarmVoiceState = WarmVoiceState()
+
     // Imprint amplitude weights: scales bloom target per-partial so the
     // spectral fingerprint persists as physics operates. 1.0 = full bloom,
     // lower values suppress that partial. Set during beginNote when imprint active.
@@ -348,10 +351,14 @@ struct SwarmVoice {
         if physicsSampleCounter >= Self.controlBlockSize {
             physicsSampleCounter = 0
             updatePhysics()
+            // WARM pitch drift (control rate)
+            let driftCents = WarmProcessor.computePitchOffset(&warmState, warm: warmth, sampleRate: sampleRate)
+            warmState.cachedDriftMul = powf(2.0, driftCents / 1200.0)
         }
 
         // Glide
         currentFrequency += (targetFrequency - currentFrequency) * 0.001
+        let driftedFreq = currentFrequency * warmState.cachedDriftMul
 
         // Sine bank + stereo output
         var outL: Float = 0
@@ -366,7 +373,7 @@ struct SwarmVoice {
                         withUnsafeMutablePointer(to: &amplitudes) { ampPtr in
                             ampPtr.withMemoryRebound(to: Float.self, capacity: Self.partialCount) { amp in
                                 for i in 0..<Self.partialCount {
-                                    let frequency = currentFrequency * pos[i]
+                                    let frequency = driftedFreq * pos[i]
 
                                     // Rule 8: skip partials outside audible range
                                     guard frequency > 20 && frequency < nyquist else { continue }
@@ -403,10 +410,9 @@ struct SwarmVoice {
         outL *= envValue * noteVelocity
         outR *= envValue * noteVelocity
 
-        // Warmth: per-voice tanh (Rule 6)
-        let drive = 0.3 + warmth * 1.2
-        outL = tanhf(outL * drive)
-        outR = tanhf(outR * drive)
+        // Per-voice WARM analog physics
+        (outL, outR) = WarmProcessor.processStereo(&warmState, sampleL: outL, sampleR: outR,
+                                                    warm: warmth, sampleRate: sampleRate)
 
         return (outL, outR)
     }

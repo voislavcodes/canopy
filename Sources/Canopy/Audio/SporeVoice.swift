@@ -179,6 +179,9 @@ struct SporeVoice {
     var noiseState: UInt32 = 12345       // grain drawing
     private var evolveNoiseState: UInt32 = 54321  // evolution
 
+    // WARM analog physics state (seeded per-voice by manager)
+    var warmState: WarmVoiceState = WarmVoiceState()
+
     // MARK: - Init
 
     init() {
@@ -338,6 +341,9 @@ struct SporeVoice {
         if controlCounter >= Self.controlBlockSize {
             controlCounter = 0
             advanceEvolution(sampleRate: sampleRate)
+            // WARM pitch drift (control rate)
+            let driftCents = WarmProcessor.computePitchOffset(&warmState, warm: Float(warmthParam), sampleRate: Float(sampleRate))
+            warmState.cachedDriftMul = powf(2.0, driftCents / 1200.0)
         }
 
         // Poisson clock: check if it's time to fire a grain
@@ -348,7 +354,8 @@ struct SporeVoice {
             let effectiveSize = max(0, min(1, sizeParam + grainSizeModulation))
             let effectiveForm = max(0, min(1, formParam + formModulation))
             let effectiveChirp = max(-1, min(1, chirpParam + chirpModulation))
-            fireGrain(f0: frequency, focus: effectiveFocus, size: effectiveSize,
+            let driftedFreq = frequency * Double(warmState.cachedDriftMul)
+            fireGrain(f0: driftedFreq, focus: effectiveFocus, size: effectiveSize,
                       density: effectiveDensity, form: effectiveForm,
                       chirp: effectiveChirp, sampleRate: sampleRate)
             scheduleNextGrain(density: effectiveDensity, sampleRate: sampleRate)
@@ -463,10 +470,9 @@ struct SporeVoice {
         mixL *= envVel
         mixR *= envVel
 
-        // Per-voice warmth tanh
-        let drive = Float(0.3 + warmthParam * 1.2)
-        mixL = tanhf(mixL * drive) / drive
-        mixR = tanhf(mixR * drive) / drive
+        // Per-voice WARM analog physics
+        (mixL, mixR) = WarmProcessor.processStereo(&warmState, sampleL: mixL, sampleR: mixR,
+                                                    warm: Float(warmthParam), sampleRate: Float(sampleRate))
 
         return (mixL, mixR)
     }

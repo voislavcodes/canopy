@@ -104,6 +104,9 @@ struct TideVoice {
     // Noise state (xorshift RNG) for chaos patterns + Current noise layer
     var noiseState: UInt32 = 12345
 
+    // WARM analog physics state (seeded per-voice by manager)
+    var warmState: WarmVoiceState = WarmVoiceState()
+
     // Cached pattern frames pointer (nil for chaos)
     private var cachedFrames: [TideFrame]?
     private var cachedFrameCount: Int = 0
@@ -285,6 +288,9 @@ struct TideVoice {
         if controlCounter >= Self.controlBlockSize {
             controlCounter = 0
             updateBandTargets(sampleRate: sampleRate)
+            // WARM pitch drift (control rate)
+            let driftCents = WarmProcessor.computePitchOffset(&warmState, warm: Float(warmthParam), sampleRate: Float(sampleRate))
+            warmState.cachedDriftMul = powf(2.0, driftCents / 1200.0)
         }
 
         // Smooth parameters per-sample
@@ -368,10 +374,11 @@ struct TideVoice {
         sumL *= env * 0.25
         sumR *= env * 0.25
 
-        // Per-voice warmth (tanh saturation)
-        let drive = 0.5 + warmthParam * 1.5
-        let outL = Float(tanh(sumL * drive) / drive)
-        let outR = Float(tanh(sumR * drive) / drive)
+        // Per-voice WARM analog physics
+        var outL = Float(sumL)
+        var outR = Float(sumR)
+        (outL, outR) = WarmProcessor.processStereo(&warmState, sampleL: outL, sampleR: outR,
+                                                    warm: Float(warmthParam), sampleRate: Float(sampleRate))
 
         return (outL, outR)
     }
@@ -381,7 +388,7 @@ struct TideVoice {
     /// Generate the source oscillator sample. Current 0–1 crossfades:
     /// sine → triangle → saw → pulse, with noise mixed in at high values.
     private mutating func generateCurrent(sampleRate: Double) -> Double {
-        let phaseInc = frequency / sampleRate
+        let phaseInc = frequency * Double(warmState.cachedDriftMul) / sampleRate
         phase += phaseInc
         phase -= Double(Int(phase))
 

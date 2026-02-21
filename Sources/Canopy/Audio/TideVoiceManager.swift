@@ -16,6 +16,9 @@ struct TideVoiceManager {
     /// Sample rate stored from render callback — used by NoteReceiver methods.
     var sampleRate: Double = 48000
 
+    /// WARM node-level state for inter-voice power sag.
+    var warmNodeState: WarmNodeState = WarmNodeState()
+
     /// Cached imprint frames for pattern index 16. Set via setImprint().
     var imprintFrames: [TideFrame]?
 
@@ -43,6 +46,16 @@ struct TideVoiceManager {
         voices.5.position = 1.85
         voices.6.position = 2.22
         voices.7.position = 2.59
+
+        // WARM: unique analog tolerance per voice
+        WarmProcessor.seedVoice(&voices.0.warmState, voiceIndex: 0)
+        WarmProcessor.seedVoice(&voices.1.warmState, voiceIndex: 1)
+        WarmProcessor.seedVoice(&voices.2.warmState, voiceIndex: 2)
+        WarmProcessor.seedVoice(&voices.3.warmState, voiceIndex: 3)
+        WarmProcessor.seedVoice(&voices.4.warmState, voiceIndex: 4)
+        WarmProcessor.seedVoice(&voices.5.warmState, voiceIndex: 5)
+        WarmProcessor.seedVoice(&voices.6.warmState, voiceIndex: 6)
+        WarmProcessor.seedVoice(&voices.7.warmState, voiceIndex: 7)
     }
 
     // MARK: - Imprint
@@ -263,6 +276,10 @@ struct TideVoiceManager {
         if !voices.5.isActive && pitches.5 != -1 { pitches.5 = -1 }
         if !voices.6.isActive && pitches.6 != -1 { pitches.6 = -1 }
         if !voices.7.isActive && pitches.7 != -1 { pitches.7 = -1 }
+
+        // WARM: inter-voice power sag (before safety tanh)
+        let warmLevel = Float(voices.0.warmthParam)
+        (mixL, mixR) = WarmProcessor.applyPowerSag(&warmNodeState, sampleL: mixL, sampleR: mixR, warm: warmLevel)
 
         // Safety tanh at the sum (same approach as FlowVoiceManager)
         let outL = Float(tanh(Double(mixL) * 0.5) * 6.0)
