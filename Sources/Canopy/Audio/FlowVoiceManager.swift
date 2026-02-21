@@ -231,22 +231,26 @@ struct FlowVoiceManager {
     /// Apply FLOW parameters to all 8 voices.
     mutating func configureFlow(
         current: Double, viscosity: Double, obstacle: Double,
-        channel: Double, density: Double, warmth: Double
+        channel: Double, density: Double, warmth: Double,
+        filter: Double, filterMode: Int, width: Double,
+        attack: Double, decay: Double
     ) {
-        applyConfig(&voices.0, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
-        applyConfig(&voices.1, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
-        applyConfig(&voices.2, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
-        applyConfig(&voices.3, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
-        applyConfig(&voices.4, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
-        applyConfig(&voices.5, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
-        applyConfig(&voices.6, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
-        applyConfig(&voices.7, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth)
+        applyConfig(&voices.0, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay)
+        applyConfig(&voices.1, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay)
+        applyConfig(&voices.2, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay)
+        applyConfig(&voices.3, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay)
+        applyConfig(&voices.4, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay)
+        applyConfig(&voices.5, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay)
+        applyConfig(&voices.6, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay)
+        applyConfig(&voices.7, current: current, viscosity: viscosity, obstacle: obstacle, channel: channel, density: density, warmth: warmth, filter: filter, filterMode: filterMode, width: width, attack: attack, decay: decay)
     }
 
     private func applyConfig(
         _ voice: inout FlowVoice,
         current: Double, viscosity: Double, obstacle: Double,
-        channel: Double, density: Double, warmth: Double
+        channel: Double, density: Double, warmth: Double,
+        filter: Double, filterMode: Int, width: Double,
+        attack: Double, decay: Double
     ) {
         voice.currentTarget = current
         voice.viscosityTarget = viscosity
@@ -254,22 +258,29 @@ struct FlowVoiceManager {
         voice.channelTarget = channel
         voice.densityTarget = density
         voice.warmthTarget = warmth
+        voice.filterTarget = filter
+        voice.filterModeParam = filterMode
+        voice.widthTarget = width
+        voice.attackTarget = attack
+        voice.decayTarget = decay
     }
 
-    /// Render one sample: sum all 8 voices, then soft-limit once.
+    /// Render one stereo sample: sum all 8 voices, then soft-limit once.
     /// Single tanh at the sum — NOT per-voice. Per-voice tanh creates odd harmonics
     /// that intermodulate when summed, producing distortion that scales with voice count.
     /// One tanh on the sum gracefully handles any number of voices without volume pumping.
-    mutating func renderSample(sampleRate: Double) -> Float {
-        var mix: Float = 0
-        mix += voices.0.renderSample(sampleRate: sampleRate)
-        mix += voices.1.renderSample(sampleRate: sampleRate)
-        mix += voices.2.renderSample(sampleRate: sampleRate)
-        mix += voices.3.renderSample(sampleRate: sampleRate)
-        mix += voices.4.renderSample(sampleRate: sampleRate)
-        mix += voices.5.renderSample(sampleRate: sampleRate)
-        mix += voices.6.renderSample(sampleRate: sampleRate)
-        mix += voices.7.renderSample(sampleRate: sampleRate)
+    mutating func renderStereoSample(sampleRate: Double) -> (Float, Float) {
+        let (l0, r0) = voices.0.renderStereoSample(sampleRate: sampleRate)
+        let (l1, r1) = voices.1.renderStereoSample(sampleRate: sampleRate)
+        let (l2, r2) = voices.2.renderStereoSample(sampleRate: sampleRate)
+        let (l3, r3) = voices.3.renderStereoSample(sampleRate: sampleRate)
+        let (l4, r4) = voices.4.renderStereoSample(sampleRate: sampleRate)
+        let (l5, r5) = voices.5.renderStereoSample(sampleRate: sampleRate)
+        let (l6, r6) = voices.6.renderStereoSample(sampleRate: sampleRate)
+        let (l7, r7) = voices.7.renderStereoSample(sampleRate: sampleRate)
+
+        var mixL = l0 + l1 + l2 + l3 + l4 + l5 + l6 + l7
+        var mixR = r0 + r1 + r2 + r3 + r4 + r5 + r6 + r7
 
         // Clear pitch assignments for voices that finished
         if !voices.0.isActive && pitches.0 != -1 { pitches.0 = -1 }
@@ -283,13 +294,18 @@ struct FlowVoiceManager {
 
         // WARM: inter-voice power sag (before safety tanh)
         let warmLevel = Float(voices.0.warmthParam)
-        mix = WarmProcessor.applyPowerSagMono(&warmNodeState, sample: mix, warm: warmLevel)
+        (mixL, mixR) = WarmProcessor.applyPowerSag(&warmNodeState, sampleL: mixL, sampleR: mixR, warm: warmLevel)
 
         // Two-stage output: gentle tanh tames peaks, then linear gain boosts volume.
-        // tanh(mix * 0.7) barely compresses single voices but catches multi-voice peaks.
-        // The ×3.5 linear boost brings FLOW in line with other synths.
-        // Shore (master bus limiter) handles any output exceeding ±1.0.
-        return Float(tanh(Double(mix) * 0.4) * 7.99)
+        let outL = Float(tanh(Double(mixL) * 0.4) * 7.99)
+        let outR = Float(tanh(Double(mixR) * 0.4) * 7.99)
+        return (outL, outR)
+    }
+
+    /// Render one mono sample (NoteReceiver compatibility).
+    mutating func renderSample(sampleRate: Double) -> Float {
+        let (l, r) = renderStereoSample(sampleRate: sampleRate)
+        return (l + r) * 0.5
     }
 
     /// Kill all voices immediately.

@@ -525,6 +525,11 @@ struct FlowConfig: Codable, Equatable {
     var warmth: Double      // 0–1: per-voice soft saturation (tanh drive)
     var volume: Double      // 0–1
     var pan: Double         // -1 to +1
+    var filter: Double      // 0–1: SVF cutoff (200Hz–bypass)
+    var filterMode: Int     // 0=LP, 1=BP, 2=HP
+    var width: Double       // 0–1: binaural stereo spread
+    var attack: Double      // 0–1: envelope attack (1ms–500ms)
+    var decay: Double       // 0–1: envelope release (50ms–5000ms)
 
     // IMPRINT
     var imprint: SpectralImprint?
@@ -539,6 +544,11 @@ struct FlowConfig: Codable, Equatable {
         warmth: Double = 0.3,
         volume: Double = 0.8,
         pan: Double = 0.0,
+        filter: Double = 1.0,
+        filterMode: Int = 0,
+        width: Double = 0.5,
+        attack: Double = 0.01,
+        decay: Double = 0.3,
         imprint: SpectralImprint? = nil,
         spectralSource: SpectralSource = .default
     ) {
@@ -550,6 +560,11 @@ struct FlowConfig: Codable, Equatable {
         self.warmth = warmth
         self.volume = volume
         self.pan = pan
+        self.filter = filter
+        self.filterMode = filterMode
+        self.width = width
+        self.attack = attack
+        self.decay = decay
         self.imprint = imprint
         self.spectralSource = spectralSource
     }
@@ -566,6 +581,11 @@ struct FlowConfig: Codable, Equatable {
         warmth = try container.decode(Double.self, forKey: .warmth)
         volume = try container.decode(Double.self, forKey: .volume)
         pan = try container.decode(Double.self, forKey: .pan)
+        filter = try container.decodeIfPresent(Double.self, forKey: .filter) ?? 1.0
+        filterMode = try container.decodeIfPresent(Int.self, forKey: .filterMode) ?? 0
+        width = try container.decodeIfPresent(Double.self, forKey: .width) ?? 0.5
+        attack = try container.decodeIfPresent(Double.self, forKey: .attack) ?? 0.01
+        decay = try container.decodeIfPresent(Double.self, forKey: .decay) ?? 0.3
         imprint = try container.decodeIfPresent(SpectralImprint.self, forKey: .imprint)
         spectralSource = try container.decodeIfPresent(SpectralSource.self, forKey: .spectralSource) ?? .default
     }

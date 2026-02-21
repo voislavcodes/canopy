@@ -53,7 +53,9 @@ enum AudioCommand {
 
     // FLOW engine: 64-partial fluid simulation
     case setFlow(current: Double, viscosity: Double, obstacle: Double,
-                 channel: Double, density: Double, warmth: Double, volume: Double)
+                 channel: Double, density: Double, warmth: Double, volume: Double,
+                 filter: Double, filterMode: Int, width: Double,
+                 attack: Double, decay: Double)
 
     // TIDE engine: spectral sequencing synthesizer
     case setTide(current: Double, pattern: Int, rate: Double,

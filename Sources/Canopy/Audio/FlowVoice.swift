@@ -30,6 +30,15 @@ struct FlowPartial {
     var pmDepth: Double = 0
     var pmDepthTarget: Double = 0
     var pmDepthStep: Double = 0
+
+    // Binaural stereo: R channel gets independent phase accumulators
+    // and slightly different fluid modulation targets
+    var phaseR: Double = 0
+    var pmPhaseR: Double = 0
+    var freqOffsetR: Double = 0
+    var freqOffsetStepR: Double = 0
+    var ampScaleR: Double = 1
+    var ampScaleStepR: Double = 0
 }
 
 /// Per-voice DSP for the FLOW engine.
@@ -81,6 +90,23 @@ struct FlowVoice {
     var densityTarget: Double = 0.5
     var warmthParam: Double = 0.3
     var warmthTarget: Double = 0.3
+
+    // SVF filter (Chamberlin, stereo independent L/R state)
+    var filterParam: Double = 1.0
+    var filterTarget: Double = 1.0
+    var filterModeParam: Int = 0
+    private var svfLowL: Double = 0, svfBandL: Double = 0
+    private var svfLowR: Double = 0, svfBandR: Double = 0
+
+    // Binaural width
+    var widthParam: Double = 0.5
+    var widthTarget: Double = 0.5
+
+    // Configurable envelope
+    var attackParam: Double = 0.01
+    var attackTarget: Double = 0.01
+    var decayParam: Double = 0.3
+    var decayTarget: Double = 0.3
 
     // MARK: - Note state
 
@@ -198,8 +224,10 @@ struct FlowVoice {
         self.envPhase = 1
         self.envValue = 0
         self.cachedSampleRate = sampleRate
-        self.attackRate = 1.0 / max(1, 0.005 * sampleRate)
-        self.releaseRate = 1.0 / max(1, 0.1 * sampleRate)
+        let atkSec = 0.001 * pow(500.0, max(0, min(1, attackParam)))
+        let relSec = 0.05 * pow(100.0, max(0, min(1, decayParam)))
+        self.attackRate = 1.0 / max(1, atkSec * sampleRate)
+        self.releaseRate = 1.0 / max(1, relSec * sampleRate)
         self.controlCounter = 0
         self.pendingPitch = -1
 
@@ -229,6 +257,13 @@ struct FlowVoice {
                     p[i].pmDepthStep = 0
                     p[i].vorticity = 0
                     p[i].laminarPhase = Double(i) * 0.1
+                    // Binaural R-channel: start in phase with L
+                    p[i].phaseR = 0
+                    p[i].pmPhaseR = 0
+                    p[i].freqOffsetR = 0
+                    p[i].freqOffsetStepR = 0
+                    p[i].ampScaleR = 1
+                    p[i].ampScaleStepR = 0
                 }
             }
         }
@@ -238,7 +273,8 @@ struct FlowVoice {
     mutating func release(sampleRate: Double) {
         if envPhase != 0 {
             envPhase = 3
-            releaseRate = 1.0 / max(1, 0.1 * sampleRate)
+            let relSec = 0.05 * pow(100.0, max(0, min(1, decayParam)))
+            releaseRate = 1.0 / max(1, relSec * sampleRate)
         }
     }
 
@@ -261,11 +297,18 @@ struct FlowVoice {
 
     // MARK: - Render
 
-    /// Render one sample. Control-rate values (Reynolds, regime, shedding, noise)
-    /// are computed BEFORE the pointer borrow. The pointer block then handles both
-    /// control-rate partial updates and per-sample rendering in a single borrow.
+    /// Render one mono sample (NoteReceiver compatibility wrapper).
     mutating func renderSample(sampleRate: Double) -> Float {
-        guard isActive else { return 0 }
+        let (l, r) = renderStereoSample(sampleRate: sampleRate)
+        return (l + r) * 0.5
+    }
+
+    /// Render one stereo sample with binaural width, SVF filter, and configurable envelope.
+    /// Control-rate values (Reynolds, regime, shedding, noise) are computed BEFORE the
+    /// pointer borrow. The pointer block handles both control-rate partial updates and
+    /// per-sample rendering in a single borrow.
+    mutating func renderStereoSample(sampleRate: Double) -> (Float, Float) {
+        guard isActive else { return (0, 0) }
 
         advanceEnvelope()
         guard envValue > 0.0001 else {
@@ -273,7 +316,7 @@ struct FlowVoice {
                 isActive = false
                 envelopeLevel = 0
             }
-            return 0
+            return (0, 0)
         }
         envelopeLevel = Float(envValue)
 
@@ -297,9 +340,14 @@ struct FlowVoice {
         channelParam += (channelTarget - channelParam) * paramSmooth
         densityParam += (densityTarget - densityParam) * paramSmooth
         warmthParam += (warmthTarget - warmthParam) * paramSmooth
+        filterParam += (filterTarget - filterParam) * paramSmooth
+        widthParam += (widthTarget - widthParam) * paramSmooth
+        attackParam += (attackTarget - attackParam) * paramSmooth
+        decayParam += (decayTarget - decayParam) * paramSmooth
 
         // Single pointer borrow for ALL partial access (control update + render)
-        var mix: Double = 0
+        var mixL: Double = 0
+        var mixR: Double = 0
         let invSR = 1.0 / sampleRate
         let nyquist = sampleRate * 0.5 - 100
         let invBlock = 1.0 / Double(Self.controlBlockSize)
@@ -312,6 +360,8 @@ struct FlowVoice {
         let shedCos = cachedSheddingCos
         let noises = cachedNoises
         let driftMul = Double(warmState.cachedDriftMul)
+        let w = widthParam
+        let doStereo = w > 0.001
 
         withUnsafeMutablePointer(to: &partials) { ptr in
             ptr.withMemoryRebound(to: FlowPartial.self, capacity: Self.partialCount) { p in
@@ -364,38 +414,115 @@ struct FlowVoice {
                         p[i].ampScaleStep = (ampTarget - p[i].ampScale) * invBlock
                         p[i].pmDepthTarget = pmTarget
                         p[i].pmDepthStep = (pmTarget - p[i].pmDepth) * invBlock
+
+                        // Binaural R-channel: decorrelated fluid targets
+                        if doStereo {
+                            let stereoNoise = Self.quickNoise(p[i].laminarPhase + Double(i)) * 0.5
+                            let decorr = w * stereoNoise
+                            p[i].freqOffsetStepR = ((freqTarget + decorr * 2.0) - p[i].freqOffsetR) * invBlock
+                            p[i].ampScaleStepR = ((ampTarget * (1.0 + decorr * 0.1)) - p[i].ampScaleR) * invBlock
+                        } else {
+                            // Mono: R tracks L exactly
+                            p[i].freqOffsetStepR = p[i].freqOffsetStep
+                            p[i].ampScaleStepR = p[i].ampScaleStep
+                        }
                     }
                 }
 
                 // Per-sample: interpolate + render all partials
                 for i in 0..<Self.partialCount {
+                    // Interpolate L (existing)
                     p[i].freqOffset += p[i].freqOffsetStep
                     p[i].ampScale += p[i].ampScaleStep
                     p[i].pmDepth += p[i].pmDepthStep
 
-                    let rawFreq = p[i].baseFreq * driftMul + p[i].freqOffset
-                    guard rawFreq < nyquist else { continue }
-                    let freq = max(rawFreq, 20)
+                    // L channel
+                    let rawFreqL = p[i].baseFreq * driftMul + p[i].freqOffset
+                    guard rawFreqL < nyquist else { continue }
+                    let freqL = max(rawFreqL, 20)
 
-                    let pm = sin(2.0 * .pi * p[i].pmPhase) * p[i].pmDepth
-                    p[i].pmPhase += freq * 1.001 * invSR
+                    let pmL = sin(2.0 * .pi * p[i].pmPhase) * p[i].pmDepth
+                    p[i].pmPhase += freqL * 1.001 * invSR
                     p[i].pmPhase -= Double(Int(p[i].pmPhase))
 
-                    let sample = sin(2.0 * .pi * p[i].phase + pm)
-                    p[i].phase += freq * invSR
+                    let sampleL = sin(2.0 * .pi * p[i].phase + pmL)
+                    p[i].phase += freqL * invSR
                     p[i].phase -= Double(Int(p[i].phase))
 
-                    let amp = p[i].baseAmp * max(p[i].ampScale, 0)
-                    mix += sample * amp
+                    let ampL = p[i].baseAmp * max(p[i].ampScale, 0)
+                    mixL += sampleL * ampL
+
+                    // R channel (binaural)
+                    p[i].freqOffsetR += p[i].freqOffsetStepR
+                    p[i].ampScaleR += p[i].ampScaleStepR
+
+                    // Binaural detune: 0–3 Hz scaling with harmonic index
+                    // Fundamental stays centered, upper partials create spatial beating
+                    let binauralDetune = w * Double(i) / 63.0 * 3.0
+                    let rawFreqR = p[i].baseFreq * driftMul + p[i].freqOffsetR + binauralDetune
+                    let freqR = max(min(rawFreqR, nyquist), 20)
+
+                    // R PM with slightly different depth (timbral decorrelation)
+                    let pmR = sin(2.0 * .pi * p[i].pmPhaseR) * p[i].pmDepth * (1.0 + w * 0.15)
+                    p[i].pmPhaseR += freqR * 1.001 * invSR
+                    p[i].pmPhaseR -= Double(Int(p[i].pmPhaseR))
+
+                    let sampleR = sin(2.0 * .pi * p[i].phaseR + pmR)
+                    p[i].phaseR += freqR * invSR
+                    p[i].phaseR -= Double(Int(p[i].phaseR))
+
+                    let ampR = p[i].baseAmp * max(p[i].ampScaleR, 0)
+                    mixR += sampleR * ampR
                 }
             }
         }
 
-        mix *= 0.1
-        mix *= envValue * Double(velocity)
-        var out = Float(mix)
-        out = WarmProcessor.processSample(&warmState, sample: out, warm: Float(warmthParam), sampleRate: Float(sampleRate))
-        return out
+        if !doStereo { mixR = mixL }
+
+        mixL *= 0.1
+        mixR *= 0.1
+
+        var outL = Float(mixL)
+        var outR = Float(mixR)
+
+        // SVF filter (Chamberlin, independent L/R state)
+        if filterParam < 0.99 {
+            let cutoff = 200.0 * pow(80.0, filterParam)
+            let f = 2.0 * sin(.pi * cutoff / sampleRate)
+            let q: Double = 1.5
+
+            svfLowL += f * svfBandL
+            let highL = Double(outL) - svfLowL - q * svfBandL
+            svfBandL += f * highL
+
+            svfLowR += f * svfBandR
+            let highR = Double(outR) - svfLowR - q * svfBandR
+            svfBandR += f * highR
+
+            switch filterModeParam {
+            case 1: outL = Float(svfBandL); outR = Float(svfBandR)  // Bandpass
+            case 2: outL = Float(highL); outR = Float(highR)        // Highpass
+            default: outL = Float(svfLowL); outR = Float(svfLowR)   // Lowpass
+            }
+        }
+
+        // Per-voice WARM analog physics (stereo)
+        (outL, outR) = WarmProcessor.processStereo(&warmState, sampleL: outL, sampleR: outR,
+                                                    warm: Float(warmthParam), sampleRate: Float(sampleRate))
+
+        // Envelope × velocity LAST — gates entire chain including WARM noise/artifacts
+        let envVel = Float(envValue * velocity)
+        outL *= envVel
+        outR *= envVel
+
+        return (outL, outR)
+    }
+
+    /// Fast deterministic noise for binaural decorrelation (no RNG state mutation).
+    @inline(__always)
+    private static func quickNoise(_ x: Double) -> Double {
+        let n = sin(x * 12.9898 + x * 78.233) * 43758.5453
+        return n - Double(Int(n))
     }
 
     // MARK: - Envelope

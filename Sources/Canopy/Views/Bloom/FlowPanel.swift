@@ -17,9 +17,16 @@ struct FlowPanel: View {
     @State private var localDensity: Double = 0.5
 
     // Output
+    @State private var localFilter: Double = 1.0
+    @State private var localFilterMode: Int = 0
+    @State private var localWidth: Double = 0.5
+    @State private var localAttack: Double = 0.01
+    @State private var localDecay: Double = 0.3
     @State private var localWarmth: Double = 0.3
     @State private var localVolume: Double = 0.8
     @State private var localPan: Double = 0.0
+
+    private let filterModeLabels = ["LP", "BP", "HP"]
 
     // Imprint
     @StateObject private var imprintRecorder = ImprintRecorder()
@@ -203,6 +210,11 @@ struct FlowPanel: View {
         localObstacle = config.obstacle
         localChannel = config.channel
         localDensity = config.density
+        localFilter = config.filter
+        localFilterMode = config.filterMode
+        localWidth = config.width
+        localAttack = config.attack
+        localDecay = config.decay
         localWarmth = config.warmth
         localVolume = config.volume
         localPan = config.pan
@@ -223,6 +235,28 @@ struct FlowPanel: View {
     private var outputSection: some View {
         VStack(alignment: .leading, spacing: 5 * cs) {
             sectionLabel("OUTPUT")
+
+            paramSlider(label: "FILT", value: $localFilter, range: 0...1,
+                        format: { filterDisplayText($0) }) {
+                commitConfig { $0.filter = localFilter }
+            } onDrag: { pushConfigToEngine() }
+
+            filterModeSelector
+
+            paramSlider(label: "WDTH", value: $localWidth, range: 0...1,
+                        format: { "\(Int($0 * 100))%" }) {
+                commitConfig { $0.width = localWidth }
+            } onDrag: { pushConfigToEngine() }
+
+            paramSlider(label: "ATK", value: $localAttack, range: 0...1,
+                        format: { attackDisplayText($0) }) {
+                commitConfig { $0.attack = localAttack }
+            } onDrag: { pushConfigToEngine() }
+
+            paramSlider(label: "DCY", value: $localDecay, range: 0...1,
+                        format: { decayDisplayText($0) }) {
+                commitConfig { $0.decay = localDecay }
+            } onDrag: { pushConfigToEngine() }
 
             paramSlider(label: "WARM", value: $localWarmth, range: 0...1,
                         format: { "\(Int($0 * 100))%" }) {
@@ -246,6 +280,36 @@ struct FlowPanel: View {
                     .font(.system(size: 8 * cs, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText.opacity(0.4))
             }
+        }
+    }
+
+    // MARK: - Filter Mode Selector
+
+    private var filterModeSelector: some View {
+        HStack(spacing: 3 * cs) {
+            Text("    ")
+                .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                .frame(width: 38 * cs, alignment: .trailing)
+
+            ForEach(0..<3, id: \.self) { mode in
+                Button(action: {
+                    localFilterMode = mode
+                    commitConfig { $0.filterMode = mode }
+                    pushConfigToEngine()
+                }) {
+                    Text(filterModeLabels[mode])
+                        .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                        .foregroundColor(localFilterMode == mode ? accentColor : CanopyColors.chromeText.opacity(0.35))
+                        .padding(.horizontal, 5 * cs)
+                        .padding(.vertical, 2 * cs)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3 * cs)
+                                .fill(localFilterMode == mode ? accentColor.opacity(0.15) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
         }
     }
 
@@ -348,6 +412,28 @@ struct FlowPanel: View {
         }
     }
 
+    // MARK: - Display Helpers
+
+    private func filterDisplayText(_ v: Double) -> String {
+        if v >= 0.99 { return "BYP" }
+        let hz = 200.0 * pow(80.0, v)
+        if hz < 1000 { return "\(Int(hz))Hz" }
+        return String(format: "%.1fk", hz / 1000.0)
+    }
+
+    private func attackDisplayText(_ v: Double) -> String {
+        let ms = 0.001 * pow(500.0, v) * 1000
+        if ms < 10 { return String(format: "%.1fms", ms) }
+        if ms < 1000 { return "\(Int(ms))ms" }
+        return String(format: "%.1fs", ms / 1000.0)
+    }
+
+    private func decayDisplayText(_ v: Double) -> String {
+        let ms = 0.05 * pow(100.0, v) * 1000
+        if ms < 1000 { return "\(Int(ms))ms" }
+        return String(format: "%.1fs", ms / 1000.0)
+    }
+
     // MARK: - Commit Helpers
 
     private func commitConfig(_ transform: (inout FlowConfig) -> Void) {
@@ -378,7 +464,12 @@ struct FlowPanel: View {
             density: localDensity,
             warmth: localWarmth,
             volume: localVolume,
-            pan: localPan
+            pan: localPan,
+            filter: localFilter,
+            filterMode: localFilterMode,
+            width: localWidth,
+            attack: localAttack,
+            decay: localDecay
         )
         AudioEngine.shared.configureFlow(config, nodeID: nodeID)
     }
