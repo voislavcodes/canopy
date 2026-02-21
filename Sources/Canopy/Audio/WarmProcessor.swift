@@ -38,6 +38,9 @@ struct WarmVoiceState {
     // HF rolloff (one-pole lowpass)
     var hfStateL: Float = 0
     var hfStateR: Float = 0
+
+    // Noise envelope follower (tracks signal level for noise gating)
+    var noiseEnvelope: Float = 0
 }
 
 /// Per-manager (node-level) analog warmth state for inter-voice power sag.
@@ -142,8 +145,13 @@ enum WarmProcessor {
         let w2 = warm * warm
         let w3 = w2 * warm
 
-        // Gate noise by input signal level (fades with voice envelope, no lingering)
-        let noiseGate = min(1.0, abs(sample) * 500.0)
+        // Track signal level for noise scaling (instant attack, ~100ms release)
+        let inputMag = abs(sample)
+        if inputMag > state.noiseEnvelope {
+            state.noiseEnvelope = inputMag
+        } else {
+            state.noiseEnvelope *= 0.999
+        }
 
         // --- 1. Asymmetric saturation with first-order ADAA ---
         let drive: Float = 1.0 + warm * 3.0   // linear: 1→4
@@ -162,8 +170,8 @@ enum WarmProcessor {
         state.dcPrevOutL = dcOut
         x = dcOut
 
-        // --- 3. Pink noise floor (cubic scaling, gated by signal presence) ---
-        x += pinkNoise(&state) * w3 * 0.0005 * noiseGate
+        // --- 3. Pink noise floor (scaled by signal envelope — fades with release) ---
+        x += pinkNoise(&state) * w3 * state.noiseEnvelope * 0.003
 
         // --- 4. HF rolloff (one-pole lowpass, linear cutoff 22kHz→12kHz) ---
         let cutoff = 22000.0 - warm * 10000.0
@@ -191,8 +199,13 @@ enum WarmProcessor {
         let w2 = warm * warm
         let w3 = w2 * warm
 
-        // Gate noise by input signal level (fades with voice envelope, no lingering)
-        let noiseGate = min(1.0, max(abs(sampleL), abs(sampleR)) * 500.0)
+        // Track signal level for noise scaling (instant attack, ~100ms release)
+        let inputMag = max(abs(sampleL), abs(sampleR))
+        if inputMag > state.noiseEnvelope {
+            state.noiseEnvelope = inputMag
+        } else {
+            state.noiseEnvelope *= 0.999
+        }
 
         // --- 1. Asymmetric saturation with ADAA ---
         let drive: Float = 1.0 + warm * 3.0
@@ -222,8 +235,8 @@ enum WarmProcessor {
         state.dcPrevOutR = dcOutR
         xR = dcOutR
 
-        // --- 3. Pink noise floor (gated by signal presence) ---
-        let noiseScale = w3 * 0.0005 * noiseGate
+        // --- 3. Pink noise floor (scaled by signal envelope — fades with release) ---
+        let noiseScale = w3 * state.noiseEnvelope * 0.003
         xL += pinkNoise(&state) * noiseScale
         xR += pinkNoise(&state) * noiseScale
 
