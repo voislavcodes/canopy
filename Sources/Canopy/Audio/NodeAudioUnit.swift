@@ -1772,12 +1772,13 @@ final class NodeAudioUnit {
                 case .setLFOSlotCount(let count):
                     lfoBank.slotCount = count
 
-                case .setSpore(let density, let focus, let grain, let evolve,
+                case .setSpore(let density, let form, let focus, let size,
+                               let chirp, let evolve, let filter,
                                let warmth, let newVolume):
                     volume = newVolume
                     spore.configureSpore(
-                        density: density, focus: focus, grain: grain,
-                        evolve: evolve, warmth: warmth
+                        density: density, form: form, focus: focus, size: size,
+                        chirp: chirp, evolve: evolve, filter: filter, warmth: warmth
                     )
 
                 case .setSporeImprint(let amplitudes):
@@ -2100,9 +2101,9 @@ final class NodeAudioUnit {
 
     func configureSpore(_ config: SporeConfig) {
         commandBuffer.push(.setSpore(
-            density: config.density, focus: config.focus,
-            grain: config.grain, evolve: config.evolve,
-            warmth: config.warmth, volume: config.volume
+            density: config.density, form: config.form, focus: config.focus,
+            size: config.size, chirp: config.chirp, evolve: config.evolve,
+            filter: config.filter, warmth: config.warmth, volume: config.volume
         ))
         // Push imprint if present
         if config.spectralSource == .imprint, let imprint = config.imprint {

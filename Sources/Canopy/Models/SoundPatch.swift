@@ -596,13 +596,16 @@ struct FlowConfig: Codable, Equatable {
 
 /// SPORE engine: stochastic granular synthesis.
 /// A pool of 64 grains fired by a Poisson clock, each drawn from a probability
-/// landscape shaped by harmonic weighting and Gaussian scatter.
-/// Four controls steer grain density, harmonic focus, grain size, and evolution.
+/// landscape shaped by harmonic weighting, waveform morphing, and spectral focus.
+/// Six source controls + filter/warmth output section.
 struct SporeConfig: Codable, Equatable {
-    var density: Double = 0.5       // 0–1: grain rate (Poisson λ)
-    var focus: Double = 0.5         // 0–1: harmonic clustering (0 = noise, 1 = pure tone)
-    var grain: Double = 0.4         // 0–1: grain duration
-    var evolve: Double = 0.3        // 0–1: distribution evolution rate
+    var density: Double = 0.5       // 0–1: grain rate (0.2–12000 grains/sec exponential)
+    var form: Double = 0.0          // 0–1: waveform morph (sine→tri→saw→FM→noise)
+    var focus: Double = 0.5         // 0–1: frequency distribution (free spectrum → inharmonic → harmonic)
+    var size: Double = 0.4          // 0–1: grain duration (1ms–2000ms exponential)
+    var chirp: Double = 0.0         // -1 to +1: grain pitch sweep (negative=rises, positive=falls)
+    var evolve: Double = 0.3        // 0–1: evolution rate on all dimensions
+    var filter: Double = 1.0        // 0–1: per-voice SVF lowpass cutoff (200Hz–bypass)
     var warmth: Double = 0.3        // 0–1: per-voice tanh drive
     var volume: Double = 0.7        // 0–1: output level
     var pan: Double = 0.0           // -1 to +1: stereo position
@@ -613,9 +616,12 @@ struct SporeConfig: Codable, Equatable {
 
     init(
         density: Double = 0.5,
+        form: Double = 0.0,
         focus: Double = 0.5,
-        grain: Double = 0.4,
+        size: Double = 0.4,
+        chirp: Double = 0.0,
         evolve: Double = 0.3,
+        filter: Double = 1.0,
         warmth: Double = 0.3,
         volume: Double = 0.7,
         pan: Double = 0.0,
@@ -623,9 +629,12 @@ struct SporeConfig: Codable, Equatable {
         spectralSource: SpectralSource = .default
     ) {
         self.density = density
+        self.form = form
         self.focus = focus
-        self.grain = grain
+        self.size = size
+        self.chirp = chirp
         self.evolve = evolve
+        self.filter = filter
         self.warmth = warmth
         self.volume = volume
         self.pan = pan
@@ -635,12 +644,25 @@ struct SporeConfig: Codable, Equatable {
 
     // MARK: - Backward-compatible decoding
 
+    private enum CodingKeys: String, CodingKey {
+        case density, form, focus, size, grain, chirp, evolve, filter, warmth, volume, pan
+        case imprint, spectralSource
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         density = try container.decode(Double.self, forKey: .density)
+        form = try container.decodeIfPresent(Double.self, forKey: .form) ?? 0.0
         focus = try container.decode(Double.self, forKey: .focus)
-        grain = try container.decode(Double.self, forKey: .grain)
+        // Try 'size' first, fall back to 'grain' for old files
+        if let s = try container.decodeIfPresent(Double.self, forKey: .size) {
+            size = s
+        } else {
+            size = try container.decodeIfPresent(Double.self, forKey: .grain) ?? 0.4
+        }
+        chirp = try container.decodeIfPresent(Double.self, forKey: .chirp) ?? 0.0
         evolve = try container.decode(Double.self, forKey: .evolve)
+        filter = try container.decodeIfPresent(Double.self, forKey: .filter) ?? 1.0
         warmth = try container.decode(Double.self, forKey: .warmth)
         volume = try container.decode(Double.self, forKey: .volume)
         pan = try container.decode(Double.self, forKey: .pan)
@@ -648,32 +670,48 @@ struct SporeConfig: Codable, Equatable {
         spectralSource = try container.decodeIfPresent(SpectralSource.self, forKey: .spectralSource) ?? .default
     }
 
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(density, forKey: .density)
+        try container.encode(form, forKey: .form)
+        try container.encode(focus, forKey: .focus)
+        try container.encode(size, forKey: .size)
+        try container.encode(chirp, forKey: .chirp)
+        try container.encode(evolve, forKey: .evolve)
+        try container.encode(filter, forKey: .filter)
+        try container.encode(warmth, forKey: .warmth)
+        try container.encode(volume, forKey: .volume)
+        try container.encode(pan, forKey: .pan)
+        try container.encodeIfPresent(imprint, forKey: .imprint)
+        try container.encode(spectralSource, forKey: .spectralSource)
+    }
+
     // MARK: - Preset Seeds
 
-    /// Geiger counter: sparse, random clicks.
-    static let geiger = SporeConfig(density: 0.15, focus: 0.1, grain: 0.05, evolve: 0.0)
+    /// Geiger counter: sparse clicks across the spectrum.
+    static let geiger = SporeConfig(density: 0.15, form: 0.0, focus: 0.1, size: 0.02, chirp: 0.0, evolve: 0.0)
     /// Gentle biological: soft, diffuse spores.
-    static let spores = SporeConfig(density: 0.3, focus: 0.3, grain: 0.3, evolve: 0.2)
-    /// Busy colony: dense, moderately focused.
-    static let colony = SporeConfig(density: 0.6, focus: 0.5, grain: 0.4, evolve: 0.3)
-    /// Insect swarm: high density, moderate scatter.
-    static let swarmPreset = SporeConfig(density: 0.8, focus: 0.3, grain: 0.2, evolve: 0.4)
-    /// Blooming: slow grains, focused harmonics.
-    static let bloom = SporeConfig(density: 0.4, focus: 0.7, grain: 0.6, evolve: 0.2)
-    /// Foggy: dense, very unfocused, long grains.
-    static let fog = SporeConfig(density: 0.7, focus: 0.1, grain: 0.8, evolve: 0.1)
-    /// Radio static: very dense, no focus.
-    static let staticPreset = SporeConfig(density: 0.9, focus: 0.0, grain: 0.05, evolve: 0.0)
-    /// Crystal: focused harmonics, moderate density.
-    static let crystal = SporeConfig(density: 0.5, focus: 0.9, grain: 0.3, evolve: 0.1)
-    /// Mycelium network: evolving, moderately dense.
-    static let mycelium = SporeConfig(density: 0.5, focus: 0.4, grain: 0.5, evolve: 0.7)
-    /// Xenakis: chaotic, high energy, fast evolution.
-    static let xenakis = SporeConfig(density: 0.85, focus: 0.2, grain: 0.15, evolve: 0.9)
-    /// Fireflies: sparse, focused, gentle.
-    static let fireflies = SporeConfig(density: 0.2, focus: 0.6, grain: 0.4, evolve: 0.15)
-    /// Primordial: deep, slow, dark.
-    static let primordial = SporeConfig(density: 0.35, focus: 0.2, grain: 0.7, evolve: 0.5, warmth: 0.5)
+    static let spores = SporeConfig(density: 0.3, form: 0.1, focus: 0.3, size: 0.3, chirp: 0.0, evolve: 0.2)
+    /// Busy colony: dense, moderately focused saw grains.
+    static let colony = SporeConfig(density: 0.6, form: 0.45, focus: 0.5, size: 0.35, chirp: 0.0, evolve: 0.3)
+    /// Insect swarm: high density, FM metallic buzz.
+    static let swarmPreset = SporeConfig(density: 0.8, form: 0.7, focus: 0.3, size: 0.15, chirp: 0.1, evolve: 0.4)
+    /// Blooming: slow grains, focused harmonics, gentle chirp down.
+    static let bloom = SporeConfig(density: 0.4, form: 0.0, focus: 0.7, size: 0.6, chirp: 0.15, evolve: 0.2)
+    /// Foggy: dense noise wash, long grains, dark filter.
+    static let fog = SporeConfig(density: 0.7, form: 0.9, focus: 0.1, size: 0.8, chirp: 0.0, evolve: 0.1, filter: 0.3)
+    /// Radio static: very dense noise, no focus, tiny grains.
+    static let staticPreset = SporeConfig(density: 0.9, form: 1.0, focus: 0.0, size: 0.02, chirp: 0.0, evolve: 0.0)
+    /// Crystal: focused harmonics, clean sine, moderate density.
+    static let crystal = SporeConfig(density: 0.5, form: 0.0, focus: 0.9, size: 0.3, chirp: 0.0, evolve: 0.1)
+    /// Mycelium network: evolving FM textures.
+    static let mycelium = SporeConfig(density: 0.5, form: 0.65, focus: 0.4, size: 0.5, chirp: 0.05, evolve: 0.7)
+    /// Xenakis: chaotic, high energy, fast evolution, noise+chirps.
+    static let xenakis = SporeConfig(density: 0.85, form: 0.8, focus: 0.2, size: 0.12, chirp: -0.3, evolve: 0.9)
+    /// Fireflies: sparse, focused, gentle sine pings.
+    static let fireflies = SporeConfig(density: 0.2, form: 0.0, focus: 0.6, size: 0.35, chirp: 0.1, evolve: 0.15)
+    /// Primordial: deep, slow, dark, filtered saw drones.
+    static let primordial = SporeConfig(density: 0.35, form: 0.5, focus: 0.2, size: 0.7, chirp: 0.0, evolve: 0.5, filter: 0.4, warmth: 0.5)
 }
 
 /// Subdivision options for the SPORE probabilistic sequencer.

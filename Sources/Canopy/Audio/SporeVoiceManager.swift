@@ -32,7 +32,7 @@ struct SporeVoiceManager {
                   SporeVoice(), SporeVoice(), SporeVoice(), SporeVoice())
         pitches = (-1, -1, -1, -1, -1, -1, -1, -1)
 
-        // Unique noise seeds per voice (Rule 10: decorrelate grain streams)
+        // Unique noise seeds per voice (decorrelate grain streams)
         voices.0.noiseState = 0x1234_5678; voices.0.setEvolveSeed(0xAAAA_1111)
         voices.1.noiseState = 0x8765_4321; voices.1.setEvolveSeed(0xBBBB_2222)
         voices.2.noiseState = 0xDEAD_BEEF; voices.2.setEvolveSeed(0xCCCC_3333)
@@ -41,6 +41,16 @@ struct SporeVoiceManager {
         voices.5.noiseState = 0xBAAD_F00D; voices.5.setEvolveSeed(0xFFFF_6666)
         voices.6.noiseState = 0xD00D_BEAD; voices.6.setEvolveSeed(0x1111_7777)
         voices.7.noiseState = 0xC0DE_F00D; voices.7.setEvolveSeed(0x2222_8888)
+
+        // Per-voice detune ratios for natural chorus/width
+        voices.0.detuneRatio = SporeVoice.detuneRatios.0
+        voices.1.detuneRatio = SporeVoice.detuneRatios.1
+        voices.2.detuneRatio = SporeVoice.detuneRatios.2
+        voices.3.detuneRatio = SporeVoice.detuneRatios.3
+        voices.4.detuneRatio = SporeVoice.detuneRatios.4
+        voices.5.detuneRatio = SporeVoice.detuneRatios.5
+        voices.6.detuneRatio = SporeVoice.detuneRatios.6
+        voices.7.detuneRatio = SporeVoice.detuneRatios.7
     }
 
     // MARK: - Imprint
@@ -228,28 +238,31 @@ struct SporeVoiceManager {
 
     /// Apply SPORE parameters to all 8 voices.
     mutating func configureSpore(
-        density: Double, focus: Double, grain: Double,
-        evolve: Double, warmth: Double
+        density: Double, form: Double, focus: Double, size: Double,
+        chirp: Double, evolve: Double, filter: Double, warmth: Double
     ) {
-        applyConfig(&voices.0, density: density, focus: focus, grain: grain, evolve: evolve, warmth: warmth)
-        applyConfig(&voices.1, density: density, focus: focus, grain: grain, evolve: evolve, warmth: warmth)
-        applyConfig(&voices.2, density: density, focus: focus, grain: grain, evolve: evolve, warmth: warmth)
-        applyConfig(&voices.3, density: density, focus: focus, grain: grain, evolve: evolve, warmth: warmth)
-        applyConfig(&voices.4, density: density, focus: focus, grain: grain, evolve: evolve, warmth: warmth)
-        applyConfig(&voices.5, density: density, focus: focus, grain: grain, evolve: evolve, warmth: warmth)
-        applyConfig(&voices.6, density: density, focus: focus, grain: grain, evolve: evolve, warmth: warmth)
-        applyConfig(&voices.7, density: density, focus: focus, grain: grain, evolve: evolve, warmth: warmth)
+        applyConfig(&voices.0, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
+        applyConfig(&voices.1, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
+        applyConfig(&voices.2, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
+        applyConfig(&voices.3, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
+        applyConfig(&voices.4, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
+        applyConfig(&voices.5, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
+        applyConfig(&voices.6, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
+        applyConfig(&voices.7, density: density, form: form, focus: focus, size: size, chirp: chirp, evolve: evolve, filter: filter, warmth: warmth)
     }
 
     private func applyConfig(
         _ voice: inout SporeVoice,
-        density: Double, focus: Double, grain: Double,
-        evolve: Double, warmth: Double
+        density: Double, form: Double, focus: Double, size: Double,
+        chirp: Double, evolve: Double, filter: Double, warmth: Double
     ) {
         voice.densityTarget = density
+        voice.formTarget = form
         voice.focusTarget = focus
-        voice.grainTarget = grain
+        voice.sizeTarget = size
+        voice.chirpTarget = chirp
         voice.evolveTarget = evolve
+        voice.filterTarget = filter
         voice.warmthTarget = warmth
     }
 

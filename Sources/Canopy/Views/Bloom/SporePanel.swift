@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Bloom panel: SPORE engine controls.
-/// 4 grain parameters + warmth/volume/pan output section.
+/// 6 source sliders + filter/warmth/volume/pan output section.
 struct SporePanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
@@ -9,10 +9,13 @@ struct SporePanel: View {
     // MARK: - Local drag state
 
     @State private var localDensity: Double = 0.5
+    @State private var localForm: Double = 0.0
     @State private var localFocus: Double = 0.5
-    @State private var localGrain: Double = 0.4
+    @State private var localSize: Double = 0.4
+    @State private var localChirp: Double = 0.0
     @State private var localEvolve: Double = 0.3
 
+    @State private var localFilter: Double = 1.0
     @State private var localWarmth: Double = 0.3
     @State private var localVolume: Double = 0.7
     @State private var localPan: Double = 0.0
@@ -94,7 +97,7 @@ struct SporePanel: View {
 
             if sporeConfig != nil {
                 HStack(alignment: .top, spacing: 10 * cs) {
-                    // Left column: Source
+                    // Left column: Source (6 sliders)
                     VStack(alignment: .leading, spacing: 8 * cs) {
                         sectionLabel("SOURCE")
 
@@ -103,14 +106,24 @@ struct SporePanel: View {
                             commitConfig { $0.density = localDensity }
                         } onDrag: { pushConfigToEngine() }
 
+                        paramSlider(label: "FORM", value: $localForm, range: 0...1,
+                                    format: { formDisplayText($0) }) {
+                            commitConfig { $0.form = localForm }
+                        } onDrag: { pushConfigToEngine() }
+
                         paramSlider(label: "FOCS", value: $localFocus, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
                             commitConfig { $0.focus = localFocus }
                         } onDrag: { pushConfigToEngine() }
 
-                        paramSlider(label: "GRNS", value: $localGrain, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.grain = localGrain }
+                        paramSlider(label: "SIZE", value: $localSize, range: 0...1,
+                                    format: { sizeDisplayText($0) }) {
+                            commitConfig { $0.size = localSize }
+                        } onDrag: { pushConfigToEngine() }
+
+                        bipolarSlider(label: "CHRP", value: $localChirp,
+                                      format: { chirpDisplayText($0) }) {
+                            commitConfig { $0.chirp = localChirp }
                         } onDrag: { pushConfigToEngine() }
 
                         paramSlider(label: "EVLV", value: $localEvolve, range: 0...1,
@@ -126,6 +139,11 @@ struct SporePanel: View {
                     // Right column: Output
                     VStack(alignment: .leading, spacing: 8 * cs) {
                         sectionLabel("OUTPUT")
+
+                        paramSlider(label: "FILT", value: $localFilter, range: 0...1,
+                                    format: { filterDisplayText($0) }) {
+                            commitConfig { $0.filter = localFilter }
+                        } onDrag: { pushConfigToEngine() }
 
                         paramSlider(label: "WARM", value: $localWarmth, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
@@ -170,14 +188,47 @@ struct SporePanel: View {
         .onChange(of: projectState.selectedNodeID) { _ in syncFromModel() }
     }
 
+    // MARK: - Display Helpers
+
+    private func formDisplayText(_ v: Double) -> String {
+        if v < 0.15 { return "SIN" }
+        if v < 0.35 { return "TRI" }
+        if v < 0.55 { return "SAW" }
+        if v < 0.75 { return "FM" }
+        return "NSE"
+    }
+
+    private func sizeDisplayText(_ v: Double) -> String {
+        let ms = 1.0 * pow(2000.0, v)
+        if ms < 10 { return String(format: "%.1fms", ms) }
+        if ms < 1000 { return "\(Int(ms))ms" }
+        return String(format: "%.1fs", ms / 1000.0)
+    }
+
+    private func chirpDisplayText(_ v: Double) -> String {
+        let pct = Int(v * 100)
+        if pct == 0 { return "0" }
+        return pct > 0 ? "+\(pct)%" : "\(pct)%"
+    }
+
+    private func filterDisplayText(_ v: Double) -> String {
+        if v >= 0.99 { return "BYP" }
+        let hz = 200.0 * pow(80.0, v)
+        if hz < 1000 { return "\(Int(hz))Hz" }
+        return String(format: "%.1fk", hz / 1000.0)
+    }
+
     // MARK: - Sync
 
     private func syncFromModel() {
         guard let config = sporeConfig else { return }
         localDensity = config.density
+        localForm = config.form
         localFocus = config.focus
-        localGrain = config.grain
+        localSize = config.size
+        localChirp = config.chirp
         localEvolve = config.evolve
+        localFilter = config.filter
         localWarmth = config.warmth
         localVolume = config.volume
         localPan = config.pan
@@ -278,6 +329,70 @@ struct SporePanel: View {
         }
     }
 
+    /// Bipolar slider for CHRP (-1 to +1). Center line at 0, fills left or right.
+    private func bipolarSlider(label: String, value: Binding<Double>,
+                                format: @escaping (Double) -> String,
+                                onCommit: @escaping () -> Void, onDrag: @escaping () -> Void) -> some View {
+        HStack(spacing: 4 * cs) {
+            Text(label)
+                .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                .frame(width: 38 * cs, alignment: .trailing)
+
+            GeometryReader { geo in
+                let width = geo.size.width
+                let centerX = width * 0.5
+                let fraction = CGFloat((value.wrappedValue + 1) * 0.5)  // 0..1
+                let indicatorX = max(0, min(width, width * fraction))
+
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 3 * cs)
+                        .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
+                        .frame(height: 8 * cs)
+
+                    // Center line
+                    Rectangle()
+                        .fill(CanopyColors.chromeText.opacity(0.2))
+                        .frame(width: 1, height: 8 * cs)
+                        .position(x: centerX, y: 4 * cs)
+
+                    // Fill from center to value
+                    if value.wrappedValue != 0 {
+                        let fillStart = min(centerX, indicatorX)
+                        let fillWidth = abs(indicatorX - centerX)
+                        RoundedRectangle(cornerRadius: 2 * cs)
+                            .fill(accentColor.opacity(0.5))
+                            .frame(width: fillWidth, height: 6 * cs)
+                            .position(x: fillStart + fillWidth * 0.5, y: 4 * cs)
+                    }
+
+                    // Indicator
+                    Circle()
+                        .fill(accentColor.opacity(0.8))
+                        .frame(width: 8 * cs, height: 8 * cs)
+                        .position(x: indicatorX, y: 4 * cs)
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { drag in
+                            let frac = Double(max(0, min(1, drag.location.x / width)))
+                            value.wrappedValue = frac * 2.0 - 1.0
+                            onDrag()
+                        }
+                        .onEnded { _ in
+                            onCommit()
+                        }
+                )
+            }
+            .frame(height: 8 * cs)
+
+            Text(format(value.wrappedValue))
+                .font(.system(size: 8 * cs, weight: .medium, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.6))
+                .frame(width: 40 * cs, alignment: .trailing)
+        }
+    }
+
     // MARK: - Commit Helpers
 
     private func commitConfig(_ transform: (inout SporeConfig) -> Void) {
@@ -302,9 +417,12 @@ struct SporePanel: View {
         guard let nodeID = projectState.selectedNodeID else { return }
         let config = SporeConfig(
             density: localDensity,
+            form: localForm,
             focus: localFocus,
-            grain: localGrain,
+            size: localSize,
+            chirp: localChirp,
             evolve: localEvolve,
+            filter: localFilter,
             warmth: localWarmth,
             volume: localVolume,
             pan: localPan

@@ -77,7 +77,8 @@ enum AudioCommand {
     case useOrbitSequencer(Bool)
 
     // SPORE engine: stochastic granular synthesis
-    case setSpore(density: Double, focus: Double, grain: Double, evolve: Double,
+    case setSpore(density: Double, form: Double, focus: Double, size: Double,
+                  chirp: Double, evolve: Double, filter: Double,
                   warmth: Double, volume: Double)
     case setSporeImprint([Float]?)          // 64 harmonic amplitudes, or nil to clear
 
