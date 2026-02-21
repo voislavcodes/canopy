@@ -257,15 +257,12 @@ struct SporeVoice {
         chirpModulation = 0
         filterModulation = 0
 
-        // Reset SVF filter state
-        svfLowL = 0
-        svfBandL = 0
-        svfLowR = 0
-        svfBandR = 0
+        // SVF filter state: do NOT hard-reset. The steal-fade already brought
+        // the signal to near-zero, so filter state is negligible. Resetting
+        // snaps accumulated resonance/DC to zero → audible click.
 
-        // Reset func gen state
+        // Reset func gen phase (but smooth funcLevel — no discontinuity)
         funcPhase = 0
-        funcLevel = 1.0
         funcPrevPhase = 0
         funcSHValue = 1.0
 
