@@ -159,10 +159,21 @@ final class TreeAudioGraph {
             unit.configureWestCoast(config)
         case .flow(let config):
             unit.configureFlow(config)
+            // Restore imprint if saved
+            if config.spectralSource == .imprint, let imprint = config.imprint {
+                unit.configureFlowImprint(imprint.harmonicAmplitudes)
+            }
         case .tide(let config):
             unit.configureTide(config)
+            if let imprint = config.imprint {
+                let frames = SpectralImprint.tideFrames(from: imprint.spectralFrames)
+                unit.configureTideImprint(frames)
+            }
         case .swarm(let config):
             unit.configureSwarm(config)
+            if config.triggerSource == .imprint, let imprint = config.imprint {
+                unit.configureSwarmImprint(positions: imprint.peakRatios, amplitudes: imprint.peakAmplitudes)
+            }
         default:
             break
         }

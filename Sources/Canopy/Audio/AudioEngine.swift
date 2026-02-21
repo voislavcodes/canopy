@@ -229,6 +229,23 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.configureSwarm(config)
     }
 
+    // MARK: - Imprint
+
+    /// Push FLOW imprint harmonic amplitudes to a specific node.
+    func configureFlowImprint(_ amplitudes: [Float]?, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureFlowImprint(amplitudes)
+    }
+
+    /// Push TIDE imprint frames to a specific node.
+    func configureTideImprint(_ frames: [TideFrame]?, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureTideImprint(frames)
+    }
+
+    /// Push SWARM imprint positions and amplitudes to a specific node.
+    func configureSwarmImprint(positions: [Float]?, amplitudes: [Float]?, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureSwarmImprint(positions: positions, amplitudes: amplitudes)
+    }
+
     /// Update the filter on a specific node.
     func configureFilter(enabled: Bool, cutoff: Double, resonance: Double, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureFilter(enabled: enabled, cutoff: cutoff, resonance: resonance)

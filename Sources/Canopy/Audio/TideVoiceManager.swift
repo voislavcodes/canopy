@@ -16,6 +16,9 @@ struct TideVoiceManager {
     /// Sample rate stored from render callback — used by NoteReceiver methods.
     var sampleRate: Double = 48000
 
+    /// Cached imprint frames for pattern index 16. Set via setImprint().
+    var imprintFrames: [TideFrame]?
+
     init() {
         voices = (TideVoice(), TideVoice(), TideVoice(), TideVoice(),
                   TideVoice(), TideVoice(), TideVoice(), TideVoice())
@@ -40,6 +43,22 @@ struct TideVoiceManager {
         voices.5.position = 1.85
         voices.6.position = 2.22
         voices.7.position = 2.59
+    }
+
+    // MARK: - Imprint
+
+    /// Set or clear imprint frames on all voices. When set, pattern index 16
+    /// uses these frames instead of the built-in patterns.
+    mutating func setImprint(_ frames: [TideFrame]?) {
+        imprintFrames = frames
+        voices.0.setImprintFrames(frames)
+        voices.1.setImprintFrames(frames)
+        voices.2.setImprintFrames(frames)
+        voices.3.setImprintFrames(frames)
+        voices.4.setImprintFrames(frames)
+        voices.5.setImprintFrames(frames)
+        voices.6.setImprintFrames(frames)
+        voices.7.setImprintFrames(frames)
     }
 
     // MARK: - Voice Access Helpers

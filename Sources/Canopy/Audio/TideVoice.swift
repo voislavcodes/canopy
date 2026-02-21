@@ -108,6 +108,9 @@ struct TideVoice {
     private var cachedFrames: [TideFrame]?
     private var cachedFrameCount: Int = 0
 
+    // Imprint pattern frames (externally provided via SpectralAnalyser)
+    private var imprintFrames: [TideFrame]?
+
     // MARK: - Init
 
     init() {
@@ -178,12 +181,26 @@ struct TideVoice {
 
     mutating func setPattern(_ index: Int) {
         patternIndex = max(0, min(index, TidePatterns.patternCount - 1))
-        if TidePatterns.isChaos(patternIndex) {
+        if TidePatterns.isImprint(patternIndex) {
+            // Use externally-provided imprint frames
+            cachedFrames = imprintFrames
+            cachedFrameCount = imprintFrames?.count ?? 1
+        } else if TidePatterns.isChaos(patternIndex) {
             cachedFrames = nil
             cachedFrameCount = 1
         } else {
             cachedFrames = TidePatterns.frames(for: patternIndex)
             cachedFrameCount = cachedFrames?.count ?? 1
+        }
+    }
+
+    /// Set imprint frames from SpectralAnalyser. If currently on the imprint pattern,
+    /// updates cachedFrames immediately.
+    mutating func setImprintFrames(_ frames: [TideFrame]?) {
+        imprintFrames = frames
+        if TidePatterns.isImprint(patternIndex) {
+            cachedFrames = frames
+            cachedFrameCount = frames?.count ?? 1
         }
     }
 

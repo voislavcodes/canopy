@@ -216,6 +216,15 @@ final class NodeAudioUnit {
                 case .setSwarm:
                     break // ignored in oscillator path
 
+                case .setFlowImprint:
+                    break // ignored in oscillator path
+
+                case .setTideImprint:
+                    break // ignored in oscillator path
+
+                case .setSwarmImprint:
+                    break // ignored in oscillator path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -419,6 +428,15 @@ final class NodeAudioUnit {
                 case .setSwarm:
                     break // ignored in drum kit path
 
+                case .setFlowImprint:
+                    break // ignored in drum kit path
+
+                case .setTideImprint:
+                    break // ignored in drum kit path
+
+                case .setSwarmImprint:
+                    break // ignored in drum kit path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -620,6 +638,15 @@ final class NodeAudioUnit {
                 case .setSwarm:
                     break // ignored in west coast path
 
+                case .setFlowImprint:
+                    break // ignored in west coast path
+
+                case .setTideImprint:
+                    break // ignored in west coast path
+
+                case .setSwarmImprint:
+                    break // ignored in west coast path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -805,10 +832,19 @@ final class NodeAudioUnit {
                         channel: channel, density: density, warmth: warmth
                     )
 
+                case .setFlowImprint(let amplitudes):
+                    flow.setImprint(amplitudes)
+
                 case .setTide:
                     break // ignored in flow path
 
+                case .setTideImprint:
+                    break // ignored in flow path
+
                 case .setSwarm:
+                    break // ignored in flow path
+
+                case .setSwarmImprint:
                     break // ignored in flow path
 
                 case .setFXChain(let chain):
@@ -1001,6 +1037,14 @@ final class NodeAudioUnit {
                         warmth: Float(warmth)
                     )
 
+                case .setSwarmImprint(let positions, let amplitudes):
+                    swarm.setImprint(positions: positions, amplitudes: amplitudes)
+
+                case .setFlowImprint:
+                    break // ignored in swarm path
+
+                case .setTideImprint:
+                    break // ignored in swarm path
 
                 case .setFXChain(let chain):
                     fxChain = chain
@@ -1207,7 +1251,16 @@ final class NodeAudioUnit {
                         funcSkew: funcSkew, funcCycles: funcCycles
                     )
 
+                case .setTideImprint(let frames):
+                    tide.setImprint(frames)
+
+                case .setFlowImprint:
+                    break // ignored in tide path
+
                 case .setSwarm:
+                    break // ignored in tide path
+
+                case .setSwarmImprint:
                     break // ignored in tide path
 
                 case .setFXChain(let chain):
@@ -1452,6 +1505,23 @@ final class NodeAudioUnit {
 
     func setFXChain(_ chain: EffectChain) {
         commandBuffer.push(.setFXChain(chain))
+    }
+
+    // MARK: - Imprint
+
+    /// Push FLOW imprint amplitudes (64 values) or nil to clear.
+    func configureFlowImprint(_ amplitudes: [Float]?) {
+        commandBuffer.push(.setFlowImprint(amplitudes))
+    }
+
+    /// Push TIDE imprint frames or nil to clear.
+    func configureTideImprint(_ frames: [TideFrame]?) {
+        commandBuffer.push(.setTideImprint(frames))
+    }
+
+    /// Push SWARM imprint positions and amplitudes (64 each) or nil to clear.
+    func configureSwarmImprint(positions: [Float]?, amplitudes: [Float]?) {
+        commandBuffer.push(.setSwarmImprint(positions: positions, amplitudes: amplitudes))
     }
 
     func configureWestCoast(_ config: WestCoastConfig) {

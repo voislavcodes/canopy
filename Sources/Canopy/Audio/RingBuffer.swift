@@ -65,6 +65,11 @@ enum AudioCommand {
     case setSwarm(gravity: Double, energy: Double, flock: Double, scatter: Double,
                   warmth: Double, volume: Double)
 
+    // IMPRINT: spectral injection into engines
+    case setFlowImprint([Float]?)           // 64 harmonic amplitudes, or nil to clear
+    case setTideImprint([TideFrame]?)       // imprint frames for pattern 16, or nil to clear
+    case setSwarmImprint(positions: [Float]?, amplitudes: [Float]?) // 64 each, or nil to clear
+
     // FX chain swap (per-node effect chain replacement)
     case setFXChain(EffectChain)
 }

@@ -28,6 +28,9 @@ struct TidePanel: View {
     @State private var localVolume: Double = 0.8
     @State private var localPan: Double = 0.0
 
+    // Imprint
+    @StateObject private var imprintRecorder = ImprintRecorder()
+
     private var node: Node? { projectState.selectedNode }
     private var patch: SoundPatch? { node?.patch }
 
@@ -47,6 +50,39 @@ struct TidePanel: View {
                     .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText)
 
+                ImprintButton(
+                    recorder: imprintRecorder,
+                    accentColor: accentColor,
+                    onImprint: { imprint in
+                        guard let nodeID = projectState.selectedNodeID else { return }
+                        let frames = SpectralImprint.tideFrames(from: imprint.spectralFrames)
+                        // Set localPattern BEFORE commitConfig so pushConfigToEngine
+                        // sends pattern 16 in the .setTide command.
+                        localPattern = TidePatterns.imprintPatternIndex
+                        commitConfig {
+                            $0.imprint = imprint
+                            $0.pattern = TidePatterns.imprintPatternIndex
+                        }
+                        AudioEngine.shared.configureTideImprint(frames, nodeID: nodeID)
+                    },
+                    onClear: {
+                        guard let nodeID = projectState.selectedNodeID else { return }
+                        // Set localPattern BEFORE commitConfig so pushConfigToEngine
+                        // sends pattern 0 in the .setTide command.
+                        localPattern = 0
+                        commitConfig {
+                            $0.imprint = nil
+                            if $0.pattern == TidePatterns.imprintPatternIndex {
+                                $0.pattern = 0
+                            }
+                        }
+                        AudioEngine.shared.configureTideImprint(nil, nodeID: nodeID)
+                    },
+                    hasImprint: tideConfig?.imprint != nil
+                )
+
+                Spacer()
+
                 ModuleSwapButton(
                     options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm")],
                     current: "tide",
@@ -64,6 +100,14 @@ struct TidePanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .swarm(SwarmConfig()))
                         }
                     }
+                )
+            }
+
+            // Spectral silhouette when imprinted
+            if let imprint = tideConfig?.imprint {
+                SpectralSilhouetteView(
+                    values: imprint.spectralFrames.first ?? [],
+                    accentColor: accentColor
                 )
             }
 
@@ -117,10 +161,15 @@ struct TidePanel: View {
 
     // MARK: - Pattern Selector
 
+    /// Max pattern index for chevron navigation (excludes imprint slot unless active).
+    private var navigablePatternCount: Int {
+        tideConfig?.imprint != nil ? TidePatterns.patternCount : TidePatterns.patternCount - 1
+    }
+
     private var patternSelector: some View {
         HStack(spacing: 6 * cs) {
             Button(action: {
-                localPattern = (localPattern - 1 + TidePatterns.patternCount) % TidePatterns.patternCount
+                localPattern = (localPattern - 1 + navigablePatternCount) % navigablePatternCount
                 commitConfig { $0.pattern = localPattern }
             }) {
                 Image(systemName: "chevron.left")
@@ -144,7 +193,7 @@ struct TidePanel: View {
                 )
 
             Button(action: {
-                localPattern = (localPattern + 1) % TidePatterns.patternCount
+                localPattern = (localPattern + 1) % navigablePatternCount
                 commitConfig { $0.pattern = localPattern }
             }) {
                 Image(systemName: "chevron.right")

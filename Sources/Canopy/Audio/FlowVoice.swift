@@ -99,6 +99,10 @@ struct FlowVoice {
     private var stealFadeRate: Double = 0
     private var cachedSampleRate: Double = 48000
 
+    /// Whether this voice should use imprint amplitudes from the manager on beginNote.
+    /// Set by trigger() when imprintAmplitudes is non-nil. Persists across steal-fade.
+    var useImprint: Bool = false
+
     // MARK: - Control-rate state
 
     private var controlCounter: Int = 0
@@ -136,7 +140,10 @@ struct FlowVoice {
 
     /// Trigger a note. If the voice is already active, enter a 5ms steal-fade
     /// to ramp the old signal to zero before starting the new note.
-    mutating func trigger(pitch: Int, velocity: Double, sampleRate: Double) {
+    /// - Parameter imprintAmplitudes: Optional pointer to 64 imprint amplitudes for FLOW.
+    mutating func trigger(pitch: Int, velocity: Double, sampleRate: Double,
+                          imprintAmplitudes: UnsafePointer<Float>? = nil) {
+        useImprint = imprintAmplitudes != nil
         if isActive && envValue > 0.001 {
             pendingPitch = pitch
             pendingVelocity = velocity
@@ -145,11 +152,15 @@ struct FlowVoice {
             envPhase = 4
             return
         }
-        beginNote(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
+        beginNote(pitch: pitch, velocity: velocity, sampleRate: sampleRate,
+                  imprintAmplitudes: imprintAmplitudes)
     }
 
     /// Configure and start the note.
-    private mutating func beginNote(pitch: Int, velocity: Double, sampleRate: Double) {
+    /// - Parameter imprintAmplitudes: If non-nil, pointer to 64 Float values from spectral imprint.
+    ///   Used as baseAmp instead of the default 1/harmonic^1.5 falloff.
+    private mutating func beginNote(pitch: Int, velocity: Double, sampleRate: Double,
+                                     imprintAmplitudes: UnsafePointer<Float>? = nil) {
         self.frequency = MIDIUtilities.frequency(forNote: pitch)
         self.velocity = velocity
         self.isActive = true
@@ -162,12 +173,18 @@ struct FlowVoice {
         self.pendingPitch = -1
 
         let freq = self.frequency
+        let hasImprint = imprintAmplitudes != nil
         withUnsafeMutablePointer(to: &partials) { ptr in
             ptr.withMemoryRebound(to: FlowPartial.self, capacity: Self.partialCount) { p in
                 for i in 0..<Self.partialCount {
                     let harmonic = Double(i + 1)
                     p[i].baseFreq = freq * harmonic
-                    p[i].baseAmp = 1.0 / pow(harmonic, 1.5)
+                    if hasImprint {
+                        // Spectral imprint: use recorded harmonic amplitudes
+                        p[i].baseAmp = Double(imprintAmplitudes![i])
+                    } else {
+                        p[i].baseAmp = 1.0 / pow(harmonic, 1.5)
+                    }
                     p[i].phase = 0
                     p[i].pmPhase = 0
                     p[i].freqOffset = 0

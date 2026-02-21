@@ -94,14 +94,32 @@ struct SwarmVoice {
     // Base noise seed for this voice (set by manager for decorrelation)
     var noiseSeedBase: UInt32 = 12345
 
+    // Imprint amplitude weights: scales bloom target per-partial so the
+    // spectral fingerprint persists as physics operates. 1.0 = full bloom,
+    // lower values suppress that partial. Set during beginNote when imprint active.
+    var useImprintWeights: Bool = false
+    var imprintWeights: (Float, Float, Float, Float, Float, Float, Float, Float,
+                         Float, Float, Float, Float, Float, Float, Float, Float,
+                         Float, Float, Float, Float, Float, Float, Float, Float,
+                         Float, Float, Float, Float, Float, Float, Float, Float,
+                         Float, Float, Float, Float, Float, Float, Float, Float,
+                         Float, Float, Float, Float, Float, Float, Float, Float,
+                         Float, Float, Float, Float, Float, Float, Float, Float,
+                         Float, Float, Float, Float, Float, Float, Float, Float)
+
     // MARK: - Init
 
     init() {
         let z: Float = 0
+        let w: Float = 1
         positions = (z, z, z, z, z, z, z, z, z, z, z, z, z, z, z, z,
                      z, z, z, z, z, z, z, z, z, z, z, z, z, z, z, z,
                      z, z, z, z, z, z, z, z, z, z, z, z, z, z, z, z,
                      z, z, z, z, z, z, z, z, z, z, z, z, z, z, z, z)
+        imprintWeights = (w, w, w, w, w, w, w, w, w, w, w, w, w, w, w, w,
+                          w, w, w, w, w, w, w, w, w, w, w, w, w, w, w, w,
+                          w, w, w, w, w, w, w, w, w, w, w, w, w, w, w, w,
+                          w, w, w, w, w, w, w, w, w, w, w, w, w, w, w, w)
         velocities = (z, z, z, z, z, z, z, z, z, z, z, z, z, z, z, z,
                       z, z, z, z, z, z, z, z, z, z, z, z, z, z, z, z,
                       z, z, z, z, z, z, z, z, z, z, z, z, z, z, z, z,
@@ -124,9 +142,14 @@ struct SwarmVoice {
     // MARK: - Note Control
 
     /// Trigger a note. If already active, enter 5ms steal-fade (Rule 7).
+    /// - Parameters:
+    ///   - imprintPositions: Optional 64 frequency ratios from spectral peaks.
+    ///   - imprintAmplitudes: Optional 64 peak amplitudes.
     mutating func trigger(pitch: Int, velocity: Float,
                           gravity: Float, energy: Float, flock: Float, scatter: Float,
-                          sampleRate: Float) {
+                          sampleRate: Float,
+                          imprintPositions: UnsafePointer<Float>? = nil,
+                          imprintAmplitudes: UnsafePointer<Float>? = nil) {
         if isActive && envValue > 0.001 {
             pendingPitch = pitch
             pendingVelocity = velocity
@@ -136,12 +159,15 @@ struct SwarmVoice {
             return
         }
         beginNote(pitch: pitch, velocity: velocity, gravity: gravity,
-                  energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate)
+                  energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate,
+                  imprintPositions: imprintPositions, imprintAmplitudes: imprintAmplitudes)
     }
 
     private mutating func beginNote(pitch: Int, velocity: Float,
                                      gravity: Float, energy: Float, flock: Float, scatter: Float,
-                                     sampleRate: Float) {
+                                     sampleRate: Float,
+                                     imprintPositions: UnsafePointer<Float>? = nil,
+                                     imprintAmplitudes: UnsafePointer<Float>? = nil) {
         isActive = true
         isReleasing = false
         noteVelocity = velocity
@@ -162,6 +188,8 @@ struct SwarmVoice {
         // Derive scatter amount from Energy and Scatter
         let triggerScatter = energy * 1.5
         let range = 0.12 + scatter * 0.88
+        let hasImprint = imprintPositions != nil && imprintAmplitudes != nil
+        useImprintWeights = hasImprint
 
         // Initialize 64 partials via pointer rebind
         withUnsafeMutablePointer(to: &positions) { posPtr in
@@ -174,26 +202,42 @@ struct SwarmVoice {
                                     phPtr.withMemoryRebound(to: Float.self, capacity: Self.partialCount) { ph in
                                         withUnsafeMutablePointer(to: &noiseStates) { nsPtr in
                                             nsPtr.withMemoryRebound(to: UInt32.self, capacity: Self.partialCount) { ns in
-                                                for i in 0..<Self.partialCount {
-                                                    // Unique noise seed per partial (Rule 10)
-                                                    ns[i] = noiseSeedBase &+ UInt32(i) &* 2654435761
+                                                withUnsafeMutablePointer(to: &imprintWeights) { iwPtr in
+                                                    iwPtr.withMemoryRebound(to: Float.self, capacity: Self.partialCount) { iw in
+                                                        for i in 0..<Self.partialCount {
+                                                            // Unique noise seed per partial (Rule 10)
+                                                            ns[i] = noiseSeedBase &+ UInt32(i) &* 2654435761
 
-                                                    let harmonicRatio = Float(i + 1)
-                                                    let rangeScale = range * 0.75 + 0.25
-                                                    let basePosition = harmonicRatio * rangeScale
+                                                            if hasImprint {
+                                                                // IMPRINT: use spectral peak positions and amplitudes
+                                                                let imprintPos = imprintPositions![i]
+                                                                pos[i] = imprintPos > 0 ? imprintPos : Float(i + 1)
+                                                                amp[i] = imprintAmplitudes![i]
+                                                                // Store weight so bloom target stays scaled
+                                                                // by the spectral fingerprint permanently.
+                                                                iw[i] = max(0.05, imprintAmplitudes![i])
+                                                            } else {
+                                                                let harmonicRatio = Float(i + 1)
+                                                                let rangeScale = range * 0.75 + 0.25
+                                                                let basePosition = harmonicRatio * rangeScale
 
-                                                    // Scatter from harmonic position
-                                                    ns[i] = ns[i] &* 1664525 &+ 1013904223
-                                                    let rnd = Float(Int32(bitPattern: ns[i])) / Float(Int32.max)
-                                                    let offset = rnd * triggerScatter * 2.0
+                                                                // Scatter from harmonic position
+                                                                ns[i] = ns[i] &* 1664525 &+ 1013904223
+                                                                let rnd = Float(Int32(bitPattern: ns[i])) / Float(Int32.max)
+                                                                let offset = rnd * triggerScatter * 2.0
 
-                                                    pos[i] = max(0.5, basePosition + offset)
-                                                    vel[i] = 0.0
-                                                    amp[i] = 1.0 / max(1.0, Float(i + 1))
+                                                                pos[i] = max(0.5, basePosition + offset)
+                                                                amp[i] = 1.0 / max(1.0, Float(i + 1))
+                                                                iw[i] = 1.0
+                                                            }
 
-                                                    // Rule 9: randomize initial phase (decorrelates partials)
-                                                    ns[i] = ns[i] &* 1664525 &+ 1013904223
-                                                    ph[i] = Float(ns[i] % 1000) / 1000.0
+                                                            vel[i] = 0.0
+
+                                                            // Rule 9: randomize initial phase (decorrelates partials)
+                                                            ns[i] = ns[i] &* 1664525 &+ 1013904223
+                                                            ph[i] = Float(ns[i] % 1000) / 1000.0
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -222,6 +266,7 @@ struct SwarmVoice {
         envStage = 0
         envValue = 0
         envelopeLevel = 0
+        useImprintWeights = false
     }
 
     // MARK: - Render
@@ -381,7 +426,8 @@ struct SwarmVoice {
         let repulsion = (0.1 + scatterSmooth * 0.8) * repulsionMod
         let ampFalloff = 1.0 - scatterSmooth * 0.6
 
-        // Single pointer scope for ALL 5 arrays
+        // Single pointer scope for ALL arrays
+        let hasIW = useImprintWeights
         withUnsafeMutablePointer(to: &positions) { posPtr in
             posPtr.withMemoryRebound(to: Float.self, capacity: Self.partialCount) { pos in
                 withUnsafeMutablePointer(to: &velocities) { velPtr in
@@ -390,65 +436,76 @@ struct SwarmVoice {
                             ampPtr.withMemoryRebound(to: Float.self, capacity: Self.partialCount) { amp in
                                 withUnsafeMutablePointer(to: &noiseStates) { nsPtr in
                                     nsPtr.withMemoryRebound(to: UInt32.self, capacity: Self.partialCount) { ns in
-                                        for i in 0..<Self.partialCount {
-                                            let p = pos[i]
-                                            var netForce: Float = 0.0
+                                        withUnsafePointer(to: &imprintWeights) { iwPtr in
+                                            iwPtr.withMemoryRebound(to: Float.self, capacity: Self.partialCount) { iw in
+                                                for i in 0..<Self.partialCount {
+                                                    let p = pos[i]
+                                                    var netForce: Float = 0.0
 
-                                            // 1. GRAVITY — pull toward nearest harmonic integer
-                                            let nearestHarmonic = roundf(p)
-                                            let gravDistance = nearestHarmonic - p
-                                            netForce += gravDistance * attractionStrength * releaseGravityMod
+                                                    // 1. GRAVITY — pull toward nearest harmonic integer
+                                                    let nearestHarmonic = roundf(p)
+                                                    let gravDistance = nearestHarmonic - p
+                                                    netForce += gravDistance * attractionStrength * releaseGravityMod
 
-                                            // 2. REPULSION — push away from neighbours (N² loop)
-                                            for j in 0..<Self.partialCount {
-                                                guard j != i else { continue }
-                                                let diff = p - pos[j]
-                                                let dist = abs(diff) + 0.01 // Rule 2: singularity floor
-                                                if dist < 2.5 {
-                                                    let direction: Float = diff > 0 ? 1.0 : -1.0
-                                                    netForce += direction * repulsion * 0.1 / (dist * dist)
+                                                    // 2. REPULSION — push away from neighbours (N² loop)
+                                                    for j in 0..<Self.partialCount {
+                                                        guard j != i else { continue }
+                                                        let diff = p - pos[j]
+                                                        let dist = abs(diff) + 0.01 // Rule 2: singularity floor
+                                                        if dist < 2.5 {
+                                                            let direction: Float = diff > 0 ? 1.0 : -1.0
+                                                            netForce += direction * repulsion * 0.1 / (dist * dist)
+                                                        }
+                                                    }
+
+                                                    // 3. FLOCKING — align velocity with neighbours
+                                                    var neighbourVelSum: Float = 0
+                                                    var neighbourCount: Int = 0
+                                                    for j in 0..<Self.partialCount {
+                                                        guard j != i else { continue }
+                                                        if abs(p - pos[j]) < flockRadius {
+                                                            neighbourVelSum += vel[j]
+                                                            neighbourCount += 1
+                                                        }
+                                                    }
+                                                    if neighbourCount > 0 {
+                                                        let avgVel = neighbourVelSum / Float(neighbourCount)
+                                                        netForce += (avgVel - vel[i]) * flockAlignment
+                                                    }
+
+                                                    // 4. TURBULENCE — per-partial LCG noise (Rule 10)
+                                                    ns[i] = ns[i] &* 1664525 &+ 1013904223
+                                                    let noise = Float(Int32(bitPattern: ns[i])) / Float(Int32.max)
+                                                    netForce += noise * effectiveTurb * 0.5
+
+                                                    // 5. INTEGRATE — F/m = a
+                                                    let acceleration = netForce / effectiveMass
+                                                    vel[i] += acceleration
+                                                    vel[i] *= velocityDamping // Rule 4: damping
+
+                                                    // Velocity clamp (Rule 4)
+                                                    vel[i] = max(-2.0, min(2.0, vel[i]))
+
+                                                    pos[i] += vel[i]
+
+                                                    // Position clamp (Rule 8)
+                                                    pos[i] = max(0.25, min(80.0, pos[i]))
+
+                                                    // 6. AMPLITUDE — bloom, scaled by imprint weight
+                                                    let naturalAmp = 1.0 / max(1.0, powf(p, ampFalloff))
+                                                    let harmonicDist = abs(p - nearestHarmonic)
+                                                    let proximityReward = max(0.0, 1.0 - harmonicDist * 4.0 * bloom)
+                                                    var targetAmp = naturalAmp * (1.0 - bloom + bloom * proximityReward)
+                                                    // Imprint weights scale the bloom target so the spectral
+                                                    // fingerprint persists permanently as physics operates.
+                                                    // Partials where the voice had energy stay loud;
+                                                    // partials where it didn't stay suppressed.
+                                                    if hasIW {
+                                                        targetAmp *= iw[i]
+                                                    }
+                                                    amp[i] += (max(0.0, min(1.0, targetAmp)) - amp[i]) * 0.01
                                                 }
                                             }
-
-                                            // 3. FLOCKING — align velocity with neighbours
-                                            var neighbourVelSum: Float = 0
-                                            var neighbourCount: Int = 0
-                                            for j in 0..<Self.partialCount {
-                                                guard j != i else { continue }
-                                                if abs(p - pos[j]) < flockRadius {
-                                                    neighbourVelSum += vel[j]
-                                                    neighbourCount += 1
-                                                }
-                                            }
-                                            if neighbourCount > 0 {
-                                                let avgVel = neighbourVelSum / Float(neighbourCount)
-                                                netForce += (avgVel - vel[i]) * flockAlignment
-                                            }
-
-                                            // 4. TURBULENCE — per-partial LCG noise (Rule 10)
-                                            ns[i] = ns[i] &* 1664525 &+ 1013904223
-                                            let noise = Float(Int32(bitPattern: ns[i])) / Float(Int32.max)
-                                            netForce += noise * effectiveTurb * 0.5
-
-                                            // 5. INTEGRATE — F/m = a
-                                            let acceleration = netForce / effectiveMass
-                                            vel[i] += acceleration
-                                            vel[i] *= velocityDamping // Rule 4: damping
-
-                                            // Velocity clamp (Rule 4)
-                                            vel[i] = max(-2.0, min(2.0, vel[i]))
-
-                                            pos[i] += vel[i]
-
-                                            // Position clamp (Rule 8)
-                                            pos[i] = max(0.25, min(80.0, pos[i]))
-
-                                            // 6. AMPLITUDE — bloom
-                                            let naturalAmp = 1.0 / max(1.0, powf(p, ampFalloff))
-                                            let harmonicDist = abs(p - nearestHarmonic)
-                                            let proximityReward = max(0.0, 1.0 - harmonicDist * 4.0 * bloom)
-                                            let targetAmp = naturalAmp * (1.0 - bloom + bloom * proximityReward)
-                                            amp[i] += (max(0.0, min(1.0, targetAmp)) - amp[i]) * 0.01
                                         }
                                     }
                                 }

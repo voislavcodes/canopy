@@ -16,6 +16,18 @@ struct FlowVoiceManager {
     /// Sample rate stored from render callback — used by NoteReceiver methods.
     var sampleRate: Double = 48000
 
+    /// Imprint harmonic amplitudes (64 values). When set, beginNote uses these
+    /// instead of the default 1/harmonic^1.5 falloff. Stored as a tuple for
+    /// audio-thread safety (no heap, no CoW).
+    var imprintAmplitudes: (Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float,
+                            Float, Float, Float, Float, Float, Float, Float, Float)?
+
     init() {
         voices = (FlowVoice(), FlowVoice(), FlowVoice(), FlowVoice(),
                   FlowVoice(), FlowVoice(), FlowVoice(), FlowVoice())
@@ -30,6 +42,27 @@ struct FlowVoiceManager {
         voices.5.noiseState = 0xBAAD_F00D
         voices.6.noiseState = 0xD00D_BEAD
         voices.7.noiseState = 0xC0DE_F00D
+    }
+
+    // MARK: - Imprint
+
+    /// Set or clear imprint harmonic amplitudes. When set, new notes will use
+    /// these amplitudes as baseAmp instead of the default harmonic falloff.
+    mutating func setImprint(_ amplitudes: [Float]?) {
+        guard let amps = amplitudes, amps.count >= 64 else {
+            imprintAmplitudes = nil
+            return
+        }
+        imprintAmplitudes = (
+            amps[0],  amps[1],  amps[2],  amps[3],  amps[4],  amps[5],  amps[6],  amps[7],
+            amps[8],  amps[9],  amps[10], amps[11], amps[12], amps[13], amps[14], amps[15],
+            amps[16], amps[17], amps[18], amps[19], amps[20], amps[21], amps[22], amps[23],
+            amps[24], amps[25], amps[26], amps[27], amps[28], amps[29], amps[30], amps[31],
+            amps[32], amps[33], amps[34], amps[35], amps[36], amps[37], amps[38], amps[39],
+            amps[40], amps[41], amps[42], amps[43], amps[44], amps[45], amps[46], amps[47],
+            amps[48], amps[49], amps[50], amps[51], amps[52], amps[53], amps[54], amps[55],
+            amps[56], amps[57], amps[58], amps[59], amps[60], amps[61], amps[62], amps[63]
+        )
     }
 
     // MARK: - Voice Access Helpers
@@ -134,16 +167,35 @@ struct FlowVoiceManager {
     }
 
     private mutating func triggerVoiceAt(_ i: Int, pitch: Int, velocity: Double, sampleRate: Double) {
-        switch i {
-        case 0: voices.0.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
-        case 1: voices.1.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
-        case 2: voices.2.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
-        case 3: voices.3.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
-        case 4: voices.4.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
-        case 5: voices.5.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
-        case 6: voices.6.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
-        case 7: voices.7.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
-        default: break
+        // If imprint is active, pass pointer to tuple storage for audio-thread-safe access
+        if let _ = imprintAmplitudes {
+            withUnsafePointer(to: &imprintAmplitudes!) { tuplePtr in
+                tuplePtr.withMemoryRebound(to: Float.self, capacity: FlowVoice.partialCount) { ptr in
+                    switch i {
+                    case 0: voices.0.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate, imprintAmplitudes: ptr)
+                    case 1: voices.1.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate, imprintAmplitudes: ptr)
+                    case 2: voices.2.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate, imprintAmplitudes: ptr)
+                    case 3: voices.3.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate, imprintAmplitudes: ptr)
+                    case 4: voices.4.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate, imprintAmplitudes: ptr)
+                    case 5: voices.5.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate, imprintAmplitudes: ptr)
+                    case 6: voices.6.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate, imprintAmplitudes: ptr)
+                    case 7: voices.7.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate, imprintAmplitudes: ptr)
+                    default: break
+                    }
+                }
+            }
+        } else {
+            switch i {
+            case 0: voices.0.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
+            case 1: voices.1.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
+            case 2: voices.2.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
+            case 3: voices.3.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
+            case 4: voices.4.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
+            case 5: voices.5.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
+            case 6: voices.6.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
+            case 7: voices.7.trigger(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
+            default: break
+            }
         }
     }
 

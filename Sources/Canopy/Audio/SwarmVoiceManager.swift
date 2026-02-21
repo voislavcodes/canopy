@@ -21,6 +21,27 @@ struct SwarmVoiceManager {
     var scatter: Float = 0.3
     var warmth: Float = 0.3
 
+    /// Imprint positions: 64 frequency ratios from spectral peaks. When set,
+    /// beginNote uses these as initial partial positions instead of harmonic series.
+    var imprintPositions: (Float, Float, Float, Float, Float, Float, Float, Float,
+                           Float, Float, Float, Float, Float, Float, Float, Float,
+                           Float, Float, Float, Float, Float, Float, Float, Float,
+                           Float, Float, Float, Float, Float, Float, Float, Float,
+                           Float, Float, Float, Float, Float, Float, Float, Float,
+                           Float, Float, Float, Float, Float, Float, Float, Float,
+                           Float, Float, Float, Float, Float, Float, Float, Float,
+                           Float, Float, Float, Float, Float, Float, Float, Float)?
+
+    /// Imprint amplitudes: 64 peak amplitudes. When set, used as initial partial amplitudes.
+    var imprintAmplitudesSwarm: (Float, Float, Float, Float, Float, Float, Float, Float,
+                                 Float, Float, Float, Float, Float, Float, Float, Float,
+                                 Float, Float, Float, Float, Float, Float, Float, Float,
+                                 Float, Float, Float, Float, Float, Float, Float, Float,
+                                 Float, Float, Float, Float, Float, Float, Float, Float,
+                                 Float, Float, Float, Float, Float, Float, Float, Float,
+                                 Float, Float, Float, Float, Float, Float, Float, Float,
+                                 Float, Float, Float, Float, Float, Float, Float, Float)?
+
     init() {
         voices = (SwarmVoice(), SwarmVoice(), SwarmVoice(), SwarmVoice(),
                   SwarmVoice(), SwarmVoice(), SwarmVoice(), SwarmVoice())
@@ -35,6 +56,38 @@ struct SwarmVoiceManager {
         voices.5.noiseSeedBase = 0xBAAD_F00D
         voices.6.noiseSeedBase = 0xD00D_BEAD
         voices.7.noiseSeedBase = 0xC0DE_F00D
+    }
+
+    // MARK: - Imprint
+
+    /// Set or clear imprint positions and amplitudes from spectral peaks.
+    mutating func setImprint(positions: [Float]?, amplitudes: [Float]?) {
+        guard let pos = positions, pos.count >= 64,
+              let amp = amplitudes, amp.count >= 64 else {
+            imprintPositions = nil
+            imprintAmplitudesSwarm = nil
+            return
+        }
+        imprintPositions = (
+            pos[0],  pos[1],  pos[2],  pos[3],  pos[4],  pos[5],  pos[6],  pos[7],
+            pos[8],  pos[9],  pos[10], pos[11], pos[12], pos[13], pos[14], pos[15],
+            pos[16], pos[17], pos[18], pos[19], pos[20], pos[21], pos[22], pos[23],
+            pos[24], pos[25], pos[26], pos[27], pos[28], pos[29], pos[30], pos[31],
+            pos[32], pos[33], pos[34], pos[35], pos[36], pos[37], pos[38], pos[39],
+            pos[40], pos[41], pos[42], pos[43], pos[44], pos[45], pos[46], pos[47],
+            pos[48], pos[49], pos[50], pos[51], pos[52], pos[53], pos[54], pos[55],
+            pos[56], pos[57], pos[58], pos[59], pos[60], pos[61], pos[62], pos[63]
+        )
+        imprintAmplitudesSwarm = (
+            amp[0],  amp[1],  amp[2],  amp[3],  amp[4],  amp[5],  amp[6],  amp[7],
+            amp[8],  amp[9],  amp[10], amp[11], amp[12], amp[13], amp[14], amp[15],
+            amp[16], amp[17], amp[18], amp[19], amp[20], amp[21], amp[22], amp[23],
+            amp[24], amp[25], amp[26], amp[27], amp[28], amp[29], amp[30], amp[31],
+            amp[32], amp[33], amp[34], amp[35], amp[36], amp[37], amp[38], amp[39],
+            amp[40], amp[41], amp[42], amp[43], amp[44], amp[45], amp[46], amp[47],
+            amp[48], amp[49], amp[50], amp[51], amp[52], amp[53], amp[54], amp[55],
+            amp[56], amp[57], amp[58], amp[59], amp[60], amp[61], amp[62], amp[63]
+        )
     }
 
     // MARK: - Voice Access Helpers
@@ -135,16 +188,39 @@ struct SwarmVoiceManager {
     }
 
     private mutating func triggerVoiceAt(_ i: Int, pitch: Int, velocity: Float, sampleRate: Float) {
-        switch i {
-        case 0: voices.0.trigger(pitch: pitch, velocity: velocity, gravity: gravity, energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate)
-        case 1: voices.1.trigger(pitch: pitch, velocity: velocity, gravity: gravity, energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate)
-        case 2: voices.2.trigger(pitch: pitch, velocity: velocity, gravity: gravity, energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate)
-        case 3: voices.3.trigger(pitch: pitch, velocity: velocity, gravity: gravity, energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate)
-        case 4: voices.4.trigger(pitch: pitch, velocity: velocity, gravity: gravity, energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate)
-        case 5: voices.5.trigger(pitch: pitch, velocity: velocity, gravity: gravity, energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate)
-        case 6: voices.6.trigger(pitch: pitch, velocity: velocity, gravity: gravity, energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate)
-        case 7: voices.7.trigger(pitch: pitch, velocity: velocity, gravity: gravity, energy: energy, flock: flock, scatter: scatter, sampleRate: sampleRate)
-        default: break
+        let g = gravity, e = energy, f = flock, s = scatter, sr = sampleRate
+        if let _ = imprintPositions, let _ = imprintAmplitudesSwarm {
+            withUnsafePointer(to: &imprintPositions!) { posPtr in
+                posPtr.withMemoryRebound(to: Float.self, capacity: SwarmVoice.partialCount) { posP in
+                    withUnsafePointer(to: &imprintAmplitudesSwarm!) { ampPtr in
+                        ampPtr.withMemoryRebound(to: Float.self, capacity: SwarmVoice.partialCount) { ampP in
+                            switch i {
+                            case 0: voices.0.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr, imprintPositions: posP, imprintAmplitudes: ampP)
+                            case 1: voices.1.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr, imprintPositions: posP, imprintAmplitudes: ampP)
+                            case 2: voices.2.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr, imprintPositions: posP, imprintAmplitudes: ampP)
+                            case 3: voices.3.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr, imprintPositions: posP, imprintAmplitudes: ampP)
+                            case 4: voices.4.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr, imprintPositions: posP, imprintAmplitudes: ampP)
+                            case 5: voices.5.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr, imprintPositions: posP, imprintAmplitudes: ampP)
+                            case 6: voices.6.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr, imprintPositions: posP, imprintAmplitudes: ampP)
+                            case 7: voices.7.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr, imprintPositions: posP, imprintAmplitudes: ampP)
+                            default: break
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            switch i {
+            case 0: voices.0.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr)
+            case 1: voices.1.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr)
+            case 2: voices.2.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr)
+            case 3: voices.3.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr)
+            case 4: voices.4.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr)
+            case 5: voices.5.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr)
+            case 6: voices.6.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr)
+            case 7: voices.7.trigger(pitch: pitch, velocity: velocity, gravity: g, energy: e, flock: f, scatter: s, sampleRate: sr)
+            default: break
+            }
         }
     }
 

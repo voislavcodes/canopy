@@ -21,6 +21,9 @@ struct FlowPanel: View {
     @State private var localVolume: Double = 0.8
     @State private var localPan: Double = 0.0
 
+    // Imprint
+    @StateObject private var imprintRecorder = ImprintRecorder()
+
     private var node: Node? { projectState.selectedNode }
     private var patch: SoundPatch? { node?.patch }
 
@@ -57,6 +60,30 @@ struct FlowPanel: View {
                     .font(.system(size: 13 * cs, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeText)
 
+                ImprintButton(
+                    recorder: imprintRecorder,
+                    accentColor: accentColor,
+                    onImprint: { imprint in
+                        guard let nodeID = projectState.selectedNodeID else { return }
+                        commitConfig {
+                            $0.imprint = imprint
+                            $0.spectralSource = .imprint
+                        }
+                        AudioEngine.shared.configureFlowImprint(imprint.harmonicAmplitudes, nodeID: nodeID)
+                    },
+                    onClear: {
+                        guard let nodeID = projectState.selectedNodeID else { return }
+                        commitConfig {
+                            $0.imprint = nil
+                            $0.spectralSource = .default
+                        }
+                        AudioEngine.shared.configureFlowImprint(nil, nodeID: nodeID)
+                    },
+                    hasImprint: flowConfig?.spectralSource == .imprint
+                )
+
+                Spacer()
+
                 ModuleSwapButton(
                     options: [("Oscillator", "osc"), ("Drum Kit", "drum"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm")],
                     current: "flow",
@@ -75,6 +102,11 @@ struct FlowPanel: View {
                         }
                     }
                 )
+            }
+
+            // Spectral silhouette when imprinted
+            if let imprint = flowConfig?.imprint, flowConfig?.spectralSource == .imprint {
+                SpectralSilhouetteView(values: imprint.harmonicAmplitudes, accentColor: accentColor)
             }
 
             if flowConfig != nil {

@@ -1,5 +1,62 @@
 import Foundation
 
+// MARK: - Spectral Imprint (IMPRINT feature)
+
+/// Spectral fingerprint extracted from a mic recording via FFT analysis.
+/// One recording → three engines → three completely different instruments.
+/// This is NOT a sampler — only spectral data survives, not audio.
+struct SpectralImprint: Codable, Equatable {
+    /// Detected fundamental pitch in Hz. Nil for unpitched/noisy sources.
+    var fundamental: Float?
+    /// 64 harmonic amplitudes (0–1), normalized. Used by FLOW engine.
+    var harmonicAmplitudes: [Float]
+    /// 64 frequency ratios (relative to fundamental or lowest peak). Used by SWARM engine.
+    var peakRatios: [Float]
+    /// 64 peak amplitudes (0–1). Used by SWARM engine.
+    var peakAmplitudes: [Float]
+    /// 4–16 frames of 16 band levels. Used by TIDE engine.
+    var spectralFrames: [[Float]]
+    /// Sample rate of the original recording.
+    var sampleRate: Float
+    /// Duration of the original recording in seconds.
+    var durationSeconds: Float
+    /// When the imprint was captured.
+    var timestamp: Date
+
+    /// Convert spectral frames (arrays of 16 Float) to TideFrame structs.
+    static func tideFrames(from spectralFrames: [[Float]]) -> [TideFrame] {
+        let defaultQ: (Float, Float, Float, Float, Float, Float, Float, Float,
+                       Float, Float, Float, Float, Float, Float, Float, Float)
+            = (2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5,
+               2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5)
+        return spectralFrames.map { bandLevels in
+            var levels: (Float, Float, Float, Float, Float, Float, Float, Float,
+                         Float, Float, Float, Float, Float, Float, Float, Float)
+                = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+            withUnsafeMutablePointer(to: &levels) { ptr in
+                ptr.withMemoryRebound(to: Float.self, capacity: 16) { p in
+                    for i in 0..<min(16, bandLevels.count) {
+                        p[i] = bandLevels[i]
+                    }
+                }
+            }
+            return TideFrame(levels: levels, qs: defaultQ, oddEvenBalance: 0, spectralTilt: 0)
+        }
+    }
+}
+
+/// Whether an engine parameter uses default values or values from an imprint.
+enum SpectralSource: String, Codable, Equatable {
+    case `default`
+    case imprint
+}
+
+/// Whether SWARM partials are triggered from harmonic series or imprint peaks.
+enum TriggerSource: String, Codable, Equatable {
+    case harmonic
+    case imprint
+}
+
 enum Waveform: String, Codable, Equatable {
     case sine
     case triangle
@@ -275,7 +332,7 @@ enum TideRateDivision: String, Codable, CaseIterable, Equatable {
 
 struct TideConfig: Codable, Equatable {
     var current: Double     // 0–1: oscillator richness (sine → tri → saw → pulse → noise layers)
-    var pattern: Int        // 0–15: spectral journey pattern index
+    var pattern: Int        // 0–15: spectral journey pattern index (16 = imprint)
     var rate: Double        // 0–1: cycle speed through pattern frames (free mode)
     var rateSync: Bool      // true = lock cycle to tempo, false = free-running Hz
     var rateDivision: TideRateDivision // beat division when synced
@@ -290,6 +347,9 @@ struct TideConfig: Codable, Equatable {
     var funcSkew: Double          // 0–1: phase warp (0.5 = symmetric)
     var funcCycles: Int           // 1, 2, 4, 8, 16: func gen cycles per pattern cycle
 
+    // IMPRINT
+    var imprint: SpectralImprint?
+
     init(
         current: Double = 0.4,
         pattern: Int = 0,
@@ -303,7 +363,8 @@ struct TideConfig: Codable, Equatable {
         funcShape: TideFuncShape = .off,
         funcAmount: Double = 0.0,
         funcSkew: Double = 0.5,
-        funcCycles: Int = 1
+        funcCycles: Int = 1,
+        imprint: SpectralImprint? = nil
     ) {
         self.current = current
         self.pattern = pattern
@@ -318,6 +379,7 @@ struct TideConfig: Codable, Equatable {
         self.funcAmount = funcAmount
         self.funcSkew = funcSkew
         self.funcCycles = funcCycles
+        self.imprint = imprint
     }
 
     // MARK: - Backward-compatible decoding
@@ -337,6 +399,7 @@ struct TideConfig: Codable, Equatable {
         funcAmount = try container.decodeIfPresent(Double.self, forKey: .funcAmount) ?? 0.0
         funcSkew = try container.decodeIfPresent(Double.self, forKey: .funcSkew) ?? 0.5
         funcCycles = try container.decodeIfPresent(Int.self, forKey: .funcCycles) ?? 1
+        imprint = try container.decodeIfPresent(SpectralImprint.self, forKey: .imprint)
     }
 
     // MARK: - Preset Seeds
@@ -383,6 +446,10 @@ struct SwarmConfig: Codable, Equatable {
     var volume: Double = 0.7       // 0–1
     var pan: Double = 0.0          // -1 to +1
 
+    // IMPRINT
+    var imprint: SpectralImprint?
+    var triggerSource: TriggerSource = .harmonic
+
     init(
         gravity: Double = 0.5,
         energy: Double = 0.3,
@@ -390,7 +457,9 @@ struct SwarmConfig: Codable, Equatable {
         scatter: Double = 0.3,
         warmth: Double = 0.3,
         volume: Double = 0.7,
-        pan: Double = 0.0
+        pan: Double = 0.0,
+        imprint: SpectralImprint? = nil,
+        triggerSource: TriggerSource = .harmonic
     ) {
         self.gravity = gravity
         self.energy = energy
@@ -399,6 +468,23 @@ struct SwarmConfig: Codable, Equatable {
         self.warmth = warmth
         self.volume = volume
         self.pan = pan
+        self.imprint = imprint
+        self.triggerSource = triggerSource
+    }
+
+    // MARK: - Backward-compatible decoding
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gravity = try container.decode(Double.self, forKey: .gravity)
+        energy = try container.decode(Double.self, forKey: .energy)
+        flock = try container.decode(Double.self, forKey: .flock)
+        scatter = try container.decode(Double.self, forKey: .scatter)
+        warmth = try container.decode(Double.self, forKey: .warmth)
+        volume = try container.decode(Double.self, forKey: .volume)
+        pan = try container.decode(Double.self, forKey: .pan)
+        imprint = try container.decodeIfPresent(SpectralImprint.self, forKey: .imprint)
+        triggerSource = try container.decodeIfPresent(TriggerSource.self, forKey: .triggerSource) ?? .harmonic
     }
 
     // MARK: - Preset Seeds
@@ -438,6 +524,10 @@ struct FlowConfig: Codable, Equatable {
     var volume: Double      // 0–1
     var pan: Double         // -1 to +1
 
+    // IMPRINT
+    var imprint: SpectralImprint?
+    var spectralSource: SpectralSource = .default
+
     init(
         current: Double = 0.2,
         viscosity: Double = 0.5,
@@ -446,7 +536,9 @@ struct FlowConfig: Codable, Equatable {
         density: Double = 0.5,
         warmth: Double = 0.3,
         volume: Double = 0.8,
-        pan: Double = 0.0
+        pan: Double = 0.0,
+        imprint: SpectralImprint? = nil,
+        spectralSource: SpectralSource = .default
     ) {
         self.current = current
         self.viscosity = viscosity
@@ -456,6 +548,24 @@ struct FlowConfig: Codable, Equatable {
         self.warmth = warmth
         self.volume = volume
         self.pan = pan
+        self.imprint = imprint
+        self.spectralSource = spectralSource
+    }
+
+    // MARK: - Backward-compatible decoding
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        current = try container.decode(Double.self, forKey: .current)
+        viscosity = try container.decode(Double.self, forKey: .viscosity)
+        obstacle = try container.decode(Double.self, forKey: .obstacle)
+        channel = try container.decode(Double.self, forKey: .channel)
+        density = try container.decode(Double.self, forKey: .density)
+        warmth = try container.decode(Double.self, forKey: .warmth)
+        volume = try container.decode(Double.self, forKey: .volume)
+        pan = try container.decode(Double.self, forKey: .pan)
+        imprint = try container.decodeIfPresent(SpectralImprint.self, forKey: .imprint)
+        spectralSource = try container.decodeIfPresent(SpectralSource.self, forKey: .spectralSource) ?? .default
     }
 
     // MARK: - Preset Seeds

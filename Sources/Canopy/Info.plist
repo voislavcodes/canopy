@@ -14,6 +14,8 @@
     <string>1</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Canopy uses your microphone to capture spectral fingerprints for sound design via IMPRINT.</string>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>

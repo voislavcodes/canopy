@@ -36,15 +36,19 @@ struct TideFrame {
 /// Patterns 0–13 are deterministic frame sequences.
 /// Patterns 14–15 are generative (chaos) and computed at runtime.
 enum TidePatterns {
-    static let patternCount = 16
+    static let patternCount = 17
     static let bandCount = 16
+
+    /// Index for the Imprint pattern (frames stored externally on the voice manager).
+    static let imprintPatternIndex = 16
 
     /// Pattern names for UI display.
     static let names: [String] = [
         "Rising Tide", "Falling Tide", "Ebb and Flow", "Spotlight", "Horizon",
         "Heartbeat", "Ping-Pong", "Cascade", "Staccato", "Syncopation",
         "Vowels", "Bells", "Fifths", "Octaves",
-        "Wanderer", "Storm"
+        "Wanderer", "Storm",
+        "Imprint"
     ]
 
     // MARK: - Default Q (moderate resonance)
@@ -85,7 +89,12 @@ enum TidePatterns {
 
     /// Whether this pattern is generative (non-repeating).
     static func isChaos(_ pattern: Int) -> Bool {
-        pattern >= 14
+        pattern == 14 || pattern == 15
+    }
+
+    /// Whether this pattern uses externally-provided imprint frames.
+    static func isImprint(_ pattern: Int) -> Bool {
+        pattern == imprintPatternIndex
     }
 
     // MARK: - Sweep Patterns (0–4)
