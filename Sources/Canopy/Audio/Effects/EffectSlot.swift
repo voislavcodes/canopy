@@ -12,6 +12,7 @@ enum EffectSlot {
     case space(SpaceEffect)
     case pressure(PressureEffect)
     case level(LevelEffect)
+    case ghost(GhostEffect)
 
     /// Process a single sample through the effect.
     mutating func process(sample: Float, sampleRate: Float) -> Float {
@@ -40,6 +41,26 @@ enum EffectSlot {
             let out = fx.process(sample: sample, sampleRate: sampleRate)
             self = .level(fx)
             return out
+        case .ghost(var fx):
+            let out = fx.process(sample: sample, sampleRate: sampleRate)
+            self = .ghost(fx)
+            return out
+        }
+    }
+
+    /// Process a stereo pair through the effect.
+    /// Ghost uses true stereo processing; all others process L and R independently.
+    mutating func processStereo(sampleL: Float, sampleR: Float, sampleRate: Float) -> (Float, Float) {
+        switch self {
+        case .ghost(var fx):
+            let out = fx.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: sampleRate)
+            self = .ghost(fx)
+            return out
+        default:
+            // All other effects: process L then R through the mono path
+            let outL = process(sample: sampleL, sampleRate: sampleRate)
+            let outR = process(sample: sampleR, sampleRate: sampleRate)
+            return (outL, outR)
         }
     }
 
@@ -64,6 +85,9 @@ enum EffectSlot {
         case .level(var fx):
             fx.updateParameters(params)
             self = .level(fx)
+        case .ghost(var fx):
+            fx.updateParameters(params)
+            self = .ghost(fx)
         }
     }
 
@@ -88,6 +112,9 @@ enum EffectSlot {
         case .level(var fx):
             fx.reset()
             self = .level(fx)
+        case .ghost(var fx):
+            fx.reset()
+            self = .ghost(fx)
         }
     }
 
@@ -102,6 +129,7 @@ enum EffectSlot {
         case .space:    slot = .space(SpaceEffect())
         case .pressure: slot = .pressure(PressureEffect())
         case .level:    slot = .level(LevelEffect())
+        case .ghost:    slot = .ghost(GhostEffect())
         default:        slot = .color(ColorEffect()) // fallback
         }
         slot.updateParameters(parameters)

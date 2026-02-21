@@ -1388,8 +1388,7 @@ final class NodeAudioUnit {
                         sampleR = filter.process(rawR * volF)
                     }
 
-                    sampleL = fxChain.process(sample: sampleL, sampleRate: srF)
-                    sampleR = fxChain.process(sample: sampleR, sampleRate: srF)
+                    (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -1420,8 +1419,7 @@ final class NodeAudioUnit {
                     var sampleL = filter.process(rawL * volF)
                     var sampleR = filter.process(rawR * volF)
 
-                    sampleL = fxChain.process(sample: sampleL, sampleRate: srF)
-                    sampleR = fxChain.process(sample: sampleR, sampleRate: srF)
+                    (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
                         ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL
@@ -1616,8 +1614,7 @@ final class NodeAudioUnit {
                         sampleR = filter.processWithCutoffMod(rawR * volF, cutoffMod: cutMod, sampleRate: sr)
                     }
 
-                    sampleL = fxChain.process(sample: sampleL, sampleRate: srF)
-                    sampleR = fxChain.process(sample: sampleR, sampleRate: srF)
+                    (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
 
                     // Apply pan modulation to stereo signal
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
@@ -1649,8 +1646,7 @@ final class NodeAudioUnit {
                     var sampleL = filter.process(rawL * volF)
                     var sampleR = filter.process(rawR * volF)
 
-                    sampleL = fxChain.process(sample: sampleL, sampleRate: srF)
-                    sampleR = fxChain.process(sample: sampleR, sampleRate: srF)
+                    (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
                         ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL
@@ -1861,8 +1857,7 @@ final class NodeAudioUnit {
                         sampleR = filter.process(rawR * volF)
                     }
 
-                    sampleL = fxChain.process(sample: sampleL, sampleRate: srF)
-                    sampleR = fxChain.process(sample: sampleR, sampleRate: srF)
+                    (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -1901,8 +1896,7 @@ final class NodeAudioUnit {
                     var sampleL = filter.process(rawL * volF)
                     var sampleR = filter.process(rawR * volF)
 
-                    sampleL = fxChain.process(sample: sampleL, sampleRate: srF)
-                    sampleR = fxChain.process(sample: sampleR, sampleRate: srF)
+                    (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
                         ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL

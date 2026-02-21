@@ -11,6 +11,7 @@ enum EffectType: String, Codable, Equatable, CaseIterable {
     case tide       // phaser
     case terrain    // EQ
     case level      // gain staging utility
+    case ghost      // living decay (true stereo)
 
     // Legacy cases (backward compatibility for old project files)
     case reverb
@@ -33,6 +34,7 @@ enum EffectType: String, Codable, Equatable, CaseIterable {
         case .tide:        return "Tide"
         case .terrain:     return "Terrain"
         case .level:       return "Level"
+        case .ghost:       return "Ghost"
         // Legacy
         case .reverb:      return "Reverb"
         case .delay:       return "Delay"
@@ -70,7 +72,7 @@ enum EffectType: String, Codable, Equatable, CaseIterable {
 
     /// Active Canopy effect types available in the FX picker.
     static var canopyTypes: [EffectType] {
-        [.color, .heat, .echo, .space, .pressure, .drift, .tide, .terrain, .level]
+        [.color, .heat, .echo, .space, .pressure, .drift, .tide, .terrain, .level, .ghost]
     }
 
     /// Default parameters for this effect type.
@@ -94,6 +96,8 @@ enum EffectType: String, Codable, Equatable, CaseIterable {
             return ["low": 0.5, "mid": 0.5, "high": 0.5]
         case .level:
             return ["amount": 0.5]
+        case .ghost:
+            return ["life": 0.6, "blur": 0.4, "shift": 0.3, "wander": 0.2, "delayTime": 0.25]
         default:
             return [:]
         }
@@ -111,6 +115,7 @@ enum EffectType: String, Codable, Equatable, CaseIterable {
         case .tide:     return 0.5
         case .terrain:  return 1.0   // EQ is typically fully wet
         case .level:    return 1.0   // gain utility is always fully wet
+        case .ghost:    return 0.4
         default:        return 0.5
         }
     }

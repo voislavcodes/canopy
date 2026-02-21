@@ -135,9 +135,8 @@ final class MasterBusAU: AUAudioUnit {
                 var sampleL = leftBuf[frame] * volume
                 var sampleR = rightBuf[frame] * volume
 
-                // Process through master FX chain (mono processing, applied to each channel)
-                sampleL = fxChain.pointee.process(sample: sampleL, sampleRate: sampleRate)
-                sampleR = fxChain.pointee.processRight(sample: sampleR, sampleRate: sampleRate)
+                // Process through master FX chain (stereo-aware)
+                (sampleL, sampleR) = fxChain.pointee.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: sampleRate)
 
                 // Shore limiter (always last in chain)
                 let (limitedL, limitedR) = shore.pointee.process(left: sampleL, right: sampleR)

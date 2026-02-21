@@ -46,12 +46,26 @@ struct EffectChain {
         return current
     }
 
-    /// Process right channel — for stereo effects that share state with the left channel.
-    /// Currently all effects are mono, so this processes independently.
-    mutating func processRight(sample: Float, sampleRate: Float) -> Float {
-        // For now, effects are mono — process right channel the same way.
-        // When stereo effects are added, this will use separate R-channel state.
-        return process(sample: sample, sampleRate: sampleRate)
+    /// Process a stereo pair through the entire chain.
+    /// Stereo-aware effects (Ghost) use true stereo; others process L/R independently.
+    mutating func processStereo(sampleL: Float, sampleR: Float, sampleRate: Float) -> (Float, Float) {
+        guard !slots.isEmpty else { return (sampleL, sampleR) }
+
+        var currentL = sampleL
+        var currentR = sampleR
+        for i in 0..<slots.count {
+            guard !slots[i].bypassed else { continue }
+
+            let dryL = currentL
+            let dryR = currentR
+            let (wetL, wetR) = slots[i].slot.processStereo(
+                sampleL: currentL, sampleR: currentR, sampleRate: sampleRate
+            )
+            let mix = slots[i].wetDry
+            currentL = dryL * (1.0 - mix) + wetL * mix
+            currentR = dryR * (1.0 - mix) + wetR * mix
+        }
+        return (currentL, currentR)
     }
 
     /// Build a chain from an array of Effect model objects.

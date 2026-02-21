@@ -166,6 +166,7 @@ struct FXPopoverPanel: View {
         case .tide:     return [("rate", "rate"), ("depth", "depth")]
         case .terrain:  return [("low", "low"), ("mid", "mid"), ("high", "high")]
         case .level:    return [("amount", "level")]
+        case .ghost:    return [("life", "life"), ("blur", "blur"), ("shift", "shift"), ("wander", "wander")]
         default:        return []
         }
     }
@@ -238,6 +239,7 @@ func fxColor(_ type: EffectType) -> Color {
     case .tide:     return Color(red: 0.8, green: 0.4, blue: 0.7)   // Pink
     case .terrain:  return Color(red: 0.6, green: 0.6, blue: 0.5)   // Olive
     case .level:    return Color(red: 0.7, green: 0.7, blue: 0.75)  // Silver
+    case .ghost:    return Color(red: 0.55, green: 0.65, blue: 0.75)  // Pale steel-blue
     default:        return CanopyColors.chromeText
     }
 }
