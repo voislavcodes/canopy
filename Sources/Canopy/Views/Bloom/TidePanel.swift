@@ -84,7 +84,7 @@ struct TidePanel: View {
                 Spacer()
 
                 ModuleSwapButton(
-                    options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm")],
+                    options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm"), ("Spore", "spore")],
                     current: "tide",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
@@ -100,6 +100,8 @@ struct TidePanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .flow(FlowConfig()))
                         } else if type == "swarm" {
                             projectState.swapEngine(nodeID: nodeID, to: .swarm(SwarmConfig()))
+                        } else if type == "spore" {
+                            projectState.swapEngine(nodeID: nodeID, to: .spore(SporeConfig()))
                         }
                     }
                 )

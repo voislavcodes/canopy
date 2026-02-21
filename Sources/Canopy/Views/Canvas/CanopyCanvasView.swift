@@ -282,8 +282,13 @@ struct CanopyCanvasView: View {
             return false
         }()
 
+        let isSporeEngine: Bool = {
+            if case .spore = node.patch.soundType { return true }
+            return false
+        }()
+
         // Resolve effective module types (override or derive from SoundType)
-        let effectiveSeqType = node.sequencerType ?? ((isDrumEngine || isQuakeEngine) ? .drum : .pitched)
+        let effectiveSeqType = node.sequencerType ?? (isSporeEngine ? .sporeSeq : (isDrumEngine || isQuakeEngine) ? .drum : .pitched)
         let effectiveInputMode = node.inputMode ?? ((isDrumEngine || isQuakeEngine) ? .padGrid : .keyboard)
 
         // Focus mode: show dimming overlay + single centered panel
@@ -298,6 +303,7 @@ struct CanopyCanvasView: View {
                 isTideEngine: isTideEngine,
                 isSwarmEngine: isSwarmEngine,
                 isQuakeEngine: isQuakeEngine,
+                isSporeEngine: isSporeEngine,
                 effectiveSeqType: effectiveSeqType,
                 effectiveInputMode: effectiveInputMode
             )
@@ -326,6 +332,8 @@ struct CanopyCanvasView: View {
                             TidePanel(projectState: projectState)
                         } else if isSwarmEngine {
                             SwarmPanel(projectState: projectState)
+                        } else if isSporeEngine {
+                            SporePanel(projectState: projectState)
                         } else {
                             SynthControlsPanel(projectState: projectState)
                         }
@@ -335,7 +343,9 @@ struct CanopyCanvasView: View {
                 // Right panel: sequencer (swappable)
                 DraggableBloomPanel(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: seqScreen) {
                     Group {
-                        if effectiveSeqType == .orbit {
+                        if effectiveSeqType == .sporeSeq {
+                            SporeSeqPanel(projectState: projectState)
+                        } else if effectiveSeqType == .orbit {
                             OrbitSequencerPanel(projectState: projectState, transportState: transportState)
                         } else if effectiveSeqType == .drum {
                             DrumSequencerPanel(projectState: projectState, transportState: transportState)
@@ -399,6 +409,7 @@ struct CanopyCanvasView: View {
         isTideEngine: Bool = false,
         isSwarmEngine: Bool = false,
         isQuakeEngine: Bool = false,
+        isSporeEngine: Bool = false,
         effectiveSeqType: SequencerType,
         effectiveInputMode: InputMode
     ) -> some View {
@@ -429,11 +440,15 @@ struct CanopyCanvasView: View {
                         TidePanel(projectState: projectState)
                     } else if isSwarmEngine {
                         SwarmPanel(projectState: projectState)
+                    } else if isSporeEngine {
+                        SporePanel(projectState: projectState)
                     } else {
                         SynthControlsPanel(projectState: projectState)
                     }
                 case .sequencer:
-                    if effectiveSeqType == .orbit {
+                    if effectiveSeqType == .sporeSeq {
+                        SporeSeqPanel(projectState: projectState)
+                    } else if effectiveSeqType == .orbit {
                         OrbitSequencerPanel(projectState: projectState, transportState: transportState)
                     } else if effectiveSeqType == .drum {
                         DrumSequencerPanel(projectState: projectState, transportState: transportState)
@@ -510,6 +525,8 @@ struct CanopyCanvasView: View {
             AudioEngine.shared.configureTide(config, nodeID: newNode.id)
         case .swarm(let config):
             AudioEngine.shared.configureSwarm(config, nodeID: newNode.id)
+        case .spore(let config):
+            AudioEngine.shared.configureSpore(config, nodeID: newNode.id)
         default:
             break
         }

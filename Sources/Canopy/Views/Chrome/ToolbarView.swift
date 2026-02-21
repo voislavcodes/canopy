@@ -288,6 +288,9 @@ struct ToolbarView: View {
         case .blues: return "Blues"
         case .wholeTone: return "Whole"
         case .chromatic: return "Chrom"
+        case .hirajoshi: return "Hira"
+        case .inSen: return "In Sen"
+        case .diminished: return "Dim"
         }
     }
 }

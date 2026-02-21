@@ -594,6 +594,216 @@ struct FlowConfig: Codable, Equatable {
     static let jet = FlowConfig(current: 0.85, viscosity: 0.15, obstacle: 0.3, channel: 1.0, density: 0.5)
 }
 
+/// SPORE engine: stochastic granular synthesis.
+/// A pool of 64 grains fired by a Poisson clock, each drawn from a probability
+/// landscape shaped by harmonic weighting and Gaussian scatter.
+/// Four controls steer grain density, harmonic focus, grain size, and evolution.
+struct SporeConfig: Codable, Equatable {
+    var density: Double = 0.5       // 0–1: grain rate (Poisson λ)
+    var focus: Double = 0.5         // 0–1: harmonic clustering (0 = noise, 1 = pure tone)
+    var grain: Double = 0.4         // 0–1: grain duration
+    var evolve: Double = 0.3        // 0–1: distribution evolution rate
+    var warmth: Double = 0.3        // 0–1: per-voice tanh drive
+    var volume: Double = 0.7        // 0–1: output level
+    var pan: Double = 0.0           // -1 to +1: stereo position
+
+    // IMPRINT
+    var imprint: SpectralImprint?
+    var spectralSource: SpectralSource = .default
+
+    init(
+        density: Double = 0.5,
+        focus: Double = 0.5,
+        grain: Double = 0.4,
+        evolve: Double = 0.3,
+        warmth: Double = 0.3,
+        volume: Double = 0.7,
+        pan: Double = 0.0,
+        imprint: SpectralImprint? = nil,
+        spectralSource: SpectralSource = .default
+    ) {
+        self.density = density
+        self.focus = focus
+        self.grain = grain
+        self.evolve = evolve
+        self.warmth = warmth
+        self.volume = volume
+        self.pan = pan
+        self.imprint = imprint
+        self.spectralSource = spectralSource
+    }
+
+    // MARK: - Backward-compatible decoding
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        density = try container.decode(Double.self, forKey: .density)
+        focus = try container.decode(Double.self, forKey: .focus)
+        grain = try container.decode(Double.self, forKey: .grain)
+        evolve = try container.decode(Double.self, forKey: .evolve)
+        warmth = try container.decode(Double.self, forKey: .warmth)
+        volume = try container.decode(Double.self, forKey: .volume)
+        pan = try container.decode(Double.self, forKey: .pan)
+        imprint = try container.decodeIfPresent(SpectralImprint.self, forKey: .imprint)
+        spectralSource = try container.decodeIfPresent(SpectralSource.self, forKey: .spectralSource) ?? .default
+    }
+
+    // MARK: - Preset Seeds
+
+    /// Geiger counter: sparse, random clicks.
+    static let geiger = SporeConfig(density: 0.15, focus: 0.1, grain: 0.05, evolve: 0.0)
+    /// Gentle biological: soft, diffuse spores.
+    static let spores = SporeConfig(density: 0.3, focus: 0.3, grain: 0.3, evolve: 0.2)
+    /// Busy colony: dense, moderately focused.
+    static let colony = SporeConfig(density: 0.6, focus: 0.5, grain: 0.4, evolve: 0.3)
+    /// Insect swarm: high density, moderate scatter.
+    static let swarmPreset = SporeConfig(density: 0.8, focus: 0.3, grain: 0.2, evolve: 0.4)
+    /// Blooming: slow grains, focused harmonics.
+    static let bloom = SporeConfig(density: 0.4, focus: 0.7, grain: 0.6, evolve: 0.2)
+    /// Foggy: dense, very unfocused, long grains.
+    static let fog = SporeConfig(density: 0.7, focus: 0.1, grain: 0.8, evolve: 0.1)
+    /// Radio static: very dense, no focus.
+    static let staticPreset = SporeConfig(density: 0.9, focus: 0.0, grain: 0.05, evolve: 0.0)
+    /// Crystal: focused harmonics, moderate density.
+    static let crystal = SporeConfig(density: 0.5, focus: 0.9, grain: 0.3, evolve: 0.1)
+    /// Mycelium network: evolving, moderately dense.
+    static let mycelium = SporeConfig(density: 0.5, focus: 0.4, grain: 0.5, evolve: 0.7)
+    /// Xenakis: chaotic, high energy, fast evolution.
+    static let xenakis = SporeConfig(density: 0.85, focus: 0.2, grain: 0.15, evolve: 0.9)
+    /// Fireflies: sparse, focused, gentle.
+    static let fireflies = SporeConfig(density: 0.2, focus: 0.6, grain: 0.4, evolve: 0.15)
+    /// Primordial: deep, slow, dark.
+    static let primordial = SporeConfig(density: 0.35, focus: 0.2, grain: 0.7, evolve: 0.5, warmth: 0.5)
+}
+
+/// Subdivision options for the SPORE probabilistic sequencer.
+enum SporeSubdivision: String, Codable, Equatable, CaseIterable {
+    case quarter
+    case eighth
+    case eighthTriplet
+    case sixteenth
+    case sixteenthTriplet
+    case thirtySecond
+
+    /// Number of beats per subdivision step.
+    var beats: Double {
+        switch self {
+        case .quarter:          return 1.0
+        case .eighth:           return 0.5
+        case .eighthTriplet:    return 1.0 / 3.0
+        case .sixteenth:        return 0.25
+        case .sixteenthTriplet: return 1.0 / 6.0
+        case .thirtySecond:     return 0.125
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .quarter:          return "1/4"
+        case .eighth:           return "1/8"
+        case .eighthTriplet:    return "1/8T"
+        case .sixteenth:        return "1/16"
+        case .sixteenthTriplet: return "1/16T"
+        case .thirtySecond:     return "1/32"
+        }
+    }
+
+    /// Integer tag for AudioCommand encoding.
+    var tag: Int {
+        switch self {
+        case .quarter:          return 0
+        case .eighth:           return 1
+        case .eighthTriplet:    return 2
+        case .sixteenth:        return 3
+        case .sixteenthTriplet: return 4
+        case .thirtySecond:     return 5
+        }
+    }
+
+    /// Decode from integer tag.
+    static func from(tag: Int) -> SporeSubdivision {
+        switch tag {
+        case 0: return .quarter
+        case 1: return .eighth
+        case 2: return .eighthTriplet
+        case 3: return .sixteenth
+        case 4: return .sixteenthTriplet
+        case 5: return .thirtySecond
+        default: return .sixteenth
+        }
+    }
+}
+
+/// SPORE probabilistic sequencer configuration.
+/// Notes emerge from autocorrelation (Memory) and evolve under random walks (Drift).
+struct SporeSeqConfig: Codable, Equatable {
+    var subdivision: SporeSubdivision = .sixteenth
+    var density: Double = 0.5       // 0–1: event probability per step
+    var focus: Double = 0.4         // 0–1: pitch clustering
+    var drift: Double = 0.3         // 0–1: landscape evolution rate
+    var memory: Double = 0.3        // 0–1: autocorrelation (0 = random, 1 = crystallize)
+    var rangeOctaves: Int = 3       // pitch range (±1.5 octaves from center)
+
+    init(
+        subdivision: SporeSubdivision = .sixteenth,
+        density: Double = 0.5,
+        focus: Double = 0.4,
+        drift: Double = 0.3,
+        memory: Double = 0.3,
+        rangeOctaves: Int = 3
+    ) {
+        self.subdivision = subdivision
+        self.density = density
+        self.focus = focus
+        self.drift = drift
+        self.memory = memory
+        self.rangeOctaves = rangeOctaves
+    }
+
+    // MARK: - Backward-compatible decoding
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        subdivision = try container.decodeIfPresent(SporeSubdivision.self, forKey: .subdivision) ?? .sixteenth
+        density = try container.decode(Double.self, forKey: .density)
+        focus = try container.decode(Double.self, forKey: .focus)
+        drift = try container.decode(Double.self, forKey: .drift)
+        memory = try container.decode(Double.self, forKey: .memory)
+        rangeOctaves = try container.decodeIfPresent(Int.self, forKey: .rangeOctaves) ?? 3
+    }
+
+    // MARK: - Preset Seeds
+
+    /// Windchime: sparse, wide, random.
+    static let windchime = SporeSeqConfig(subdivision: .eighth, density: 0.2, focus: 0.2, drift: 0.1, memory: 0.0, rangeOctaves: 4)
+    /// Fireflies: sparse, focused, gentle repetition.
+    static let fireflies = SporeSeqConfig(subdivision: .sixteenth, density: 0.15, focus: 0.5, drift: 0.1, memory: 0.4, rangeOctaves: 3)
+    /// Murmur: moderate density, some memory.
+    static let murmur = SporeSeqConfig(subdivision: .sixteenth, density: 0.4, focus: 0.3, drift: 0.2, memory: 0.3, rangeOctaves: 2)
+    /// Stream: flowing, moderate memory.
+    static let stream = SporeSeqConfig(subdivision: .sixteenth, density: 0.5, focus: 0.4, drift: 0.2, memory: 0.5, rangeOctaves: 2)
+    /// Composer: strong memory, moderate drift.
+    static let composer = SporeSeqConfig(subdivision: .sixteenth, density: 0.6, focus: 0.5, drift: 0.3, memory: 0.7, rangeOctaves: 3)
+    /// Late Night: slow, sparse, atmospheric.
+    static let lateNight = SporeSeqConfig(subdivision: .eighth, density: 0.25, focus: 0.6, drift: 0.15, memory: 0.5, rangeOctaves: 2)
+    /// Morse: rhythmic, focused.
+    static let morse = SporeSeqConfig(subdivision: .sixteenth, density: 0.5, focus: 0.8, drift: 0.05, memory: 0.6, rangeOctaves: 1)
+    /// Drift: slow evolution, long phrases.
+    static let driftPreset = SporeSeqConfig(subdivision: .eighth, density: 0.4, focus: 0.4, drift: 0.6, memory: 0.6, rangeOctaves: 3)
+    /// Crystal: precise, focused, crystallizing.
+    static let crystal = SporeSeqConfig(subdivision: .sixteenth, density: 0.5, focus: 0.7, drift: 0.1, memory: 0.85, rangeOctaves: 2)
+    /// Cage: random, atonal, sparse.
+    static let cage = SporeSeqConfig(subdivision: .eighthTriplet, density: 0.3, focus: 0.1, drift: 0.0, memory: 0.0, rangeOctaves: 4)
+    /// Reich: phasing, high memory.
+    static let reich = SporeSeqConfig(subdivision: .sixteenth, density: 0.7, focus: 0.5, drift: 0.05, memory: 0.9, rangeOctaves: 2)
+    /// Glitch: fast, chaotic, unpredictable.
+    static let glitch = SporeSeqConfig(subdivision: .thirtySecond, density: 0.6, focus: 0.2, drift: 0.8, memory: 0.1, rangeOctaves: 3)
+    /// Ritual: slow, hypnotic, repeating.
+    static let ritual = SporeSeqConfig(subdivision: .quarter, density: 0.7, focus: 0.6, drift: 0.1, memory: 0.8, rangeOctaves: 2)
+    /// Lullaby: gentle, focused, melodic.
+    static let lullaby = SporeSeqConfig(subdivision: .eighth, density: 0.35, focus: 0.7, drift: 0.1, memory: 0.7, rangeOctaves: 2)
+}
+
 enum SoundType: Codable, Equatable {
     case oscillator(OscillatorConfig)
     case drumKit(DrumKitConfig)
@@ -602,6 +812,7 @@ enum SoundType: Codable, Equatable {
     case tide(TideConfig)
     case swarm(SwarmConfig)
     case quake(QuakeConfig)
+    case spore(SporeConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }

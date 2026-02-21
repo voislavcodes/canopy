@@ -63,7 +63,9 @@ final class TreeAudioGraph {
         if case .swarm = node.patch.soundType { isSwarm = true } else { isSwarm = false }
         let isQuake: Bool
         if case .quake = node.patch.soundType { isQuake = true } else { isQuake = false }
-        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow, isTide: isTide, isSwarm: isSwarm, isQuake: isQuake,
+        let isSpore: Bool
+        if case .spore = node.patch.soundType { isSpore = true } else { isSpore = false }
+        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow, isTide: isTide, isSwarm: isSwarm, isQuake: isQuake, isSpore: isSpore,
                                  clockSamplePosition: clockSamplePosition, clockIsRunning: clockIsRunning)
         engine.attach(unit.sourceNode)
         // Connect directly to main mixer — same pattern as Phase 2.
@@ -182,6 +184,11 @@ final class TreeAudioGraph {
             unit.configurePatch(waveform: 0, detune: 0,
                                attack: 0, decay: 0, sustain: 0, release: 0,
                                volume: config.volume)
+        case .spore(let config):
+            unit.configureSpore(config)
+            if config.spectralSource == .imprint, let imprint = config.imprint {
+                unit.configureSporeImprint(imprint.harmonicAmplitudes)
+            }
         default:
             break
         }
@@ -247,6 +254,11 @@ final class TreeAudioGraph {
             let orbitConfig = node.orbitConfig ?? OrbitConfig()
             unit.configureOrbit(orbitConfig)
             unit.setUseOrbitSequencer(true)
+        }
+
+        // Send SPORE sequencer config if present
+        if let sporeSeq = node.sporeSeqConfig {
+            unit.configureSporeSeq(sporeSeq, key: node.scaleOverride ?? node.key)
         }
 
         for child in node.children {

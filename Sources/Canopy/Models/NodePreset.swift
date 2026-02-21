@@ -10,6 +10,7 @@ enum PresetColor: String, Codable, CaseIterable, Equatable {
     case pink
     case indigo
     case lime
+    case amber
 }
 
 /// Static preset definitions that give each branch a character.
@@ -171,6 +172,20 @@ struct NodePreset: Identifiable, Equatable {
             defaultPatch: SoundPatch(
                 name: "Swarm",
                 soundType: .swarm(SwarmConfig())
+            ),
+            defaultLengthInBeats: 8,
+            defaultPitchRange: PitchRange(low: 36, high: 84), // C2–C6
+            defaultArpConfig: nil
+        ),
+        NodePreset(
+            id: "spore",
+            name: "Spore",
+            icon: "circle.dotted",
+            color: .amber,
+            nodeType: .melodic,
+            defaultPatch: SoundPatch(
+                name: "Spore",
+                soundType: .spore(SporeConfig.colony)
             ),
             defaultLengthInBeats: 8,
             defaultPitchRange: PitchRange(low: 36, high: 84), // C2–C6

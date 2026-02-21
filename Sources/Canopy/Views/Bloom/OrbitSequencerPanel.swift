@@ -28,7 +28,7 @@ struct OrbitSequencerPanel: View {
                     .foregroundColor(CanopyColors.chromeText)
 
                 ModuleSwapButton(
-                    options: [("Pitched", "pitched"), ("Drum", "drum"), ("Orbit", "orbit")],
+                    options: [("Pitched", "pitched"), ("Drum", "drum"), ("Orbit", "orbit"), ("Spore", "sporeSeq")],
                     current: "orbit",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
@@ -36,6 +36,8 @@ struct OrbitSequencerPanel: View {
                             projectState.swapSequencer(nodeID: nodeID, to: .pitched)
                         } else if type == "drum" {
                             projectState.swapSequencer(nodeID: nodeID, to: .drum)
+                        } else if type == "sporeSeq" {
+                            projectState.swapSequencer(nodeID: nodeID, to: .sporeSeq)
                         }
                     }
                 )

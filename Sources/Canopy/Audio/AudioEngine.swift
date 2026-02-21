@@ -241,6 +241,21 @@ final class AudioEngine {
                                                       force: force, sustain: sustain)
     }
 
+    /// Configure SPORE parameters on a specific node.
+    func configureSpore(_ config: SporeConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureSpore(config)
+    }
+
+    /// Push SPORE imprint harmonic amplitudes to a specific node.
+    func configureSporeImprint(_ amplitudes: [Float]?, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureSporeImprint(amplitudes)
+    }
+
+    /// Configure SPORE sequencer parameters on a specific node.
+    func configureSporeSeq(_ config: SporeSeqConfig, key: MusicalKey, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureSporeSeq(config, key: key)
+    }
+
     /// Configure ORBIT sequencer parameters on a specific node.
     func configureOrbit(_ config: OrbitConfig, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureOrbit(config)

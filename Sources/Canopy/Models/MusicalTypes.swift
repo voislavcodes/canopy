@@ -55,6 +55,9 @@ enum ScaleMode: String, Codable, Equatable, CaseIterable {
     case pentatonicMajor
     case pentatonicMinor
     case wholeTone
+    case hirajoshi
+    case inSen
+    case diminished
 
     /// Semitone intervals from root for this scale mode.
     var intervals: [Int] {
@@ -74,6 +77,9 @@ enum ScaleMode: String, Codable, Equatable, CaseIterable {
         case .pentatonicMajor: return [0, 2, 4, 7, 9]
         case .pentatonicMinor: return [0, 3, 5, 7, 10]
         case .wholeTone:      return [0, 2, 4, 6, 8, 10]
+        case .hirajoshi:      return [0, 2, 3, 7, 8]
+        case .inSen:          return [0, 1, 5, 7, 10]
+        case .diminished:     return [0, 2, 3, 5, 6, 8, 9, 11]
         }
     }
 }

@@ -32,7 +32,7 @@ final class NodeAudioUnit {
 
     var orbitBodyAngles: (Float, Float, Float, Float, Float, Float) { _orbitBodyAngles.pointee }
 
-    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false, isTide: Bool = false, isSwarm: Bool = false, isQuake: Bool = false,
+    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false, isTide: Bool = false, isSwarm: Bool = false, isQuake: Bool = false, isSpore: Bool = false,
          clockSamplePosition: UnsafeMutablePointer<Int64>, clockIsRunning: UnsafeMutablePointer<Bool>) {
         self.nodeID = nodeID
         self.commandBuffer = AudioCommandRingBuffer(capacity: 256)
@@ -48,7 +48,13 @@ final class NodeAudioUnit {
         let panPtr = self._pan
         let orbitAnglesPtr = self._orbitBodyAngles
 
-        if isQuake {
+        if isSpore {
+            self.sourceNode = Self.makeSporeSourceNode(
+                cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
+                panPtr: panPtr, sampleRate: sampleRate,
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+            )
+        } else if isQuake {
             self.sourceNode = Self.makeQuakeSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, orbitAnglesPtr: orbitAnglesPtr, sampleRate: sampleRate,
@@ -245,6 +251,9 @@ final class NodeAudioUnit {
                     break // ignored in oscillator path
 
                 case .useOrbitSequencer:
+                    break // ignored in oscillator path
+
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop:
                     break // ignored in oscillator path
 
                 case .setFXChain(let chain):
@@ -468,6 +477,9 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in drum kit path
 
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop:
+                    break // ignored in drum kit path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -680,6 +692,9 @@ final class NodeAudioUnit {
                     break // ignored in quake path
 
                 case .setSwarmImprint:
+                    break // ignored in quake path
+
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop:
                     break // ignored in quake path
 
                 case .setFXChain(let chain):
@@ -914,6 +929,9 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in west coast path
 
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop:
+                    break // ignored in west coast path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -1123,6 +1141,9 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in flow path
 
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop:
+                    break // ignored in flow path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -1329,6 +1350,9 @@ final class NodeAudioUnit {
                     break // ignored in swarm path
 
                 case .useOrbitSequencer:
+                    break // ignored in swarm path
+
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop:
                     break // ignored in swarm path
 
                 case .setFXChain(let chain):
@@ -1557,6 +1581,9 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in tide path
 
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop:
+                    break // ignored in tide path
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -1637,6 +1664,257 @@ final class NodeAudioUnit {
             }
 
             playingPtr.pointee = seq.isPlaying
+            beatPtr.pointee = seq.currentBeat
+
+            return noErr
+        }
+    }
+
+    // MARK: - SPORE Render Path
+
+    private static func makeSporeSourceNode(
+        cmdBuffer: AudioCommandRingBuffer,
+        beatPtr: UnsafeMutablePointer<Double>,
+        playingPtr: UnsafeMutablePointer<Bool>,
+        panPtr: UnsafeMutablePointer<Float>,
+        sampleRate: Double,
+        clockPtr: UnsafeMutablePointer<Int64>,
+        clockRunning: UnsafeMutablePointer<Bool>
+    ) -> AVAudioSourceNode {
+        var spore = SporeVoiceManager()
+        var seq = Sequencer()
+        var sporeSeq = SporeSequencerState()
+        var useSporeSeq = false
+        var filter = MoogLadderFilter()
+        var lfoBank = LFOBank()
+        var fxChain = EffectChain()
+        var volume: Double = 0.7
+        var volumeSmoothed: Double = 0.7
+        let sr = sampleRate
+        let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+
+        return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            let pan = panPtr.pointee
+
+            // Drain command buffer
+            while let cmd = cmdBuffer.pop() {
+                switch cmd {
+                case .noteOn(let pitch, let velocity):
+                    spore.noteOn(pitch: pitch, velocity: velocity, frequency: 0)
+
+                case .noteOff(let pitch):
+                    spore.noteOff(pitch: pitch)
+
+                case .allNotesOff:
+                    spore.allNotesOff()
+
+                case .setPatch(_, _, _, _, _, _, let newVolume):
+                    volume = newVolume
+
+                case .sequencerStart(let bpm):
+                    seq.start(bpm: bpm)
+                    if useSporeSeq {
+                        sporeSeq.start(bpm: bpm)
+                    }
+
+                case .sequencerStop:
+                    seq.stop()
+                    sporeSeq.stop()
+                    spore.allNotesOff()
+
+                case .sequencerSetBPM(let bpm):
+                    seq.setBPM(bpm)
+                    sporeSeq.bpm = bpm
+
+                case .sequencerLoad(let events, let lengthInBeats,
+                                    let direction, let mutationAmount, let mutationRange,
+                                    let scaleRootSemitone, let scaleIntervals,
+                                    let accumulatorConfig):
+                    spore.allNotesOff()
+                    seq.load(events: events, lengthInBeats: lengthInBeats,
+                             direction: direction,
+                             mutationAmount: mutationAmount, mutationRange: mutationRange,
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
+                             accumulatorConfig: accumulatorConfig)
+
+                case .sequencerSetGlobalProbability(let prob):
+                    seq.globalProbability = prob
+
+                case .sequencerSetMutation(let amount, let range, let rootSemitone, let intervals):
+                    seq.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
+
+                case .sequencerResetMutation:
+                    seq.resetMutation()
+
+                case .sequencerFreezeMutation:
+                    seq.freezeMutation()
+
+                case .sequencerSetArp(let active, let samplesPerStep, let gateLength, let mode):
+                    seq.setArpConfig(active: active, samplesPerStep: samplesPerStep,
+                                     gateLength: gateLength, mode: mode)
+
+                case .sequencerSetArpPool(let pitches, let velocities, let startBeats, let endBeats):
+                    seq.setArpPool(pitches: pitches, velocities: velocities, startBeats: startBeats, endBeats: endBeats)
+
+                case .setFilter(let enabled, let cutoff, let reso):
+                    filter.enabled = enabled
+                    filter.cutoffHz = cutoff
+                    filter.resonance = reso
+                    filter.updateCoefficients(sampleRate: sr)
+
+                case .setLFOSlot(let slotIndex, let enabled, let waveform,
+                                 let rateHz, let initialPhase, let depth, let parameter):
+                    lfoBank.configureSlot(slotIndex, enabled: enabled, waveform: waveform,
+                                          rateHz: rateHz, initialPhase: initialPhase,
+                                          depth: depth, parameter: parameter)
+
+                case .setLFOSlotCount(let count):
+                    lfoBank.slotCount = count
+
+                case .setSpore(let density, let focus, let grain, let evolve,
+                               let warmth, let newVolume):
+                    volume = newVolume
+                    spore.configureSpore(
+                        density: density, focus: focus, grain: grain,
+                        evolve: evolve, warmth: warmth
+                    )
+
+                case .setSporeImprint(let amplitudes):
+                    spore.setImprint(amplitudes)
+
+                case .setSporeSeq(let subdivision, let density, let focus, let drift,
+                                  let memory, let rangeOctaves):
+                    useSporeSeq = true
+                    sporeSeq.configure(
+                        subdivision: SporeSubdivision.from(tag: subdivision),
+                        density: density, focus: focus, drift: drift,
+                        memory: memory, rangeOctaves: rangeOctaves
+                    )
+
+                case .setSporeSeqScale(let rootSemitone, let intervals):
+                    sporeSeq.setScale(rootSemitone: rootSemitone, intervals: intervals)
+
+                case .sporeSeqStart(let bpm):
+                    useSporeSeq = true
+                    sporeSeq.start(bpm: bpm)
+
+                case .sporeSeqStop:
+                    sporeSeq.stop()
+
+                case .setDrumVoice, .setWestCoast, .setFlow, .setTide, .setSwarm:
+                    break // ignored in spore path
+
+                case .setFlowImprint, .setTideImprint, .setSwarmImprint:
+                    break // ignored in spore path
+
+                case .setQuakeVoice, .setQuakeVolume:
+                    break // ignored in spore path
+
+                case .setOrbit:
+                    break // ignored in spore path
+
+                case .useOrbitSequencer:
+                    break // ignored in spore path
+
+                case .setFXChain(let chain):
+                    fxChain = chain
+                }
+            }
+
+            spore.sampleRate = sr
+            let srF = Float(sr)
+
+            // Read tree clock once at top of callback
+            let baseSample = clockPtr.pointee
+
+            // SPORE is natively stereo
+            if lfoBank.slotCount > 0 {
+                for frame in 0..<Int(frameCount) {
+                    let globalSample = baseSample + Int64(frame)
+                    seq.tick(globalSample: globalSample, sampleRate: sr, receiver: &spore, detune: 0)
+
+                    // SPORE SEQ: generate probabilistic events
+                    if useSporeSeq {
+                        sporeSeq.process(sampleCount: 1, sampleRate: sr) { pitch, velocity in
+                            spore.noteOn(pitch: pitch, velocity: velocity, frequency: 0)
+                        }
+                    }
+
+                    let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
+                    _ = resMod
+
+                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
+                    let (rawL, rawR) = spore.renderStereoSample(sampleRate: sr)
+                    let volF = Float(volumeSmoothed)
+
+                    var sampleL: Float
+                    var sampleR: Float
+
+                    if cutMod != 0 {
+                        sampleL = filter.processWithCutoffMod(rawL * volF, cutoffMod: cutMod, sampleRate: sr)
+                        sampleR = filter.processWithCutoffMod(rawR * volF, cutoffMod: cutMod, sampleRate: sr)
+                    } else {
+                        sampleL = filter.process(rawL * volF)
+                        sampleR = filter.process(rawR * volF)
+                    }
+
+                    sampleL = fxChain.process(sample: sampleL, sampleRate: srF)
+                    sampleR = fxChain.process(sample: sampleR, sampleRate: srF)
+
+                    let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
+                    let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
+                    let modGainL = Float(cos(modAngle))
+                    let modGainR = Float(sin(modAngle))
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * modGainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                        }
+                    }
+                }
+            } else {
+                // Equal-power pan law
+                let angle = Double((pan + 1) * 0.5) * .pi * 0.5
+                let gainL = Float(cos(angle))
+                let gainR = Float(sin(angle))
+
+                for frame in 0..<Int(frameCount) {
+                    let globalSample = baseSample + Int64(frame)
+                    seq.tick(globalSample: globalSample, sampleRate: sr, receiver: &spore, detune: 0)
+
+                    // SPORE SEQ: generate probabilistic events
+                    if useSporeSeq {
+                        sporeSeq.process(sampleCount: 1, sampleRate: sr) { pitch, velocity in
+                            spore.noteOn(pitch: pitch, velocity: velocity, frequency: 0)
+                        }
+                    }
+
+                    volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                    let (rawL, rawR) = spore.renderStereoSample(sampleRate: sr)
+                    let volF = Float(volumeSmoothed)
+                    var sampleL = filter.process(rawL * volF)
+                    var sampleR = filter.process(rawR * volF)
+
+                    sampleL = fxChain.process(sample: sampleL, sampleRate: srF)
+                    sampleR = fxChain.process(sample: sampleR, sampleRate: srF)
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * gainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                        }
+                    }
+                }
+            }
+
+            playingPtr.pointee = seq.isPlaying || sporeSeq.isRunning
             beatPtr.pointee = seq.currentBeat
 
             return noErr
@@ -1818,6 +2096,35 @@ final class NodeAudioUnit {
     /// Push SWARM imprint positions and amplitudes (64 each) or nil to clear.
     func configureSwarmImprint(positions: [Float]?, amplitudes: [Float]?) {
         commandBuffer.push(.setSwarmImprint(positions: positions, amplitudes: amplitudes))
+    }
+
+    func configureSpore(_ config: SporeConfig) {
+        commandBuffer.push(.setSpore(
+            density: config.density, focus: config.focus,
+            grain: config.grain, evolve: config.evolve,
+            warmth: config.warmth, volume: config.volume
+        ))
+        // Push imprint if present
+        if config.spectralSource == .imprint, let imprint = config.imprint {
+            commandBuffer.push(.setSporeImprint(imprint.harmonicAmplitudes))
+        }
+    }
+
+    func configureSporeImprint(_ amplitudes: [Float]?) {
+        commandBuffer.push(.setSporeImprint(amplitudes))
+    }
+
+    func configureSporeSeq(_ config: SporeSeqConfig, key: MusicalKey) {
+        commandBuffer.push(.setSporeSeq(
+            subdivision: config.subdivision.tag,
+            density: config.density, focus: config.focus,
+            drift: config.drift, memory: config.memory,
+            rangeOctaves: config.rangeOctaves
+        ))
+        commandBuffer.push(.setSporeSeqScale(
+            rootSemitone: key.root.semitone,
+            intervals: key.mode.intervals
+        ))
     }
 
     func configureQuake(_ config: QuakeConfig) {

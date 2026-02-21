@@ -76,6 +76,18 @@ enum AudioCommand {
     // Toggle orbit vs standard sequencer
     case useOrbitSequencer(Bool)
 
+    // SPORE engine: stochastic granular synthesis
+    case setSpore(density: Double, focus: Double, grain: Double, evolve: Double,
+                  warmth: Double, volume: Double)
+    case setSporeImprint([Float]?)          // 64 harmonic amplitudes, or nil to clear
+
+    // SPORE sequencer: probabilistic note generation
+    case setSporeSeq(subdivision: Int, density: Double, focus: Double, drift: Double,
+                     memory: Double, rangeOctaves: Int)
+    case setSporeSeqScale(rootSemitone: Int, intervals: [Int])
+    case sporeSeqStart(bpm: Double)
+    case sporeSeqStop
+
     // IMPRINT: spectral injection into engines
     case setFlowImprint([Float]?)           // 64 harmonic amplitudes, or nil to clear
     case setTideImprint([TideFrame]?)       // imprint frames for pattern 16, or nil to clear

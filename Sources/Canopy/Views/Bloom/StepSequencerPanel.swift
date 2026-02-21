@@ -101,7 +101,7 @@ struct StepSequencerPanel: View {
                     .foregroundColor(isArpActive ? CanopyColors.glowColor : CanopyColors.chromeText)
 
                 ModuleSwapButton(
-                    options: [("Pitched", SequencerType.pitched), ("Drum", SequencerType.drum), ("Orbit", SequencerType.orbit)],
+                    options: [("Pitched", SequencerType.pitched), ("Drum", SequencerType.drum), ("Orbit", SequencerType.orbit), ("Spore", SequencerType.sporeSeq)],
                     current: node?.sequencerType ?? .pitched,
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }

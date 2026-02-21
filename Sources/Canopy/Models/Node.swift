@@ -14,6 +14,7 @@ enum SequencerType: String, Codable, Equatable {
     case pitched
     case drum
     case orbit
+    case sporeSeq
 }
 
 /// Which input UI to show. nil = derive from SoundType.
@@ -44,6 +45,8 @@ struct Node: Codable, Equatable, Identifiable {
     var inputMode: InputMode?
     /// Orbit sequencer configuration. nil = not using orbit.
     var orbitConfig: OrbitConfig?
+    /// SPORE probabilistic sequencer configuration. nil = not using SPORE SEQ.
+    var sporeSeqConfig: SporeSeqConfig?
 
     init(
         id: UUID = UUID(),
@@ -61,7 +64,8 @@ struct Node: Codable, Equatable, Identifiable {
         presetID: String? = nil,
         sequencerType: SequencerType? = nil,
         inputMode: InputMode? = nil,
-        orbitConfig: OrbitConfig? = nil
+        orbitConfig: OrbitConfig? = nil,
+        sporeSeqConfig: SporeSeqConfig? = nil
     ) {
         self.id = id
         self.name = name
@@ -79,6 +83,7 @@ struct Node: Codable, Equatable, Identifiable {
         self.sequencerType = sequencerType
         self.inputMode = inputMode
         self.orbitConfig = orbitConfig
+        self.sporeSeqConfig = sporeSeqConfig
     }
 
     // Backward-compatible decoding — old files lack presetID
@@ -100,6 +105,7 @@ struct Node: Codable, Equatable, Identifiable {
         sequencerType = try container.decodeIfPresent(SequencerType.self, forKey: .sequencerType)
         inputMode = try container.decodeIfPresent(InputMode.self, forKey: .inputMode)
         orbitConfig = try container.decodeIfPresent(OrbitConfig.self, forKey: .orbitConfig)
+        sporeSeqConfig = try container.decodeIfPresent(SporeSeqConfig.self, forKey: .sporeSeqConfig)
     }
 }
 
