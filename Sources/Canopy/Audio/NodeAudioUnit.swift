@@ -288,15 +288,15 @@ final class NodeAudioUnit {
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
-                    var sample: Float
+                    let sample: Float
                     if cutMod != 0 {
                         sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
                     } else {
                         sample = filter.process(raw)
                     }
 
-                    // Per-node FX chain (empty chain = zero cost)
-                    sample = fxChain.process(sample: sample, sampleRate: srF)
+                    // Per-node FX chain — stereo so Ghost/Nebula can produce width
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -304,14 +304,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        let bufL = ablPointer[0]
-                        let bufR = ablPointer[1]
-                        bufL.mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainL
-                        bufR.mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
                     } else {
                         for buf in 0..<ablPointer.count {
-                            let buffer = ablPointer[buf]
-                            buffer.mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
                     }
                 }
@@ -322,20 +319,17 @@ final class NodeAudioUnit {
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
-                    var sample = filter.process(raw)
+                    let sample = filter.process(raw)
 
-                    // Per-node FX chain (empty chain = zero cost)
-                    sample = fxChain.process(sample: sample, sampleRate: srF)
+                    // Per-node FX chain — stereo so Ghost/Nebula can produce width
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        let bufL = ablPointer[0]
-                        let bufR = ablPointer[1]
-                        bufL.mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
-                        bufR.mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
                     } else {
                         for buf in 0..<ablPointer.count {
-                            let buffer = ablPointer[buf]
-                            buffer.mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
                     }
                 }
@@ -513,14 +507,14 @@ final class NodeAudioUnit {
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = drumKit.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
-                    var sample: Float
+                    let sample: Float
                     if cutMod != 0 {
                         sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
                     } else {
                         sample = filter.process(raw)
                     }
 
-                    sample = fxChain.process(sample: sample, sampleRate: srF)
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -528,11 +522,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
                     }
                 }
@@ -542,16 +536,16 @@ final class NodeAudioUnit {
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = drumKit.renderSample(sampleRate: sr) * Float(volumeSmoothed)
-                    var sample = filter.process(raw)
+                    let sample = filter.process(raw)
 
-                    sample = fxChain.process(sample: sample, sampleRate: srF)
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
                     }
                 }
@@ -735,14 +729,14 @@ final class NodeAudioUnit {
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = quake.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
-                    var sample: Float
+                    let sample: Float
                     if cutMod != 0 {
                         sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
                     } else {
                         sample = filter.process(raw)
                     }
 
-                    sample = fxChain.process(sample: sample, sampleRate: srF)
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -750,11 +744,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
                     }
                 }
@@ -769,16 +763,16 @@ final class NodeAudioUnit {
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = quake.renderSample(sampleRate: sr) * Float(volumeSmoothed)
-                    var sample = filter.process(raw)
+                    let sample = filter.process(raw)
 
-                    sample = fxChain.process(sample: sample, sampleRate: srF)
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
                     }
                 }
@@ -972,14 +966,14 @@ final class NodeAudioUnit {
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = westCoast.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
-                    var sample: Float
+                    let sample: Float
                     if cutMod != 0 {
                         sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
                     } else {
                         sample = filter.process(raw)
                     }
 
-                    sample = fxChain.process(sample: sample, sampleRate: srF)
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -987,11 +981,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
                     }
                 }
@@ -1001,16 +995,16 @@ final class NodeAudioUnit {
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = westCoast.renderSample(sampleRate: sr) * Float(volumeSmoothed)
-                    var sample = filter.process(raw)
+                    let sample = filter.process(raw)
 
-                    sample = fxChain.process(sample: sample, sampleRate: srF)
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
                     }
                 }
@@ -1175,14 +1169,14 @@ final class NodeAudioUnit {
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = fuse.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
-                    var sample: Float
+                    let sample: Float
                     if cutMod != 0 {
                         sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
                     } else {
                         sample = filter.process(raw)
                     }
 
-                    sample = fxChain.process(sample: sample, sampleRate: srF)
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
                     let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
@@ -1190,11 +1184,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
                     }
                 }
@@ -1209,16 +1203,16 @@ final class NodeAudioUnit {
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = fuse.renderSample(sampleRate: sr) * Float(volumeSmoothed)
-                    var sample = filter.process(raw)
+                    let sample = filter.process(raw)
 
-                    sample = fxChain.process(sample: sample, sampleRate: srF)
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sample * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = sample
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
                     }
                 }
