@@ -121,37 +121,57 @@ struct TidePanel: View {
                 // Pattern selector
                 patternSelector
 
-                // Spectral parameters
-                VStack(alignment: .leading, spacing: 8 * cs) {
-                    sectionLabel("SPECTRAL")
+                // Two-column layout: ASCII spectrum schematic + controls
+                HStack(alignment: .top, spacing: 0) {
+                    // Left: ASCII spectrum schematic
+                    spectrumSchematic
+                        .frame(width: 130 * cs, height: 260 * cs)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4 * cs)
+                                .fill(Color.black.opacity(0.3))
+                        )
 
-                    paramSlider(label: "CURR", value: $localCurrent, range: 0...1,
-                                format: { "\(Int($0 * 100))%" }) {
-                        commitConfig { $0.current = localCurrent }
-                    } onDrag: { pushConfigToEngine() }
+                    // Vertical divider
+                    CanopyColors.bloomPanelBorder.opacity(0.3)
+                        .frame(width: 1)
+                        .padding(.horizontal, 6 * cs)
 
-                    rateControl
+                    // Right: existing controls
+                    VStack(alignment: .leading, spacing: 8 * cs) {
+                        // Spectral parameters
+                        VStack(alignment: .leading, spacing: 8 * cs) {
+                            sectionLabel("SPECTRAL")
 
-                    paramSlider(label: "DPTH", value: $localDepth, range: 0...1,
-                                format: { "\(Int($0 * 100))%" }) {
-                        commitConfig { $0.depth = localDepth }
-                    } onDrag: { pushConfigToEngine() }
+                            paramSlider(label: "CURR", value: $localCurrent, range: 0...1,
+                                        format: { "\(Int($0 * 100))%" }) {
+                                commitConfig { $0.current = localCurrent }
+                            } onDrag: { pushConfigToEngine() }
+
+                            rateControl
+
+                            paramSlider(label: "DPTH", value: $localDepth, range: 0...1,
+                                        format: { "\(Int($0 * 100))%" }) {
+                                commitConfig { $0.depth = localDepth }
+                            } onDrag: { pushConfigToEngine() }
+                        }
+
+                        sectionDivider
+
+                        // Function generator
+                        funcGenSection
+
+                        sectionDivider
+
+                        // Output section
+                        outputSection
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-
-                sectionDivider
-
-                // Function generator
-                funcGenSection
-
-                sectionDivider
-
-                // Output section
-                outputSection
             }
         }
         .padding(.top, 36 * cs)
         .padding([.leading, .bottom, .trailing], 14 * cs)
-        .frame(width: 360 * cs)
+        .frame(width: 480 * cs)
         .fixedSize(horizontal: false, vertical: true)
         .background(CanopyColors.bloomPanelBackground.opacity(0.9))
         .clipShape(RoundedRectangle(cornerRadius: 10 * cs))
@@ -373,6 +393,201 @@ struct TidePanel: View {
         case .rampUp: return "\u{2191}"
         case .square: return "SQ"
         case .sAndH: return "S&H"
+        }
+    }
+
+    // MARK: - Spectrum Schematic (ASCII)
+
+    /// Frequency labels for the 16 bands (high to low for display: top = 16kHz, bottom = 75Hz).
+    private static let bandLabels: [String] = [
+        "16k", "10k", "7k5", "4k7", "3k0", "1k9", "1k2", "750",
+        "475", "300", "190", "120", " 75", "   ", "   ", "   "
+    ]
+
+    /// Waveform character for CURRENT parameter: ∿→△→╱→⊓→≈
+    private func sourceChar(for current: Double) -> String {
+        switch current {
+        case ..<0.2:  return "\u{223F}"  // ∿ sine
+        case ..<0.4:  return "\u{25B3}"  // △ triangle
+        case ..<0.6:  return "\u{2571}"  // ╱ saw
+        case ..<0.8:  return "\u{2293}"  // ⊓ square
+        default:      return "\u{2248}"  // ≈ noise
+        }
+    }
+
+    /// Func gen shape character for schematic display.
+    private func funcSchematicChar(_ shape: TideFuncShape) -> String? {
+        switch shape {
+        case .off:      return nil
+        case .sine:     return "\u{223F}"  // ∿
+        case .triangle: return "\u{25B3}"  // △
+        case .rampDown: return "\u{2572}"  // ╲
+        case .rampUp:   return "\u{2571}"  // ╱
+        case .square:   return "\u{2293}"  // ⊓
+        case .sAndH:    return "\u{2715}"  // ✕
+        }
+    }
+
+    /// Reactive ASCII spectrum display: 16 horizontal bars animated by pattern frames.
+    private var spectrumSchematic: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
+            Canvas { context, size in
+                drawTideSchematic(context: context, size: size, time: timeline.date.timeIntervalSinceReferenceDate)
+            }
+        }
+    }
+
+    /// Draw a single monospaced character at a grid position with color.
+    private func drawChar(_ context: GraphicsContext, _ char: String, at point: CGPoint, size fontSize: CGFloat, color: Color) {
+        context.draw(
+            Text(char).font(.system(size: fontSize, weight: .regular, design: .monospaced)).foregroundColor(color),
+            at: point, anchor: .center
+        )
+    }
+
+    /// Draw a bold monospaced character.
+    private func drawCharBold(_ context: GraphicsContext, _ char: String, at point: CGPoint, size fontSize: CGFloat, color: Color) {
+        context.draw(
+            Text(char).font(.system(size: fontSize, weight: .bold, design: .monospaced)).foregroundColor(color),
+            at: point, anchor: .center
+        )
+    }
+
+    /// Draw a string of monospaced characters, each cell = cellW wide, centered on startX.
+    private func drawString(_ context: GraphicsContext, _ str: String, centerX: CGFloat, y: CGFloat, cellW: CGFloat, fontSize: CGFloat, color: Color, bold: Bool = false) {
+        let chars = Array(str)
+        let totalW = CGFloat(chars.count) * cellW
+        let startX = centerX - totalW / 2 + cellW / 2
+        for (i, ch) in chars.enumerated() {
+            let x = startX + CGFloat(i) * cellW
+            if bold {
+                drawCharBold(context, String(ch), at: CGPoint(x: x, y: y), size: fontSize, color: color)
+            } else {
+                drawChar(context, String(ch), at: CGPoint(x: x, y: y), size: fontSize, color: color)
+            }
+        }
+    }
+
+    private func drawTideSchematic(context: GraphicsContext, size: CGSize, time: Double) {
+        let w = size.width
+        let h = size.height
+        let wireColor = CanopyColors.chromeText
+        let dimOp: CGFloat = 0.3
+
+        let depth = CGFloat(localDepth)
+
+        // Font / grid sizing
+        let fontSize: CGFloat = max(8, 9 * cs)
+        let cellW: CGFloat = fontSize * 0.62
+        let rowH: CGFloat = fontSize * 1.35
+
+        // Bar chars: space → ░ → ▒ → ▓ → █
+        let barChars: [Character] = [" ", "\u{2591}", "\u{2591}", "\u{2592}", "\u{2592}", "\u{2593}", "\u{2593}", "\u{2588}", "\u{2588}"]
+        let maxBarChars = 8
+
+        // Compute per-band levels from pattern frames
+        var bandLevels = [Float](repeating: 0.3, count: 16)
+
+        if TidePatterns.isChaos(localPattern) {
+            // Procedural: sin-based with band spread
+            let speed: Float = localPattern == 15 ? 3.0 : 1.0  // Storm faster than Wanderer
+            for band in 0..<16 {
+                let phase = Float(time) * speed + Float(band) * 0.4
+                let raw = (sin(phase) * 0.5 + 0.5) * 0.8 + 0.1
+                // Add hash noise for Storm
+                let noise: Float = localPattern == 15 ? sin(phase * 7.3 + Float(band) * 2.1) * 0.2 : 0
+                bandLevels[band] = max(0, min(1, raw + noise))
+            }
+        } else if TidePatterns.isImprint(localPattern) {
+            // Imprint: flat mid-level bars (actual data is audio-thread only)
+            for band in 0..<16 {
+                bandLevels[band] = 0.4 + sin(Float(band) * 0.5 + Float(time) * 0.3) * 0.15
+            }
+        } else if let frames = TidePatterns.frames(for: localPattern), !frames.isEmpty {
+            // Deterministic pattern: interpolate between frames
+            let rateHz = 0.05 + localRate * 2.0
+            let pos = fmod(time * rateHz, Double(frames.count))
+            let idx = Int(pos) % frames.count
+            let nextIdx = (idx + 1) % frames.count
+            let frac = Float(pos - floor(pos))
+
+            for band in 0..<16 {
+                let a = TideFrame.level(frames[idx], at: band)
+                let b = TideFrame.level(frames[nextIdx], at: band)
+                let raw = a + (b - a) * frac
+                // Depth controls contrast: low depth = uniform, high = full range
+                let floor: Float = 0.15
+                bandLevels[band] = floor + (raw - floor) * Float(depth)
+            }
+        }
+
+        // --- Draw 16 spectrum bars (top = band 15 = 16kHz, bottom = band 0 = 75Hz) ---
+        let topMargin: CGFloat = 6 * cs
+        let bandAreaH = h - topMargin - rowH * 4  // Leave room for source indicator at bottom
+        let bandRowH = bandAreaH / 16
+
+        // Show labels for key frequencies (every other + edges)
+        let labeledBands: Set<Int> = [0, 2, 4, 6, 8, 10, 12, 14, 15]
+
+        for displayRow in 0..<16 {
+            let band = 15 - displayRow  // top = highest freq
+            let y = topMargin + CGFloat(displayRow) * bandRowH + bandRowH * 0.5
+            let level = CGFloat(bandLevels[band])
+
+            // Frequency label (left side)
+            if labeledBands.contains(displayRow) && displayRow < Self.bandLabels.count {
+                let label = Self.bandLabels[displayRow]
+                let labelX = cellW * 2.5
+                drawString(context, label, centerX: labelX, y: y, cellW: cellW, fontSize: fontSize,
+                           color: wireColor.opacity(dimOp))
+            }
+
+            // Bar: starts after label area
+            let barStartX = cellW * 5
+            let filledCount = Int(level * CGFloat(maxBarChars))
+
+            for col in 0..<maxBarChars {
+                let x = barStartX + CGFloat(col) * cellW
+                if col < filledCount {
+                    // Pick bar char based on position within filled range
+                    let charIdx: Int
+                    if filledCount > 0 {
+                        let normalizedPos = Float(col) / Float(max(1, filledCount - 1))
+                        charIdx = min(barChars.count - 1, Int(normalizedPos * Float(barChars.count - 1)) + 1)
+                    } else {
+                        charIdx = 0
+                    }
+                    let ch = barChars[charIdx]
+                    let opacity = 0.4 + level * 0.6
+                    drawCharBold(context, String(ch), at: CGPoint(x: x, y: y), size: fontSize,
+                                 color: accentColor.opacity(opacity))
+                } else {
+                    // Empty space — dim dot
+                    drawChar(context, "\u{00B7}", at: CGPoint(x: x, y: y), size: fontSize,
+                             color: wireColor.opacity(0.1))
+                }
+            }
+        }
+
+        // --- Source indicator ---
+        let srcY = h - rowH * 2.5
+        let srcRuleY = srcY - rowH * 0.4
+
+        // Horizontal rule: ── src ──
+        drawString(context, "\u{2500}\u{2500} src \u{2500}\u{2500}", centerX: w * 0.5, y: srcRuleY,
+                   cellW: cellW, fontSize: fontSize, color: wireColor.opacity(dimOp))
+
+        // Waveform morph char
+        let srcChar = sourceChar(for: localCurrent)
+        drawCharBold(context, srcChar, at: CGPoint(x: w * 0.5, y: srcY + rowH * 0.3),
+                     size: fontSize * 1.4, color: accentColor.opacity(0.8))
+
+        // --- Func gen indicator (between spectrum and source) ---
+        if let funcChar = funcSchematicChar(localFuncShape) {
+            let funcY = srcRuleY - rowH * 1.0
+            let funcOp = 0.3 + localFuncAmount * 0.7
+            drawCharBold(context, funcChar, at: CGPoint(x: w * 0.5, y: funcY),
+                         size: fontSize * 1.1, color: accentColor.opacity(funcOp))
         }
     }
 
