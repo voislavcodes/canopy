@@ -75,21 +75,41 @@ struct StepSequencerPanel: View {
     /// Always render 32 columns so grid size never changes.
     private var displayColumns: Int { 32 }
 
-    private var cellSpacing: CGFloat { 1.5 * cs }
+    // MARK: - ASCII Grid Geometry
 
-    private var cellCornerRadius: CGFloat { cellSize * 0.25 }
+    private var gridFontSize: CGFloat { max(9, 10 * cs) }
+    private var gridCellW: CGFloat { gridFontSize * 0.62 }
+    private var gridRowH: CGFloat { gridFontSize * 1.35 }
 
-    /// Available width for the grid cells (panel minus padding, touch strip, labels, spacings).
-    private var gridAreaWidth: CGFloat {
-        // panelWidth - 2*padding(14) - touchStrip(12) - labels(22) - 2*hstackSpacing(4)
-        (panelWidth - 28 - 12 - 22 - 8) * cs
+    /// 32 content chars + 8 beat separators + 1 left edge = 41 char columns
+    private var gridCharCols: Int { 41 }
+
+    /// Derive cellSize/cellSpacing from ASCII geometry for span overlay compatibility.
+    private var cellSize: CGFloat { gridCellW }
+    private var cellSpacing: CGFloat { 0 }
+
+    /// Pre-computed mapping: step index (0-31) → character column in the 41-col layout.
+    /// Layout: ║····║····║····║····║····║····║····║····║
+    /// Col 0 = left ║, then 4 steps, then ║, etc.
+    /// Separators at cols: 0, 5, 10, 15, 20, 25, 30, 35, 40
+    private var stepToCharCol: [Int] {
+        var map = [Int]()
+        for step in 0..<displayColumns {
+            let group = step / 4  // which beat group (0-7)
+            // Column = (group+1) separators seen so far + step index
+            map.append(group + 1 + step)
+        }
+        return map
     }
 
-    /// Cell size derived from available grid width so cells fill the panel.
-    private var cellSize: CGFloat {
-        let spacing = cellSpacing
-        let ideal = (gridAreaWidth + spacing) / CGFloat(displayColumns) - spacing
-        return max(6 * cs, floor(ideal))
+    /// Reverse mapping: character column → step index (nil for separator columns).
+    private var charColToStep: [Int?] {
+        var map = [Int?](repeating: nil, count: gridCharCols)
+        let fwd = stepToCharCol
+        for (step, col) in fwd.enumerated() {
+            if col < gridCharCols { map[col] = step }
+        }
+        return map
     }
 
     var body: some View {
@@ -152,27 +172,11 @@ struct StepSequencerPanel: View {
                     // Note labels
                     noteLabels
 
-                    // Grid + span overlay + velocity bars + playhead
+                    // ASCII grid + span drag handles
                     ZStack(alignment: .topLeading) {
-                        VStack(spacing: 2 * cs) {
-                            ZStack(alignment: .topLeading) {
-                                gridCanvas(sequence: node.sequence)
+                        asciiGridCanvas(sequence: node.sequence, nodeID: node.id)
 
-                                spanOverlay(sequence: node.sequence)
-                            }
-                            velocityBars(sequence: node.sequence)
-                        }
-
-                        SequencerPlayhead(
-                            nodeID: node.id,
-                            lengthInBeats: node.sequence.lengthInBeats,
-                            columns: columns,
-                            rows: visiblePitches.count,
-                            cellSize: cellSize,
-                            cellSpacing: cellSpacing,
-                            cellCornerRadius: cellCornerRadius,
-                            cs: cs
-                        )
+                        spanDragHandles(sequence: node.sequence)
                     }
                 }
             }
@@ -294,40 +298,39 @@ struct StepSequencerPanel: View {
         }
     }
 
-    // MARK: - Touch Strip
+    // MARK: - Touch Strip (ASCII)
 
     /// Ableton Push-style vertical touch strip for scrolling the visible pitch range.
     private var pitchTouchStrip: some View {
-        let visibleCount = visiblePitches.count
-        let gridHeight = CGFloat(visibleCount) * (cellSize + cellSpacing) - cellSpacing
+        let pitchCount = visiblePitches.count
+        let stripHeight = CGFloat(pitchCount) * gridRowH
         let totalRange = midiHigh - midiLow - rows
         let normalizedPos = totalRange > 0
             ? CGFloat(baseNote - midiLow) / CGFloat(totalRange)
             : 0.5
+        let stripRows = pitchCount
+        let thumbRow = max(0, min(stripRows - 1, Int(round(Double(stripRows - 1) * (1.0 - normalizedPos)))))
+        let fontSize = gridFontSize
+        let cw = gridCellW
+        let rh = gridRowH
 
-        return ZStack(alignment: .bottom) {
-            // Track
-            RoundedRectangle(cornerRadius: 3 * cs)
-                .fill(CanopyColors.chromeBackground.opacity(0.6))
-            RoundedRectangle(cornerRadius: 3 * cs)
-                .stroke(CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
-
-            // Thumb indicator
-            let thumbHeight: CGFloat = max(12 * cs, gridHeight * CGFloat(rows) / CGFloat(midiHigh - midiLow))
-            let travel = gridHeight - thumbHeight
-            RoundedRectangle(cornerRadius: 2 * cs)
-                .fill(CanopyColors.glowColor.opacity(0.4))
-                .frame(width: 8 * cs, height: thumbHeight)
-                .offset(y: -normalizedPos * travel)
+        return Canvas { context, size in
+            for row in 0..<stripRows {
+                let y = CGFloat(row) * rh + rh / 2
+                let x = cw / 2
+                if row == thumbRow {
+                    drawCharSeq(context, "█", at: CGPoint(x: x, y: y), size: fontSize, color: CanopyColors.glowColor.opacity(0.6))
+                } else {
+                    drawCharSeq(context, "│", at: CGPoint(x: x, y: y), size: fontSize, color: CanopyColors.chromeText.opacity(0.15))
+                }
+            }
         }
-        .frame(width: 12 * cs, height: gridHeight)
+        .frame(width: cw + 2, height: stripHeight)
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
-                    // Invert: top = high notes, bottom = low notes
-                    let fraction = 1.0 - (value.location.y / gridHeight)
+                    let fraction = 1.0 - (value.location.y / stripHeight)
                     let clamped = max(0, min(1, fraction))
                     let totalRange = midiHigh - midiLow - rows
                     baseNote = midiLow + Int(round(clamped * CGFloat(totalRange)))
@@ -341,9 +344,10 @@ struct StepSequencerPanel: View {
     /// Shows pitch names for each visible row, to the left of the grid.
     private var noteLabels: some View {
         let pitches = visiblePitches
-        let gridHeight = CGFloat(pitches.count) * (cellSize + cellSpacing) - cellSpacing
+        let rh = gridRowH
+        let gridHeight = CGFloat(pitches.count) * rh
         let rootSemitone = resolveKey().root.semitone
-        return VStack(spacing: cellSpacing) {
+        return VStack(spacing: 0) {
             ForEach(pitches, id: \.self) { pitch in
                 let name = MIDIUtilities.noteName(forNote: pitch)
                 let isRoot = ((pitch % 12) - rootSemitone + 12) % 12 == 0
@@ -352,7 +356,7 @@ struct StepSequencerPanel: View {
                 Text(name)
                     .font(.system(size: 7 * cs, weight: highlight ? .bold : .regular, design: .monospaced))
                     .foregroundColor(highlight ? CanopyColors.glowColor.opacity(0.7) : CanopyColors.chromeText.opacity(0.35))
-                    .frame(width: 22 * cs, height: cellSize, alignment: .trailing)
+                    .frame(width: 22 * cs, height: rh, alignment: .trailing)
             }
         }
         .frame(height: gridHeight)
@@ -372,99 +376,44 @@ struct StepSequencerPanel: View {
         return dict
     }
 
-    private func gridCanvas(sequence: NoteSequence) -> some View {
-        // Pre-compute all values outside the Canvas closure
+    // MARK: - ASCII Grid Canvas
+
+    /// Build a set of (pitch, step) pairs that are span continuations (not the start cell).
+    private func spanContinuationSet(for sequence: NoteSequence) -> Set<Int> {
+        let sd = NoteSequence.stepDuration
+        var set = Set<Int>()
+        for note in sequence.notes {
+            let startStep = Int(round(note.startBeat / sd))
+            let endStep: Int
+            if let drag = spanDragState, drag.pitch == note.pitch && drag.startStep == startStep {
+                endStep = drag.currentEndStep
+            } else {
+                endStep = max(startStep + 1, Int(round((note.startBeat + note.duration) / sd)))
+            }
+            // Mark continuation cells (skip the start cell)
+            for s in (startStep + 1)..<endStep {
+                set.insert(note.pitch &* 1000 &+ s)
+            }
+        }
+        return set
+    }
+
+    private func asciiGridCanvas(sequence: NoteSequence, nodeID: UUID) -> some View {
         let lookup = noteEventLookup(for: sequence)
+        let continuations = spanContinuationSet(for: sequence)
         let pitches = visiblePitches
-        let arpPitches: Set<Int> = isArpActive
-            ? Set(sequence.notes.map { $0.pitch })
-            : []
-        let cellSz = cellSize
-        let spacing = cellSpacing
-        let stride = cellSz + spacing
-        let cr = cellCornerRadius
         let cols = columns
         let isArp = isArpActive
         let hasEuclidean = sequence.euclidean != nil
-        let scale = cs
-        let gridWidth = CGFloat(displayColumns) * stride - spacing
-        let gridHeight = CGFloat(pitches.count) * stride - spacing
+        let arpPitches: Set<Int> = isArp ? Set(sequence.notes.map { $0.pitch }) : []
+        let fontSize = gridFontSize
+        let cw = gridCellW
+        let rh = gridRowH
+        let charCols = gridCharCols
+        let colMap = stepToCharCol
+        let reverseMap = charColToStep
 
-        return Canvas { context, size in
-            for (rowIdx, pitch) in pitches.enumerated() {
-                let rowInPool = arpPitches.contains(pitch)
-                let y = CGFloat(rowIdx) * stride
-
-                for col in 0..<displayColumns {
-                    let x = CGFloat(col) * stride
-                    let rect = CGRect(x: x, y: y, width: cellSz, height: cellSz)
-                    let path = RoundedRectangle(cornerRadius: cr).path(in: rect)
-
-                    let enabled = col < cols
-                    let noteEvent = enabled ? lookup[pitch &* 1000 &+ col] : nil
-                    let isActive = noteEvent != nil
-                    let probability = noteEvent?.probability ?? 1.0
-                    let ratchetCount = noteEvent?.ratchetCount ?? 1
-                    let dimFactor: Double = enabled ? 1.0 : 0.25
-
-                    // Colors
-                    let euclideanGreen = Color(red: 0.2, green: 0.7, blue: 0.4)
-                    let arpCyan = Color(red: 0.2, green: 0.7, blue: 0.8)
-                    let baseColor: Color = isArp && isActive ? arpCyan
-                        : (hasEuclidean && isActive ? euclideanGreen : CanopyColors.gridCellActive)
-
-                    let inactiveFill: Color = rowInPool
-                        ? arpCyan.opacity(0.04 * dimFactor)
-                        : CanopyColors.gridCellInactive.opacity(dimFactor)
-                    let fillColor: Color = isActive
-                        ? baseColor.opacity(0.1 * dimFactor) : inactiveFill
-
-                    let strokeColor: Color = isActive
-                        ? baseColor.opacity((probability * 0.8 + 0.2) * dimFactor)
-                        : CanopyColors.bloomPanelBorder.opacity(0.3 * dimFactor)
-                    let strokeWidth: CGFloat = isActive ? 1.5 : 0.5
-
-                    context.fill(path, with: .color(fillColor))
-                    context.stroke(path, with: .color(strokeColor), lineWidth: strokeWidth)
-
-                    // Ratchet subdivision lines
-                    if isActive && ratchetCount > 1 {
-                        let lineW = cellSz - 4 * scale
-                        let startX = x + 2 * scale
-                        for r in 0..<ratchetCount {
-                            let ry = y + cellSz * CGFloat(r + 1) / CGFloat(ratchetCount + 1)
-                            var lp = Path()
-                            lp.move(to: CGPoint(x: startX, y: ry))
-                            lp.addLine(to: CGPoint(x: startX + lineW, y: ry))
-                            context.stroke(lp, with: .color(.white.opacity(0.3 * dimFactor)), lineWidth: 1)
-                        }
-                    }
-                }
-            }
-        }
-        .frame(width: gridWidth, height: gridHeight)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onEnded { value in
-                    // Only treat as tap if movement was minimal
-                    guard abs(value.translation.width) < 5,
-                          abs(value.translation.height) < 5 else { return }
-                    let loc = value.startLocation
-                    let col = Int(loc.x / stride)
-                    let rowIdx = Int(loc.y / stride)
-                    guard rowIdx >= 0, rowIdx < pitches.count,
-                          col >= 0, col < cols else { return }
-                    let pitch = pitches[rowIdx]
-                    toggleNote(pitch: pitch, step: col)
-                }
-        )
-    }
-
-    // MARK: - Velocity Bars
-
-    private func velocityBars(sequence: NoteSequence) -> some View {
-        // Pre-compute max velocity per step
+        // Pre-compute step velocities for velocity row
         var stepVelocities = [Int: Double]()
         for event in sequence.notes {
             let step = Int(round(event.startBeat / NoteSequence.stepDuration))
@@ -475,19 +424,174 @@ struct StepSequencerPanel: View {
             }
         }
 
-        let maxBarHeight: CGFloat = 5 * cs
-        return HStack(spacing: cellSpacing) {
-            ForEach(0..<displayColumns, id: \.self) { col in
-                let enabled = col < columns
-                let maxVel = enabled ? (stepVelocities[col] ?? 0) : 0.0
-                let dimFactor: Double = enabled ? 1.0 : 0.25
+        // Total rows: pitchRows + 1 bottom border + 1 velocity row
+        let pitchRowCount = pitches.count
+        let totalRows = pitchRowCount + 2
+        let canvasWidth = CGFloat(charCols) * cw
+        let canvasHeight = CGFloat(totalRows) * rh
 
-                RoundedRectangle(cornerRadius: 1 * cs)
-                    .fill(CanopyColors.glowColor.opacity((maxVel > 0 ? 0.5 : 0.1) * dimFactor))
-                    .frame(width: cellSize, height: max(1, maxBarHeight * CGFloat(maxVel)))
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            let engine = AudioEngine.shared
+            let isPlaying = engine.isPlaying(for: nodeID)
+            let currentBeat = engine.currentBeat(for: nodeID)
+            let beatFraction = currentBeat / max(sequence.lengthInBeats, 1)
+            let playheadStep = isPlaying ? Int(beatFraction * Double(cols)) % cols : -1
+            let pulse: CGFloat = 0.7 + 0.3 * CGFloat(sin(time * 6))
+
+            Canvas { context, size in
+                let euclideanGreen = Color(red: 0.2, green: 0.7, blue: 0.4)
+                let arpCyan = Color(red: 0.2, green: 0.7, blue: 0.8)
+                let borderColor = CanopyColors.chromeText.opacity(0.15)
+
+                // === Pitch rows ===
+                for (rowIdx, pitch) in pitches.enumerated() {
+                    let y = CGFloat(rowIdx) * rh + rh / 2
+
+                    for charCol in 0..<charCols {
+                        let x = CGFloat(charCol) * cw + cw / 2
+
+                        // Determine if this is a separator column
+                        let stepIdx = charCol < charCols ? reverseMap[charCol] : nil
+
+                        if stepIdx == nil {
+                            // Separator column: ║
+                            let isPlayheadAdj = isPlaying && playheadStep >= 0 && {
+                                let phCol = colMap[playheadStep]
+                                return charCol == phCol - 1 || charCol == phCol + 1
+                            }()
+                            let sepColor = isPlayheadAdj
+                                ? CanopyColors.glowColor.opacity(0.3 * Double(pulse))
+                                : borderColor
+                            drawCharSeq(context, "║", at: CGPoint(x: x, y: y), size: fontSize, color: sepColor)
+                        } else if let step = stepIdx {
+                            let enabled = step < cols
+                            let isPlayhead = step == playheadStep
+                            let noteEvent = enabled ? lookup[pitch &* 1000 &+ step] : nil
+                            let isActive = noteEvent != nil
+                            let isContinuation = continuations.contains(pitch &* 1000 &+ step)
+                            let velocity = noteEvent?.velocity ?? 0.8
+                            let probability = noteEvent?.probability ?? 1.0
+                            let ratchetCount = noteEvent?.ratchetCount ?? 1
+                            let dimFactor: Double = enabled ? 1.0 : 0.25
+
+                            // Determine character and color
+                            let char: String
+                            let color: Color
+
+                            if isContinuation {
+                                char = "─"
+                                let baseCol: Color = isArp ? arpCyan : (hasEuclidean ? euclideanGreen : CanopyColors.gridCellActive)
+                                color = isPlayhead
+                                    ? CanopyColors.glowColor.opacity(Double(pulse))
+                                    : baseCol.opacity(0.4 * dimFactor)
+                            } else if isActive {
+                                // Velocity-mapped fill character
+                                if ratchetCount > 1 {
+                                    char = "╪"
+                                } else if velocity < 0.3 {
+                                    char = "░"
+                                } else if velocity < 0.6 {
+                                    char = "▒"
+                                } else if velocity < 0.85 {
+                                    char = "▓"
+                                } else {
+                                    char = "█"
+                                }
+                                let baseCol: Color = isArp ? arpCyan : (hasEuclidean ? euclideanGreen : CanopyColors.gridCellActive)
+                                color = isPlayhead
+                                    ? CanopyColors.glowColor.opacity(Double(pulse))
+                                    : baseCol.opacity((probability * 0.8 + 0.2) * dimFactor)
+                            } else {
+                                char = "·"
+                                let arpDim = arpPitches.contains(pitch) ? 0.08 : 0.0
+                                color = isPlayhead
+                                    ? CanopyColors.glowColor.opacity(0.4 * Double(pulse))
+                                    : CanopyColors.chromeText.opacity((enabled ? 0.15 : 0.06) + arpDim)
+                            }
+
+                            drawCharSeq(context, char, at: CGPoint(x: x, y: y), size: fontSize, color: color)
+                        }
+                    }
+                }
+
+                // === Bottom border row ===
+                let borderY = CGFloat(pitchRowCount) * rh + rh / 2
+                for charCol in 0..<charCols {
+                    let x = CGFloat(charCol) * cw + cw / 2
+                    let stepIdx = charCol < charCols ? reverseMap[charCol] : nil
+                    let ch: String
+                    if charCol == 0 {
+                        ch = "╚"
+                    } else if charCol == charCols - 1 {
+                        ch = "╝"
+                    } else if stepIdx == nil {
+                        // Separator position
+                        ch = "╩"
+                    } else {
+                        ch = "═"
+                    }
+                    drawCharSeq(context, ch, at: CGPoint(x: x, y: borderY), size: fontSize, color: borderColor)
+                }
+
+                // === Velocity row ===
+                let velY = CGFloat(pitchRowCount + 1) * rh + rh / 2
+                for step in 0..<displayColumns {
+                    let charCol = colMap[step]
+                    let x = CGFloat(charCol) * cw + cw / 2
+                    let enabled = step < cols
+                    let vel = enabled ? (stepVelocities[step] ?? 0) : 0.0
+                    let dimFactor: Double = enabled ? 1.0 : 0.25
+
+                    let ch: String
+                    if vel <= 0 { ch = " " }
+                    else if vel < 0.15 { ch = "▁" }
+                    else if vel < 0.30 { ch = "▂" }
+                    else if vel < 0.45 { ch = "▃" }
+                    else if vel < 0.60 { ch = "▄" }
+                    else if vel < 0.75 { ch = "▅" }
+                    else if vel < 0.90 { ch = "▆" }
+                    else { ch = "▇" }
+
+                    let velColor = CanopyColors.glowColor.opacity((vel > 0 ? 0.5 : 0.1) * dimFactor)
+                    drawCharSeq(context, ch, at: CGPoint(x: x, y: velY), size: fontSize, color: velColor)
+                }
             }
+            .frame(width: canvasWidth, height: canvasHeight)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onEnded { value in
+                        guard abs(value.translation.width) < 5,
+                              abs(value.translation.height) < 5 else { return }
+                        let loc = value.startLocation
+                        let charCol = Int(loc.x / cw)
+                        let rowIdx = Int(loc.y / rh)
+                        guard rowIdx >= 0, rowIdx < pitches.count,
+                              charCol >= 0, charCol < charCols else { return }
+                        // Convert char column to step via reverse mapping
+                        guard let step = reverseMap[charCol], step < cols else { return }
+                        let pitch = pitches[rowIdx]
+                        toggleNote(pitch: pitch, step: step)
+                    }
+            )
         }
-        .frame(height: 5 * cs, alignment: .bottom)
+    }
+
+    // MARK: - ASCII Drawing Primitives
+
+    private func drawCharSeq(_ context: GraphicsContext, _ char: String, at point: CGPoint, size fontSize: CGFloat, color: Color) {
+        context.draw(
+            Text(char).font(.system(size: fontSize, weight: .regular, design: .monospaced)).foregroundColor(color),
+            at: point, anchor: .center
+        )
+    }
+
+    private func drawCharSeqBold(_ context: GraphicsContext, _ char: String, at point: CGPoint, size fontSize: CGFloat, color: Color) {
+        context.draw(
+            Text(char).font(.system(size: fontSize, weight: .bold, design: .monospaced)).foregroundColor(color),
+            at: point, anchor: .center
+        )
     }
 
     // MARK: - Custom Controls
@@ -1139,15 +1243,17 @@ struct StepSequencerPanel: View {
         reloadSequence()
     }
 
-    // MARK: - Span Overlay
+    // MARK: - Span Drag Handles (overlay)
 
-    /// Build span lookup: for each pitch row, collect (startStep, endStep, NoteEvent index).
-    private func spanOverlay(sequence: NoteSequence) -> some View {
+    /// Thin drag handles on the right edge of multi-step note spans.
+    /// The span body itself (─ characters) is drawn in the ASCII Canvas.
+    private func spanDragHandles(sequence: NoteSequence) -> some View {
         let sd = NoteSequence.stepDuration
         let pitches = visiblePitches
-        let stride = cellSize + cellSpacing
+        let cw = gridCellW
+        let rh = gridRowH
+        let colMap = stepToCharCol
 
-        // Build lookup: pitch → [(startStep, endStep, noteIndex)]
         var spansByPitch: [Int: [(startStep: Int, endStep: Int, noteIndex: Int)]] = [:]
         for (idx, note) in sequence.notes.enumerated() {
             let startStep = Int(round(note.startBeat / sd))
@@ -1157,7 +1263,10 @@ struct StepSequencerPanel: View {
             } else {
                 endStep = max(startStep + 1, Int(round((note.startBeat + note.duration) / sd)))
             }
-            spansByPitch[note.pitch, default: []].append((startStep: startStep, endStep: endStep, noteIndex: idx))
+            // Only show handles for multi-step spans
+            if endStep - startStep > 1 {
+                spansByPitch[note.pitch, default: []].append((startStep: startStep, endStep: endStep, noteIndex: idx))
+            }
         }
 
         let spanColor = isArpActive
@@ -1167,49 +1276,34 @@ struct StepSequencerPanel: View {
         return ZStack(alignment: .topLeading) {
             ForEach(pitches, id: \.self) { pitch in
                 let rowIndex = pitches.firstIndex(of: pitch) ?? 0
-                let y = CGFloat(rowIndex) * stride
+                let y = CGFloat(rowIndex) * rh
 
                 if let spans = spansByPitch[pitch] {
                     ForEach(spans, id: \.startStep) { span in
-                        let visibleStart = span.startStep
                         let visibleEnd = min(span.endStep, columns)
-                        let spanWidth = CGFloat(visibleEnd - visibleStart) * stride - cellSpacing
+                        if visibleEnd > span.startStep && span.startStep < columns {
+                            let endCharCol = visibleEnd < displayColumns ? colMap[visibleEnd] : gridCharCols
+                            let handleX = CGFloat(endCharCol) * cw - 2 * cs
 
-                        if spanWidth > 0 && visibleStart < columns {
-                            // Span bar
-                            ZStack(alignment: .trailing) {
-                                RoundedRectangle(cornerRadius: cellCornerRadius)
-                                    .fill(spanColor.opacity(0.2))
-                                    .frame(width: spanWidth, height: cellSize)
-                                    .allowsHitTesting(false)
-
-                                RoundedRectangle(cornerRadius: cellCornerRadius)
-                                    .stroke(spanColor.opacity(0.5), lineWidth: 1)
-                                    .frame(width: spanWidth, height: cellSize)
-                                    .allowsHitTesting(false)
-
-                                // Drag handle on right edge
-                                Rectangle()
-                                    .fill(spanColor.opacity(0.6))
-                                    .frame(width: 3 * cs, height: cellSize * 0.6)
-                                    .clipShape(RoundedRectangle(cornerRadius: 1 * cs))
-                                    .padding(.trailing, 1 * cs)
-                                    .gesture(
-                                        DragGesture(minimumDistance: 2)
-                                            .onChanged { drag in
-                                                let dragSteps = Int(round(drag.translation.width / stride))
-                                                let newEnd = max(visibleStart + 1, min(columns, span.endStep + dragSteps))
-                                                spanDragState = (pitch: pitch, startStep: span.startStep, currentEndStep: newEnd)
+                            Rectangle()
+                                .fill(spanColor.opacity(0.6))
+                                .frame(width: 3 * cs, height: rh * 0.5)
+                                .clipShape(RoundedRectangle(cornerRadius: 1 * cs))
+                                .offset(x: handleX, y: y + rh * 0.25)
+                                .gesture(
+                                    DragGesture(minimumDistance: 2)
+                                        .onChanged { drag in
+                                            let dragSteps = Int(round(drag.translation.width / cw))
+                                            let newEnd = max(span.startStep + 1, min(columns, span.endStep + dragSteps))
+                                            spanDragState = (pitch: pitch, startStep: span.startStep, currentEndStep: newEnd)
+                                        }
+                                        .onEnded { _ in
+                                            if let drag = spanDragState {
+                                                commitSpanDrag(pitch: drag.pitch, startStep: drag.startStep, newEndStep: drag.currentEndStep)
                                             }
-                                            .onEnded { _ in
-                                                if let drag = spanDragState {
-                                                    commitSpanDrag(pitch: drag.pitch, startStep: drag.startStep, newEndStep: drag.currentEndStep)
-                                                }
-                                                spanDragState = nil
-                                            }
-                                    )
-                            }
-                            .offset(x: CGFloat(visibleStart) * stride, y: y)
+                                            spanDragState = nil
+                                        }
+                                )
                         }
                     }
                 }
@@ -1308,49 +1402,5 @@ struct StepSequencerPanel: View {
             return treeScale
         }
         return projectState.project.globalKey
-    }
-}
-
-// MARK: - Playhead (polls audio engine at 30fps, Core Animation interpolates between updates)
-
-/// Polls beat position at 30fps via `TimelineView(.periodic)` and applies
-/// `.animation(.linear)` so Core Animation smoothly interpolates offset
-/// on the compositor thread — zero main thread work between polls.
-///
-/// Uses `nodeID: UUID` (value type) so SwiftUI structural diffing works:
-/// parent re-evaluations from pan/zoom gestures see identical inputs and
-/// skip this view's body entirely.
-private struct SequencerPlayhead: View {
-    let nodeID: UUID
-    let lengthInBeats: Double
-    let columns: Int
-    let rows: Int
-    let cellSize: CGFloat
-    let cellSpacing: CGFloat
-    let cellCornerRadius: CGFloat
-    let cs: CGFloat
-
-    /// 30fps poll interval — enough for playhead visual accuracy while
-    /// leaving the main thread free for gesture processing.
-    private static let pollInterval: TimeInterval = 1.0 / 30.0
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: Self.pollInterval)) { _ in
-            let engine = AudioEngine.shared
-            let isPlaying = engine.isPlaying(for: nodeID)
-            let currentBeat = engine.currentBeat(for: nodeID)
-            let beatFraction = currentBeat / max(lengthInBeats, 1)
-            let step = beatFraction * Double(columns)
-            let xOffset = CGFloat(step) * (cellSize + cellSpacing)
-            let gridHeight = CGFloat(rows) * (cellSize + cellSpacing) - cellSpacing
-            let totalHeight = gridHeight + 2 * cs + 5 * cs
-
-            RoundedRectangle(cornerRadius: cellCornerRadius)
-                .fill(CanopyColors.glowColor.opacity(isPlaying ? 0.2 : 0))
-                .frame(width: cellSize, height: totalHeight)
-                .offset(x: xOffset, y: 0)
-                .allowsHitTesting(false)
-                .animation(.linear(duration: Self.pollInterval), value: xOffset)
-        }
     }
 }
