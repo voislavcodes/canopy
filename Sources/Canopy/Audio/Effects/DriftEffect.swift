@@ -219,11 +219,9 @@ struct DriftEffect {
         let hfCutoff = 18000.0 * pow(0.7, distanceSmoothed * 6.0)
         let clampedHFCutoff = max(20.0, min(hfCutoff, Double(sampleRate) * 0.5 - 100.0))
 
-        let feedback = Float(decaySmoothed * 0.92)
-
         let stereoWidth = Float(distanceSmoothed * 0.8)
 
-        let diffusionCoeff = Float(distanceSmoothed * 0.3)
+        let diffusionCoeff = Float(0.1 + distanceSmoothed * 0.25)  // floor smooths echo envelopes
 
         // Medium weights
         let rawAir = max(0.0, 1.0 - mediumSmoothed * 2.5)
@@ -233,6 +231,10 @@ struct DriftEffect {
         let airW = Float(rawAir / weightSum)
         let waterW = Float(rawWater / weightSum)
         let metalW = Float(rawMetal / weightSum)
+
+        // Feedback: compensate for medium gain (water bass boost, metal resonance)
+        let feedbackComp: Float = 1.0 - waterW * 0.2 - metalW * 0.15
+        let feedback = Float(decaySmoothed * 0.88) * max(0.5, feedbackComp)
 
         // 3. Update wander LFOs
         let lfoRate1 = 0.3 / (1.0 + wanderSmoothed * 4.0)
@@ -307,7 +309,8 @@ struct DriftEffect {
             let bassG = 1.0 - exp(-2.0 * .pi * 300.0 / Double(sampleRate))
             waterBassLPL += (Double(wL) - waterBassLPL) * bassG
             waterBassLPR += (Double(wR) - waterBassLPR) * bassG
-            let bassBoost = Float(3.0 + 3.0 * distanceSmoothed)  // +3 to +6 dB coupled to distance
+            let bassDecayScale = Float(1.0 - decaySmoothed * 0.6)  // less boost at high decay to prevent bass accumulation
+            let bassBoost = Float(2.0 + 2.0 * distanceSmoothed) * bassDecayScale
             let boostLinear = powf(10.0, bassBoost / 20.0) - 1.0
             wL += Float(waterBassLPL) * boostLinear
             wR += Float(waterBassLPR) * boostLinear
@@ -357,10 +360,13 @@ struct DriftEffect {
             var mR: Float = 0
 
             // 3-comb filter bank — fractional delay with linear interpolation (no integer clicks)
+            // Scale comb excitation by metalW when low — prevents full-level resonance
+            // when metal contribution to output is negligible
+            let combInputScale = min(1.0, metalW * 10)  // 0→1 over metalW 0→0.1
             let basePeriod = max(1.0, delaySamples / 50.0)
             for i in 0..<Self.metalCombCount {
                 let combDelayF = max(1.0, min(Double(Self.metalCombSize - 2), basePeriod * Self.metalCombRatios[i]))
-                let combFb: Float = min(0.8, Float(0.5 + distanceSmoothed * 0.3))
+                let combFb: Float = min(0.75, Float(0.4 + distanceSmoothed * 0.3)) * Float(decaySmoothed * 0.9 + 0.05)
 
                 // Read from comb L with linear interpolation
                 let readPosL = Double(metalCombIdxL[i]) - combDelayF
@@ -369,7 +375,7 @@ struct DriftEffect {
                 let ri1L = (ri0L + 1) % Self.metalCombSize
                 let fracL = Float(rpL - Double(Int(rpL)))
                 let combOutL = metalCombBufL[i][ri0L] * (1.0 - fracL) + metalCombBufL[i][ri1L] * fracL
-                metalCombBufL[i][metalCombIdxL[i]] = procL + combOutL * combFb
+                metalCombBufL[i][metalCombIdxL[i]] = procL * combInputScale + combOutL * combFb
                 metalCombIdxL[i] = (metalCombIdxL[i] + 1) % Self.metalCombSize
                 mL += combOutL
 
@@ -380,7 +386,7 @@ struct DriftEffect {
                 let ri1R = (ri0R + 1) % Self.metalCombSize
                 let fracR = Float(rpR - Double(Int(rpR)))
                 let combOutR = metalCombBufR[i][ri0R] * (1.0 - fracR) + metalCombBufR[i][ri1R] * fracR
-                metalCombBufR[i][metalCombIdxR[i]] = procR + combOutR * combFb
+                metalCombBufR[i][metalCombIdxR[i]] = procR * combInputScale + combOutR * combFb
                 metalCombIdxR[i] = (metalCombIdxR[i] + 1) % Self.metalCombSize
                 mR += combOutR
             }
@@ -408,14 +414,21 @@ struct DriftEffect {
         procL = airOutL * airW + waterOutL * waterW + metalOutL * metalW
         procR = airOutR * airW + waterOutR * waterW + metalOutR * metalW
 
+        // Unconditional loop loss — guarantees decay regardless of medium gain.
+        // More loss for water/metal (they add energy via bass boost and comb resonance).
+        let loopLoss: Float = 0.985 - waterW * 0.01 - metalW * 0.02
+        procL *= loopLoss
+        procR *= loopLoss
+
         // Feedback-path damping: fixed reference LP, blend by distance + excitation.
         // Signal always passes — distance controls color, not survival.
         // Pattern: fixed LP as reference, then mix dry↔LP by amount.
-        feedbackDampL += 0.5 * (Double(procL) - feedbackDampL)  // fixed ~3.4kHz ref at 48kHz
+        feedbackDampL += 0.5 * (Double(procL) - feedbackDampL)  // fixed ~5.3kHz ref at 48kHz
         feedbackDampR += 0.5 * (Double(procR) - feedbackDampR)
         // More distance = darker. More metal/water excitation = more damping to compensate.
-        let excitationDamp = Double(metalW) * 0.15 + Double(waterW) * 0.05
-        let dampAmt = Float(min(1.0, distanceSmoothed * 0.6 + excitationDamp))
+        // Floor of 0.15 ensures HF always rolls off in the loop (absorbs tanh harmonics).
+        let excitationDamp = Double(metalW) * 0.25 + Double(waterW) * 0.1
+        let dampAmt = Float(min(1.0, 0.15 + distanceSmoothed * 0.5 + excitationDamp))
         procL = procL + (Float(feedbackDampL) - procL) * dampAmt
         procR = procR + (Float(feedbackDampR) - procR) * dampAmt
 
@@ -449,10 +462,11 @@ struct DriftEffect {
         procR = rotR
 
         // 9. Spatial scatter at high wander — use smoothed values to avoid gain clicks
-        scatterLSmoothed += (scatterL - scatterLSmoothed) * 0.005
-        scatterRSmoothed += (scatterR - scatterRSmoothed) * 0.005
-        if wanderSmoothed > 0.3 {
-            let scatterAmt = Float(wanderSmoothed * 0.4)
+        scatterLSmoothed += (scatterL - scatterLSmoothed) * 0.001  // ~20ms smooth, less AM modulation
+        scatterRSmoothed += (scatterR - scatterRSmoothed) * 0.001
+        let scatterFade = Float(max(0, (wanderSmoothed - 0.2)) * 5.0)  // smooth 0→1 over wander 0.2–0.4
+        if scatterFade > 0 {
+            let scatterAmt = Float(wanderSmoothed * 0.4) * min(1.0, scatterFade)
             procL *= (1.0 + Float(scatterLSmoothed) * scatterAmt)
             procR *= (1.0 + Float(scatterRSmoothed) * scatterAmt)
         }
@@ -469,7 +483,7 @@ struct DriftEffect {
         if wanderSmoothed > 0.1 {
             pitchDriftAccum += wanderSmoothed * 0.002
         }
-        pitchDriftAccum *= 0.9999
+        pitchDriftAccum *= 0.9995  // faster decay prevents hitting hard clamp
         pitchDriftAccum = max(-5.0, min(5.0, pitchDriftAccum))
 
         // Re-roll scatter once per delay cycle (at writeIndex wraparound relative to delay length)
@@ -486,13 +500,19 @@ struct DriftEffect {
         let releaseCoeff: Float = 1.0 - 1.0 / (0.1 * sampleRate)
         let ceiling: Float = 0.7
 
+        let attackCoeff: Float = 1.0 - 1.0 / (0.0005 * sampleRate)  // 0.5ms attack
+
         let absL = abs(procL)
-        envelopeL = absL > envelopeL ? absL : envelopeL * releaseCoeff
+        envelopeL = absL > envelopeL
+            ? absL + (envelopeL - absL) * attackCoeff
+            : envelopeL * releaseCoeff
         let gainL: Float = envelopeL > ceiling ? ceiling / envelopeL : 1.0
         procL *= gainL
 
         let absR = abs(procR)
-        envelopeR = absR > envelopeR ? absR : envelopeR * releaseCoeff
+        envelopeR = absR > envelopeR
+            ? absR + (envelopeR - absR) * attackCoeff
+            : envelopeR * releaseCoeff
         let gainR: Float = envelopeR > ceiling ? ceiling / envelopeR : 1.0
         procR *= gainR
 
