@@ -85,6 +85,10 @@ struct DriftEffect {
     private var waterLPL: Double = 0
     private var waterLPR: Double = 0
 
+    /// Feedback-path damping LP (fixed reference, safe pattern), per channel
+    private var feedbackDampL: Double = 0
+    private var feedbackDampR: Double = 0
+
     // MARK: - DC blockers (5Hz one-pole HP)
 
     private var dcX1L: Double = 0
@@ -108,6 +112,8 @@ struct DriftEffect {
     private var pitchDriftAccum: Double = 0
     private var scatterL: Double = 0
     private var scatterR: Double = 0
+    private var scatterLSmoothed: Double = 0
+    private var scatterRSmoothed: Double = 0
     private var lastDelaySamplesInt: Int = 0
 
     // MARK: - LCG noise seeds
@@ -247,8 +253,9 @@ struct DriftEffect {
         let modSamplesL = (mod1 + mod2 * 0.5) / 1000.0 * Double(sampleRate)
         let modSamplesR = (mod1 - mod2 * 0.5) / 1000.0 * Double(sampleRate)  // stereo detuning
 
-        // Minimum delay floor when wander > 0.5
-        let minDelaySamples = wanderSmoothed > 0.5 ? 5.0 / 1000.0 * Double(sampleRate) : 1.0
+        // Minimum delay floor: smooth quadratic ramp, no step discontinuity
+        let minDelayMs = 0.02 + wanderSmoothed * wanderSmoothed * 5.0
+        let minDelaySamples = minDelayMs / 1000.0 * Double(sampleRate)
 
         // 4. Read from stereo delay buffers with cubic Hermite + wander modulation + pitch drift
         let driftOffsetSamples = pitchDriftAccum * Double(sampleRate) * 0.001
@@ -349,22 +356,30 @@ struct DriftEffect {
             var mL: Float = 0
             var mR: Float = 0
 
-            // 3-comb filter bank
+            // 3-comb filter bank — fractional delay with linear interpolation (no integer clicks)
             let basePeriod = max(1.0, delaySamples / 50.0)
             for i in 0..<Self.metalCombCount {
-                let combDelay = max(1, min(Self.metalCombSize - 1, Int(basePeriod * Self.metalCombRatios[i])))
+                let combDelayF = max(1.0, min(Double(Self.metalCombSize - 2), basePeriod * Self.metalCombRatios[i]))
                 let combFb: Float = min(0.8, Float(0.5 + distanceSmoothed * 0.3))
 
-                // Read from comb L
-                let rIdxL = (metalCombIdxL[i] - combDelay + Self.metalCombSize) % Self.metalCombSize
-                let combOutL = metalCombBufL[i][rIdxL]
+                // Read from comb L with linear interpolation
+                let readPosL = Double(metalCombIdxL[i]) - combDelayF
+                let rpL = readPosL < 0 ? readPosL + Double(Self.metalCombSize) : readPosL
+                let ri0L = Int(rpL) % Self.metalCombSize
+                let ri1L = (ri0L + 1) % Self.metalCombSize
+                let fracL = Float(rpL - Double(Int(rpL)))
+                let combOutL = metalCombBufL[i][ri0L] * (1.0 - fracL) + metalCombBufL[i][ri1L] * fracL
                 metalCombBufL[i][metalCombIdxL[i]] = procL + combOutL * combFb
                 metalCombIdxL[i] = (metalCombIdxL[i] + 1) % Self.metalCombSize
                 mL += combOutL
 
-                // Read from comb R
-                let rIdxR = (metalCombIdxR[i] - combDelay + Self.metalCombSize) % Self.metalCombSize
-                let combOutR = metalCombBufR[i][rIdxR]
+                // Read from comb R with linear interpolation
+                let readPosR = Double(metalCombIdxR[i]) - combDelayF
+                let rpR = readPosR < 0 ? readPosR + Double(Self.metalCombSize) : readPosR
+                let ri0R = Int(rpR) % Self.metalCombSize
+                let ri1R = (ri0R + 1) % Self.metalCombSize
+                let fracR = Float(rpR - Double(Int(rpR)))
+                let combOutR = metalCombBufR[i][ri0R] * (1.0 - fracR) + metalCombBufR[i][ri1R] * fracR
                 metalCombBufR[i][metalCombIdxR[i]] = procR + combOutR * combFb
                 metalCombIdxR[i] = (metalCombIdxR[i] + 1) % Self.metalCombSize
                 mR += combOutR
@@ -393,13 +408,23 @@ struct DriftEffect {
         procL = airOutL * airW + waterOutL * waterW + metalOutL * metalW
         procR = airOutR * airW + waterOutR * waterW + metalOutR * metalW
 
-        // 6. Distance-coupled diffusion allpass (after medium, regardless of which medium)
-        if diffusionCoeff > 0.01 {
-            Self.processAllpass(input: &procL, buf: diffusionBufL, writeIdx: &diffusionIdxL,
-                                 bufSize: Self.diffusionAPSize, delay: 256, coeff: diffusionCoeff)
-            Self.processAllpass(input: &procR, buf: diffusionBufR, writeIdx: &diffusionIdxR,
-                                 bufSize: Self.diffusionAPSize, delay: 256, coeff: diffusionCoeff)
-        }
+        // Feedback-path damping: fixed reference LP, blend by distance + excitation.
+        // Signal always passes — distance controls color, not survival.
+        // Pattern: fixed LP as reference, then mix dry↔LP by amount.
+        feedbackDampL += 0.5 * (Double(procL) - feedbackDampL)  // fixed ~3.4kHz ref at 48kHz
+        feedbackDampR += 0.5 * (Double(procR) - feedbackDampR)
+        // More distance = darker. More metal/water excitation = more damping to compensate.
+        let excitationDamp = Double(metalW) * 0.15 + Double(waterW) * 0.05
+        let dampAmt = Float(min(1.0, distanceSmoothed * 0.6 + excitationDamp))
+        procL = procL + (Float(feedbackDampL) - procL) * dampAmt
+        procR = procR + (Float(feedbackDampR) - procR) * dampAmt
+
+        // 6. Distance-coupled diffusion allpass (always runs — no on/off phase discontinuity.
+        //    At coeff≈0 it becomes a pure delay, which is fine in the feedback path.)
+        Self.processAllpass(input: &procL, buf: diffusionBufL, writeIdx: &diffusionIdxL,
+                             bufSize: Self.diffusionAPSize, delay: 256, coeff: diffusionCoeff)
+        Self.processAllpass(input: &procR, buf: diffusionBufR, writeIdx: &diffusionIdxR,
+                             bufSize: Self.diffusionAPSize, delay: 256, coeff: diffusionCoeff)
 
         // 7. DC blocker (5Hz one-pole HP)
         let dcCoeff = 1.0 - (2.0 * .pi * 5.0 / Double(sampleRate))
@@ -423,11 +448,13 @@ struct DriftEffect {
         procL = rotL
         procR = rotR
 
-        // 9. Spatial scatter at high wander
+        // 9. Spatial scatter at high wander — use smoothed values to avoid gain clicks
+        scatterLSmoothed += (scatterL - scatterLSmoothed) * 0.005
+        scatterRSmoothed += (scatterR - scatterRSmoothed) * 0.005
         if wanderSmoothed > 0.3 {
             let scatterAmt = Float(wanderSmoothed * 0.4)
-            procL *= (1.0 + Float(scatterL) * scatterAmt)
-            procR *= (1.0 + Float(scatterR) * scatterAmt)
+            procL *= (1.0 + Float(scatterLSmoothed) * scatterAmt)
+            procR *= (1.0 + Float(scatterRSmoothed) * scatterAmt)
         }
 
         // 10. Distance-based stereo width
@@ -436,9 +463,12 @@ struct DriftEffect {
         procL = monoMix + sideMix * stereoWidth
         procR = monoMix - sideMix * stereoWidth
 
-        // 11. Pitch drift accumulation — accumulate per feedback pass
-        //     Decays slowly to prevent unbounded drift
-        pitchDriftAccum += wanderSmoothed * 0.002
+        // 11. Pitch drift accumulation — dead zone below 0.1 to avoid comb filtering
+        //     from near-identical read positions in feedback loop.
+        //     Decays slowly to prevent unbounded drift.
+        if wanderSmoothed > 0.1 {
+            pitchDriftAccum += wanderSmoothed * 0.002
+        }
         pitchDriftAccum *= 0.9999
         pitchDriftAccum = max(-5.0, min(5.0, pitchDriftAccum))
 
@@ -536,6 +566,7 @@ struct DriftEffect {
         hfLPStateL = 0; hfLPStateR = 0
         waterBassLPL = 0; waterBassLPR = 0
         waterLPL = 0; waterLPR = 0
+        feedbackDampL = 0; feedbackDampR = 0
 
         // DC blockers
         dcX1L = 0; dcY1L = 0
@@ -551,6 +582,7 @@ struct DriftEffect {
         // Accumulation state
         pitchDriftAccum = 0
         scatterL = 0; scatterR = 0
+        scatterLSmoothed = 0; scatterRSmoothed = 0
         lastDelaySamplesInt = 0
     }
 

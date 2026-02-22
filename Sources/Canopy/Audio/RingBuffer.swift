@@ -100,6 +100,10 @@ enum AudioCommand {
     case setTideImprint([TideFrame]?)       // imprint frames for pattern 16, or nil to clear
     case setSwarmImprint(positions: [Float]?, amplitudes: [Float]?) // 64 each, or nil to clear
 
+    // FUSE engine: virtual analog circuit synthesis
+    case setFuse(soul: Double, tune: Double, couple: Double, body: Double,
+                 color: Double, warm: Double, volume: Double)
+
     // FX chain swap (per-node effect chain replacement)
     case setFXChain(EffectChain)
 }

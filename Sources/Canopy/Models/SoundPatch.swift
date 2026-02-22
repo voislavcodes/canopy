@@ -926,6 +926,80 @@ struct SporeSeqConfig: Codable, Equatable {
     static let lullaby = SporeSeqConfig(subdivision: .eighth, density: 0.35, focus: 0.7, drift: 0.1, memory: 0.7, rangeOctaves: 2)
 }
 
+/// FUSE engine: virtual analog circuit synthesis.
+/// Two Schmitt trigger oscillator circuits coupled through electrical interaction.
+/// Five controls (Soul, Tune, Couple, Body, Color) shape sound from gentle organ
+/// to screaming sync lead to resonant physical model. The envelope IS the power supply.
+struct FuseConfig: Codable, Equatable {
+    var soul: Double = 0.25       // 0–1: circuit operating point / hysteresis
+    var tune: Double = 0.05       // 0–1: frequency ratio between circuits A & B
+    var couple: Double = 0.08     // 0–1: electrical coupling strength
+    var body: Double = 0.15       // 0–1: resonant body strength
+    var color: Double = 0.35      // 0–1: spectral character (triangle ↔ square)
+    var warm: Double = 0.3        // 0–1: component tolerance / analog imperfection
+    var volume: Double = 0.8
+    var pan: Double = 0.0
+
+    init(
+        soul: Double = 0.25,
+        tune: Double = 0.05,
+        couple: Double = 0.08,
+        body: Double = 0.15,
+        color: Double = 0.35,
+        warm: Double = 0.3,
+        volume: Double = 0.8,
+        pan: Double = 0.0
+    ) {
+        self.soul = soul
+        self.tune = tune
+        self.couple = couple
+        self.body = body
+        self.color = color
+        self.warm = warm
+        self.volume = volume
+        self.pan = pan
+    }
+
+    // MARK: - Preset Seeds
+
+    /// Warm organ tone generators with subtle crosstalk. The starting point.
+    static let lyraOrgan = FuseConfig(soul: 0.25, tune: 0.05, couple: 0.08, body: 0.15, color: 0.35)
+    /// Rich detuned voices with body warmth. Lush, wide, breathing.
+    static let analogPad = FuseConfig(soul: 0.40, tune: 0.08, couple: 0.12, body: 0.30, color: 0.45)
+    /// Fragile oscillation through dark resonant body. Deep, meditative.
+    static let darkDrone = FuseConfig(soul: 0.15, tune: 0.03, couple: 0.06, body: 0.65, color: 0.15)
+    /// Moderate coupling at harmonic ratios. Bell-like attack, warm sustain.
+    static let fmKeys = FuseConfig(soul: 0.35, tune: 0.38, couple: 0.45, body: 0.20, color: 0.55)
+    /// Driven circuits, strong coupling at wide interval. Screaming, cutting.
+    static let syncLead = FuseConfig(soul: 0.60, tune: 0.55, couple: 0.72, body: 0.15, color: 0.65)
+    /// Driven unison with moderate coupling. Body adds resonant squelch.
+    static let acidCircuit = FuseConfig(soul: 0.55, tune: 0.0, couple: 0.25, body: 0.45, color: 0.50)
+    /// Gentle near-sine. Clean, deep, foundational.
+    static let deepSub = FuseConfig(soul: 0.20, tune: 0.0, couple: 0.03, body: 0.10, color: 0.20)
+    /// Fragile circuits at FM ratios, strongly resonant body. Bell-like ring.
+    static let glassBell = FuseConfig(soul: 0.15, tune: 0.40, couple: 0.50, body: 0.70, color: 0.60)
+    /// Driven, enharmonic, heavily coupled. Deterministic chaos.
+    static let chaosDrone = FuseConfig(soul: 0.75, tune: 0.70, couple: 0.88, body: 0.30, color: 0.55)
+    /// Warm circuits through dominant warm body. Acoustic character.
+    static let woodenSynth = FuseConfig(soul: 0.30, tune: 0.10, couple: 0.10, body: 0.75, color: 0.30)
+    /// Driven, bright, punchy. Short supply envelope. Percussive hit.
+    static let brightStab = FuseConfig(soul: 0.70, tune: 0.15, couple: 0.20, body: 0.10, color: 0.80)
+    /// Moderate everything. Deep in the cross-control zone. Complex, organic.
+    static let westCoastPreset = FuseConfig(soul: 0.50, tune: 0.45, couple: 0.60, body: 0.35, color: 0.50)
+    /// Barely oscillating. Near-sine at the edge of silence. Pure, crystalline.
+    static let fragileSine = FuseConfig(soul: 0.05, tune: 0.0, couple: 0.0, body: 0.0, color: 0.10)
+    /// Two circuits at a fifth, pulling each other through a warm body.
+    static let sympathetic = FuseConfig(soul: 0.35, tune: 0.20, couple: 0.25, body: 0.50, color: 0.40)
+    /// Dark FM keys through resonant body. Moody, cinematic.
+    static let noirPiano = FuseConfig(soul: 0.30, tune: 0.35, couple: 0.42, body: 0.55, color: 0.40)
+    /// Maximum coupling territory. The circuits fuse into one system.
+    static let selfOscillation = FuseConfig(soul: 0.65, tune: 0.60, couple: 0.95, body: 0.20, color: 0.60)
+    /// Gentle excitation, dominant body. Short supply = pluck.
+    static let pluckedBody = FuseConfig(soul: 0.20, tune: 0.05, couple: 0.05, body: 0.90, color: 0.45)
+    /// Maximum drive, enharmonic, strong coupling, bright. Aggressive.
+    static let industrial = FuseConfig(soul: 0.85, tune: 0.75, couple: 0.80, body: 0.10, color: 0.90)
+}
+
 enum SoundType: Codable, Equatable {
     case oscillator(OscillatorConfig)
     case drumKit(DrumKitConfig)
@@ -935,6 +1009,7 @@ enum SoundType: Codable, Equatable {
     case swarm(SwarmConfig)
     case quake(QuakeConfig)
     case spore(SporeConfig)
+    case fuse(FuseConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }
