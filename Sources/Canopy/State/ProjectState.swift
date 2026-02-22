@@ -289,6 +289,8 @@ class ProjectState: ObservableObject {
                 )
             case .fuse(let config):
                 AudioEngine.shared.configureFuse(config, nodeID: nodeID)
+            case .volt(let config):
+                AudioEngine.shared.configureVolt(config, nodeID: nodeID)
             default:
                 break
             }

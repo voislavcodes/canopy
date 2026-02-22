@@ -104,6 +104,19 @@ enum AudioCommand {
     case setFuse(soul: Double, tune: Double, couple: Double, body: Double,
                  color: Double, warm: Double, keyTracking: Bool, volume: Double)
 
+    // VOLT engine: analog circuit drum synthesis
+    case setVolt(layerA: Int, layerB: Int,  // -1 = off, 0=resonant, 1=noise, 2=metallic, 3=tonal
+                 mix: Double,
+                 resPitch: Double, resSweep: Double, resDecay: Double,
+                 resDrive: Double, resPunch: Double,
+                 noiseColor: Double, noiseSnap: Double, noiseBody: Double,
+                 noiseClap: Double, noiseTone: Double, noiseFilter: Double,
+                 metSpread: Double, metTune: Double, metRing: Double,
+                 metBand: Double, metDensity: Double,
+                 tonPitch: Double, tonFM: Double, tonShape: Double,
+                 tonBend: Double, tonDecay: Double,
+                 warm: Double, volume: Double)
+
     // FX chain swap (per-node effect chain replacement)
     case setFXChain(EffectChain)
 }

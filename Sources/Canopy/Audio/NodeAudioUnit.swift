@@ -32,7 +32,7 @@ final class NodeAudioUnit {
 
     var orbitBodyAngles: (Float, Float, Float, Float, Float, Float) { _orbitBodyAngles.pointee }
 
-    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false, isTide: Bool = false, isSwarm: Bool = false, isQuake: Bool = false, isSpore: Bool = false, isFuse: Bool = false,
+    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false, isTide: Bool = false, isSwarm: Bool = false, isQuake: Bool = false, isSpore: Bool = false, isFuse: Bool = false, isVolt: Bool = false,
          clockSamplePosition: UnsafeMutablePointer<Int64>, clockIsRunning: UnsafeMutablePointer<Bool>) {
         self.nodeID = nodeID
         self.commandBuffer = AudioCommandRingBuffer(capacity: 256)
@@ -48,7 +48,13 @@ final class NodeAudioUnit {
         let panPtr = self._pan
         let orbitAnglesPtr = self._orbitBodyAngles
 
-        if isFuse {
+        if isVolt {
+            self.sourceNode = Self.makeVoltSourceNode(
+                cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
+                panPtr: panPtr, sampleRate: sampleRate,
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+            )
+        } else if isFuse {
             self.sourceNode = Self.makeFuseSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, sampleRate: sampleRate,
@@ -261,7 +267,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in oscillator path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
                     break // ignored in oscillator path
 
                 case .setFXChain(let chain):
@@ -481,7 +487,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in drum kit path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
                     break // ignored in drum kit path
 
                 case .setFXChain(let chain):
@@ -700,7 +706,7 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in quake path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
                     break // ignored in quake path
 
                 case .setFXChain(let chain):
@@ -937,7 +943,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in west coast path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
                     break // ignored in west coast path
 
                 case .setFXChain(let chain):
@@ -1152,7 +1158,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in flow path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
                     break // ignored in flow path
 
                 case .setFXChain(let chain):
@@ -1377,7 +1383,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in swarm path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
                     break // ignored in swarm path
 
                 case .setFXChain(let chain):
@@ -1606,7 +1612,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in tide path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
                     break // ignored in tide path
 
                 case .setFXChain(let chain):
@@ -1856,7 +1862,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in spore path
 
-                case .setFuse:
+                case .setFuse, .setVolt:
                     break // ignored in spore path
 
                 case .setFXChain(let chain):
@@ -2239,6 +2245,40 @@ final class NodeAudioUnit {
         ))
     }
 
+    func configureVolt(_ config: VoltConfig) {
+        let layerAInt: Int
+        switch config.layerA {
+        case .resonant: layerAInt = 0
+        case .noise: layerAInt = 1
+        case .metallic: layerAInt = 2
+        case .tonal: layerAInt = 3
+        }
+        let layerBInt: Int
+        if let b = config.layerB {
+            switch b {
+            case .resonant: layerBInt = 0
+            case .noise: layerBInt = 1
+            case .metallic: layerBInt = 2
+            case .tonal: layerBInt = 3
+            }
+        } else {
+            layerBInt = -1
+        }
+        commandBuffer.push(.setVolt(
+            layerA: layerAInt, layerB: layerBInt, mix: config.mix,
+            resPitch: config.resPitch, resSweep: config.resSweep,
+            resDecay: config.resDecay, resDrive: config.resDrive, resPunch: config.resPunch,
+            noiseColor: config.noiseColor, noiseSnap: config.noiseSnap,
+            noiseBody: config.noiseBody, noiseClap: config.noiseClap,
+            noiseTone: config.noiseTone, noiseFilter: config.noiseFilter,
+            metSpread: config.metSpread, metTune: config.metTune,
+            metRing: config.metRing, metBand: config.metBand, metDensity: config.metDensity,
+            tonPitch: config.tonPitch, tonFM: config.tonFM,
+            tonShape: config.tonShape, tonBend: config.tonBend, tonDecay: config.tonDecay,
+            warm: config.warm, volume: config.volume
+        ))
+    }
+
     // MARK: - FUSE Render Path
 
     private static func makeFuseSourceNode(
@@ -2355,7 +2395,7 @@ final class NodeAudioUnit {
                      .setFlowImprint, .setTideImprint, .setSwarmImprint,
                      .setQuakeVoice, .setQuakeVolume, .setOrbit, .useOrbitSequencer,
                      .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale,
-                     .sporeSeqStart, .sporeSeqStop:
+                     .sporeSeqStart, .sporeSeqStop, .setVolt:
                     break // ignored in fuse path
                 }
             }
@@ -2415,6 +2455,171 @@ final class NodeAudioUnit {
                         for buf in 0..<ablPointer.count {
                             ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                         }
+                    }
+                }
+            }
+
+            playingPtr.pointee = seq.isPlaying
+            beatPtr.pointee = seq.currentBeat
+
+            return noErr
+        }
+    }
+
+    // MARK: - VOLT Render Path
+
+    private static func makeVoltSourceNode(
+        cmdBuffer: AudioCommandRingBuffer,
+        beatPtr: UnsafeMutablePointer<Double>,
+        playingPtr: UnsafeMutablePointer<Bool>,
+        panPtr: UnsafeMutablePointer<Float>,
+        sampleRate: Double,
+        clockPtr: UnsafeMutablePointer<Int64>,
+        clockRunning: UnsafeMutablePointer<Bool>
+    ) -> AVAudioSourceNode {
+        var volt = VoltVoiceManager()
+        var seq = Sequencer()
+        var filter = MoogLadderFilter()
+        var lfoBank = LFOBank()
+        var fxChain = EffectChain()
+        var volume: Double = 0.8
+        var volumeSmoothed: Double = 0.8
+        let sr = sampleRate
+        let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+
+        return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            let pan = panPtr.pointee
+            let angle = Double((pan + 1) * 0.5) * .pi * 0.5
+            let gainL = Float(cos(angle))
+            let gainR = Float(sin(angle))
+
+            // Drain command buffer
+            while let cmd = cmdBuffer.pop() {
+                switch cmd {
+                case .noteOn(let pitch, let velocity):
+                    volt.noteOn(pitch: pitch, velocity: velocity, frequency: 0)
+
+                case .noteOff(let pitch):
+                    volt.noteOff(pitch: pitch)
+
+                case .allNotesOff:
+                    volt.allNotesOff()
+
+                case .setPatch(_, _, _, _, _, _, let newVolume):
+                    volume = newVolume
+
+                case .sequencerStart(let bpm):
+                    seq.start(bpm: bpm)
+                    fxChain.updateBPM(bpm)
+
+                case .sequencerStop:
+                    seq.stop()
+                    volt.allNotesOff()
+
+                case .sequencerSetBPM(let bpm):
+                    seq.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
+
+                case .sequencerLoad(let events, let lengthInBeats,
+                                    let direction, let mutationAmount, let mutationRange,
+                                    let scaleRootSemitone, let scaleIntervals,
+                                    let accumulatorConfig):
+                    volt.allNotesOff()
+                    seq.load(events: events, lengthInBeats: lengthInBeats,
+                             direction: direction,
+                             mutationAmount: mutationAmount, mutationRange: mutationRange,
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
+                             accumulatorConfig: accumulatorConfig)
+
+                case .sequencerSetGlobalProbability(let prob):
+                    seq.globalProbability = prob
+
+                case .sequencerSetMutation(let amount, let range, let rootSemitone, let intervals):
+                    seq.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
+
+                case .sequencerResetMutation:
+                    seq.resetMutation()
+
+                case .sequencerFreezeMutation:
+                    seq.freezeMutation()
+
+                case .sequencerSetArp(let active, let samplesPerStep, let gateLength, let mode):
+                    seq.setArpConfig(active: active, samplesPerStep: samplesPerStep,
+                                     gateLength: gateLength, mode: mode)
+
+                case .sequencerSetArpPool(let pitches, let velocities, let startBeats, let endBeats):
+                    seq.setArpPool(pitches: pitches, velocities: velocities, startBeats: startBeats, endBeats: endBeats)
+
+                case .setFilter(let enabled, let cutoff, let reso):
+                    filter.enabled = enabled
+                    filter.cutoffHz = cutoff
+                    filter.resonance = reso
+                    filter.updateCoefficients(sampleRate: sr)
+
+                case .setLFOSlot(let slotIndex, let enabled, let waveform,
+                                 let rateHz, let initialPhase, let depth, let parameter):
+                    lfoBank.configureSlot(slotIndex, enabled: enabled, waveform: waveform,
+                                          rateHz: rateHz, initialPhase: initialPhase,
+                                          depth: depth, parameter: parameter)
+
+                case .setLFOSlotCount(let count):
+                    lfoBank.slotCount = count
+
+                case .setVolt(let layerA, let layerB, let mix,
+                              let resPitch, let resSweep, let resDecay, let resDrive, let resPunch,
+                              let noiseColor, let noiseSnap, let noiseBody,
+                              let noiseClap, let noiseTone, let noiseFilter,
+                              let metSpread, let metTune, let metRing, let metBand, let metDensity,
+                              let tonPitch, let tonFM, let tonShape, let tonBend, let tonDecay,
+                              let warm, let newVolume):
+                    volume = newVolume
+                    volt.configure(
+                        layerA: layerA, layerB: layerB, mix: Float(mix),
+                        resPitch: Float(resPitch), resSweep: Float(resSweep),
+                        resDecay: Float(resDecay), resDrive: Float(resDrive), resPunch: Float(resPunch),
+                        noiseColor: Float(noiseColor), noiseSnap: Float(noiseSnap),
+                        noiseBody: Float(noiseBody), noiseClap: Float(noiseClap),
+                        noiseTone: Float(noiseTone), noiseFilter: Float(noiseFilter),
+                        metSpread: Float(metSpread), metTune: Float(metTune),
+                        metRing: Float(metRing), metBand: Float(metBand), metDensity: Float(metDensity),
+                        tonPitch: Float(tonPitch), tonFM: Float(tonFM),
+                        tonShape: Float(tonShape), tonBend: Float(tonBend), tonDecay: Float(tonDecay),
+                        warm: Float(warm)
+                    )
+
+                case .setFXChain(let chain):
+                    fxChain = chain
+
+                case .setDrumVoice, .setWestCoast, .setFlow, .setTide, .setSwarm,
+                     .setFlowImprint, .setTideImprint, .setSwarmImprint,
+                     .setQuakeVoice, .setQuakeVolume, .setOrbit, .useOrbitSequencer,
+                     .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale,
+                     .sporeSeqStart, .sporeSeqStop, .setFuse:
+                    break // ignored in volt path
+                }
+            }
+
+            volt.sampleRate = Float(sr)
+            let srF = Float(sr)
+            let baseSample = clockPtr.pointee
+
+            // Render loop
+            for frame in 0..<Int(frameCount) {
+                seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &volt, detune: 0)
+
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let raw = volt.renderSampleFloat(sampleRate: Float(sr)) * Float(volumeSmoothed)
+                let sample = filter.process(raw)
+
+                let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
+
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
                     }
                 }
             }

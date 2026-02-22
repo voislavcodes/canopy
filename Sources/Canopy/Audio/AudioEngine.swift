@@ -253,6 +253,11 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.configureFuse(config)
     }
 
+    /// Configure VOLT parameters on a specific node.
+    func configureVolt(_ config: VoltConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureVolt(config)
+    }
+
     /// Push SPORE imprint harmonic amplitudes to a specific node.
     func configureSporeImprint(_ amplitudes: [Float]?, nodeID: UUID) {
         graph.unit(for: nodeID)?.configureSporeImprint(amplitudes)

@@ -292,6 +292,11 @@ struct CanopyCanvasView: View {
             return false
         }()
 
+        let isVoltEngine: Bool = {
+            if case .volt = node.patch.soundType { return true }
+            return false
+        }()
+
         // Resolve effective module types (override or derive from SoundType)
         let effectiveSeqType = node.sequencerType ?? (isSporeEngine ? .sporeSeq : (isDrumEngine || isQuakeEngine) ? .drum : .pitched)
         let effectiveInputMode = node.inputMode ?? ((isDrumEngine || isQuakeEngine) ? .padGrid : .keyboard)
@@ -310,6 +315,7 @@ struct CanopyCanvasView: View {
                 isQuakeEngine: isQuakeEngine,
                 isSporeEngine: isSporeEngine,
                 isFuseEngine: isFuseEngine,
+                isVoltEngine: isVoltEngine,
                 effectiveSeqType: effectiveSeqType,
                 effectiveInputMode: effectiveInputMode
             )
@@ -342,6 +348,8 @@ struct CanopyCanvasView: View {
                             SporePanel(projectState: projectState)
                         } else if isFuseEngine {
                             FusePanel(projectState: projectState)
+                        } else if isVoltEngine {
+                            VoltPanel(projectState: projectState)
                         } else {
                             SynthControlsPanel(projectState: projectState)
                         }
@@ -419,6 +427,7 @@ struct CanopyCanvasView: View {
         isQuakeEngine: Bool = false,
         isSporeEngine: Bool = false,
         isFuseEngine: Bool = false,
+        isVoltEngine: Bool = false,
         effectiveSeqType: SequencerType,
         effectiveInputMode: InputMode
     ) -> some View {
@@ -453,6 +462,8 @@ struct CanopyCanvasView: View {
                         SporePanel(projectState: projectState)
                     } else if isFuseEngine {
                         FusePanel(projectState: projectState)
+                    } else if isVoltEngine {
+                        VoltPanel(projectState: projectState)
                     } else {
                         SynthControlsPanel(projectState: projectState)
                     }

@@ -605,7 +605,7 @@ struct FlowPanel: View {
                 Spacer()
 
                 ModuleSwapButton(
-                    options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm"), ("Spore", "spore"), ("Fuse", "fuse")],
+                    options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm"), ("Spore", "spore"), ("Fuse", "fuse"), ("Volt", "volt")],
                     current: "flow",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
@@ -625,6 +625,8 @@ struct FlowPanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .spore(SporeConfig()))
                         } else if type == "fuse" {
                             projectState.swapEngine(nodeID: nodeID, to: .fuse(FuseConfig()))
+                        } else if type == "volt" {
+                            projectState.swapEngine(nodeID: nodeID, to: .volt(VoltConfig()))
                         }
                     }
                 )
