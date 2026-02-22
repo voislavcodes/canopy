@@ -559,20 +559,29 @@ struct StepSequencerPanel: View {
                     drawCharSeq(context, ch, at: CGPoint(x: x, y: velY), size: fontSize, color: velColor)
                 }
 
-                // === Drag handle (only visible during active span drag) ===
-                if let drag = spanDragState {
-                    let dragPitch = drag.pitch
-                    let dragEnd = min(drag.currentEndStep, cols)
-                    if let rowIdx = pitches.firstIndex(of: dragPitch), dragEnd > 0 {
-                        let handleStep = dragEnd - 1
-                        let handleCharCol = colMap[min(handleStep, displayColumns - 1)]
-                        let hx = CGFloat(handleCharCol) * cw + cw / 2
-                        let hy = CGFloat(rowIdx) * rh + rh / 2
-                        let handleColor = isArp
-                            ? Color(red: 0.2, green: 0.7, blue: 0.8)
-                            : CanopyColors.gridCellActive
-                        drawCharSeqBold(context, "┃", at: CGPoint(x: hx + cw * 0.45, y: hy), size: fontSize, color: handleColor.opacity(0.8))
+                // === Drag handles on sustained notes (┃ at end of multi-step spans) ===
+                let sd = NoteSequence.stepDuration
+                let handleBaseColor: Color = isArp
+                    ? Color(red: 0.2, green: 0.7, blue: 0.8)
+                    : CanopyColors.gridCellActive
+                for note in sequence.notes {
+                    let startStep = Int(round(note.startBeat / sd))
+                    let endStep: Int
+                    if let drag = spanDragState, drag.pitch == note.pitch && drag.startStep == startStep {
+                        endStep = drag.currentEndStep
+                    } else {
+                        endStep = max(startStep + 1, Int(round((note.startBeat + note.duration) / sd)))
                     }
+                    // Only show handle for multi-step spans
+                    guard endStep - startStep > 1 else { continue }
+                    guard let rowIdx = pitches.firstIndex(of: note.pitch) else { continue }
+                    let visibleEnd = min(endStep, cols)
+                    guard visibleEnd > startStep else { continue }
+                    let handleStep = visibleEnd - 1
+                    let handleCharCol = colMap[min(handleStep, displayColumns - 1)]
+                    let hx = CGFloat(handleCharCol) * cw + cw / 2
+                    let hy = CGFloat(rowIdx) * rh + rh / 2
+                    drawCharSeqBold(context, "┃", at: CGPoint(x: hx + cw * 0.45, y: hy), size: fontSize, color: handleBaseColor.opacity(0.8))
                 }
             }
             .frame(width: canvasWidth, height: canvasHeight)
