@@ -155,7 +155,13 @@ struct FuseVoice {
         self.filterDecayCoeff = exp(-1.0 / (filterDecaySec * sampleRate))
 
         // Don't reset oscillator phases — allows smooth transitions
-        // Reset feedback state for clean start
+        // Reset filter state for clean start (SVF runs at full amplitude
+        // pre-envelope, so stale state from previous note would cause transients)
+        self.svfLow = 0
+        self.svfBand = 0
+        self.prevInputA = 0
+        self.prevInputB = 0
+        self.prevInputC = 0
         self.feedbackSample = 0
         self.dcPrevIn = 0
         self.dcPrevOut = 0
@@ -195,10 +201,10 @@ struct FuseVoice {
 
         advanceEnvelope()
         guard envValue > 0.0001 else {
-            if envPhase == 0 || envPhase == 2 {
-                isActive = false
-                envelopeLevel = 0
-            }
+            isActive = false
+            envelopeLevel = 0
+            envPhase = 0
+            envValue = 0
             return 0
         }
         envelopeLevel = Float(envValue)
@@ -300,13 +306,18 @@ struct FuseVoice {
         let filterCutoff = filterCutoffFromParam()
         let filterEnvCutoff = filterCutoff * (1.0 + filterEnvValue * 2.0)
         let clampedCutoff = min(filterEnvCutoff, 0.48 * sampleRate)
-        let f = 2.0 * sin(.pi * clampedCutoff / sampleRate)
+        // Clamp f to 0.99 — Chamberlin SVF is unstable when f ≥ ~1.0 at low Q
+        let f = min(2.0 * sin(.pi * clampedCutoff / sampleRate), 0.99)
         // Q tied to feedback param — feedback adds resonance
         let q = max(0.15, 1.0 - feedbackParam * 0.85)
 
         svfLow += f * svfBand
         let high = mix - svfLow - q * svfBand
         svfBand += f * high
+
+        // NaN/Inf guard — once SVF state corrupts it never recovers
+        if svfLow.isNaN || svfLow.isInfinite { svfLow = 0 }
+        if svfBand.isNaN || svfBand.isInfinite { svfBand = 0 }
 
         mix = svfLow
 
@@ -322,13 +333,12 @@ struct FuseVoice {
         let fbScaled = feedbackParam * feedbackParam * 0.98
         feedbackSample = tanh(dcOut) * fbScaled
 
-        // Step 15: Apply AD envelope, output linearly (no per-voice tanh)
-        let envOut = mix * envValue * velocity
-        var output = Float(envOut)
+        // Step 15: WARM processing (before envelope — envelope is final stage)
+        var output = WarmProcessor.processSample(&warmState, sample: Float(mix * velocity),
+                                                  warm: Float(warmthParam), sampleRate: Float(sampleRate))
 
-        // WARM processing
-        output = WarmProcessor.processSample(&warmState, sample: output,
-                                              warm: Float(warmthParam), sampleRate: Float(sampleRate))
+        // Step 16: Apply AD envelope as final output shaping
+        output *= Float(envValue)
 
         return output
     }

@@ -227,24 +227,8 @@ struct FuseVoiceManager {
         let warmLevel = Float(voices.0.warmthParam)
         mix = WarmProcessor.applyPowerSagMono(&warmNodeState, sample: mix, warm: warmLevel)
 
-        // Dynamic headroom limiting (single tanh)
-        let activeCount = countActiveVoices()
-        let headroom = 1.0 / max(1.0, Double(activeCount) * 0.5)
-        return Float(tanh(Double(mix) * headroom) * 2.0)
-    }
-
-    /// Count currently active voices for dynamic headroom.
-    private func countActiveVoices() -> Int {
-        var count = 0
-        if voices.0.isActive { count += 1 }
-        if voices.1.isActive { count += 1 }
-        if voices.2.isActive { count += 1 }
-        if voices.3.isActive { count += 1 }
-        if voices.4.isActive { count += 1 }
-        if voices.5.isActive { count += 1 }
-        if voices.6.isActive { count += 1 }
-        if voices.7.isActive { count += 1 }
-        return count
+        // Fixed-gain output limiting (no dynamic headroom — avoids clicks from voice count changes)
+        return Float(tanh(Double(mix) * 0.5) * 2.5)
     }
 
     /// Kill all voices immediately.
