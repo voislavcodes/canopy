@@ -379,8 +379,9 @@ struct NebulaEffect {
 
         // Cross-feed: 20%
         let crossFeed: Float = 0.2
-        var outL = rawL + rawR * crossFeed
-        var outR = rawR + rawL * crossFeed
+        let outputBoost: Float = 1.33  // +2.5 dB
+        var outL = (rawL + rawR * crossFeed) * outputBoost
+        var outR = (rawR + rawL * crossFeed) * outputBoost
 
         // ── DC blockers ──
         let dcCoeff: Float = 1.0 - (2.0 * .pi * 5.0 / sampleRate)
