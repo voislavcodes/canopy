@@ -42,20 +42,243 @@ struct FlowPanel: View {
 
     private let accentColor = CanopyColors.nodeFlow
 
-    /// Compute approximate regime label from current parameters.
-    private var regimeLabel: (String, Color) {
+    /// Compute Reynolds number from current parameters.
+    private var reynoldsNumber: Double {
         let currentScaled = max(localCurrent * 10.0, 0.001)
         let viscosityScaled = max(localViscosity * 5.0, 0.001)
         let channelScaled = max(localChannel * 2.0, 0.001)
         let densityScaled = max(localDensity * 2.0, 0.001)
-        let re = (currentScaled * densityScaled * channelScaled) / viscosityScaled
+        return (currentScaled * densityScaled * channelScaled) / viscosityScaled
+    }
 
+    /// Compute approximate regime label from current parameters.
+    private var regimeLabel: (String, Color) {
+        let re = reynoldsNumber
         if re < 30 {
             return ("LAMINAR", Color(red: 0.3, green: 0.8, blue: 0.9))
         } else if re < 350 {
             return ("TRANSITION", Color(red: 0.9, green: 0.7, blue: 0.3))
         } else {
             return ("TURBULENT", Color(red: 0.9, green: 0.35, blue: 0.3))
+        }
+    }
+
+    // MARK: - Streamline Schematic (ASCII)
+
+    /// Reactive ASCII streamline field: fluid flowing through a channel past an obstacle.
+    /// Characters morph from smooth (─) to wavy (∿) to chaotic (≈) based on Reynolds regime.
+    private var flowSchematic: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
+            Canvas { context, size in
+                drawFlowSchematic(context: context, size: size, time: timeline.date.timeIntervalSinceReferenceDate)
+            }
+        }
+    }
+
+    /// Draw a single monospaced character at a grid position with color.
+    private func drawChar(_ context: GraphicsContext, _ char: String, at point: CGPoint, size fontSize: CGFloat, color: Color) {
+        context.draw(
+            Text(char).font(.system(size: fontSize, weight: .regular, design: .monospaced)).foregroundColor(color),
+            at: point, anchor: .center
+        )
+    }
+
+    /// Draw a bold monospaced character.
+    private func drawCharBold(_ context: GraphicsContext, _ char: String, at point: CGPoint, size fontSize: CGFloat, color: Color) {
+        context.draw(
+            Text(char).font(.system(size: fontSize, weight: .bold, design: .monospaced)).foregroundColor(color),
+            at: point, anchor: .center
+        )
+    }
+
+    /// Draw a string of monospaced characters, each cell = cellW wide, centered on startX.
+    private func drawString(_ context: GraphicsContext, _ str: String, centerX: CGFloat, y: CGFloat, cellW: CGFloat, fontSize: CGFloat, color: Color, bold: Bool = false) {
+        let chars = Array(str)
+        let totalW = CGFloat(chars.count) * cellW
+        let startX = centerX - totalW / 2 + cellW / 2
+        for (i, ch) in chars.enumerated() {
+            let x = startX + CGFloat(i) * cellW
+            if bold {
+                drawCharBold(context, String(ch), at: CGPoint(x: x, y: y), size: fontSize, color: color)
+            } else {
+                drawChar(context, String(ch), at: CGPoint(x: x, y: y), size: fontSize, color: color)
+            }
+        }
+    }
+
+    private func drawFlowSchematic(context: GraphicsContext, size: CGSize, time: Double) {
+        let w = size.width
+        let h = size.height
+        let wireColor = CanopyColors.chromeText
+        let dimOp: CGFloat = 0.3
+
+        // Font / grid sizing
+        let fontSize: CGFloat = max(9, 10 * cs)
+        let cellW: CGFloat = fontSize * 0.62
+        let rowH: CGFloat = fontSize * 1.35
+
+        // Parameters as CGFloat
+        let current = CGFloat(localCurrent)
+        let viscosity = CGFloat(localViscosity)
+        let density = CGFloat(localDensity)
+        let obstacle = CGFloat(localObstacle)
+        let channel = CGFloat(localChannel)
+
+        // Reynolds regime
+        let re = reynoldsNumber
+        let regime = regimeLabel
+
+        // Grid dimensions
+        let totalCols = Int(w / cellW) - 2  // leave margin
+        let marginX = (w - CGFloat(totalCols) * cellW) / 2 + cellW / 2
+
+        // Channel wall positions controlled by CHAN parameter
+        // CHAN=0: walls at edges (wide). CHAN=1: walls squeeze inward (narrow)
+        let maxStreamlines = 7
+        let topMargin: CGFloat = 8 * cs
+        let bottomMargin: CGFloat = rowH * 2.5  // room for regime label
+        let availableH = h - topMargin - bottomMargin
+        let wallSqueeze = channel * 0.4  // how much walls squeeze in (0-40%)
+        let wallInsetY = availableH * wallSqueeze * 0.5
+        let topWallY = topMargin + wallInsetY
+        let bottomWallY = topMargin + availableH - wallInsetY
+        let channelH = bottomWallY - topWallY
+
+        // Visible streamline count: narrower channel = fewer streamlines
+        let visibleStreamlines = max(3, Int(CGFloat(maxStreamlines) * (1.0 - wallSqueeze * 0.6)))
+        let streamlineSpacing = channelH / CGFloat(visibleStreamlines + 1)
+
+        // Obstacle position and size
+        let obstacleCol = Int(Double(totalCols) * 0.35)
+        let obstacleWidth = Int(obstacle * 4)  // 0 to 4 chars wide
+        let obstacleCenterRow = visibleStreamlines / 2  // center streamline index
+
+        // Scroll animation
+        let scrollSpeed = 0.5 + Double(current) * 4.0
+        let scrollPhase = fmod(time * scrollSpeed, Double(totalCols))
+
+        // Vortex shedding animation
+        let vortexFreq = 0.5 + (1.0 - Double(viscosity)) * 3.0
+
+        // --- Draw channel walls ---
+        for col in 0..<totalCols {
+            let x = marginX + CGFloat(col) * cellW
+            drawChar(context, "\u{2550}", at: CGPoint(x: x, y: topWallY), size: fontSize,
+                     color: wireColor.opacity(dimOp))
+            drawChar(context, "\u{2550}", at: CGPoint(x: x, y: bottomWallY), size: fontSize,
+                     color: wireColor.opacity(dimOp))
+        }
+
+        // --- Draw streamlines ---
+        for row in 0..<visibleStreamlines {
+            let y = topWallY + streamlineSpacing * CGFloat(row + 1)
+            let rowPhase = scrollPhase + Double(row) * 0.3
+
+            // Distance from obstacle center (for wake intensity)
+            let distFromObstCenter = abs(row - obstacleCenterRow)
+            let proximityFactor = max(0.0, 1.0 - CGFloat(distFromObstCenter) / CGFloat(max(1, visibleStreamlines / 2)))
+
+            // Density controls opacity
+            let baseOpacity = 0.25 + density * 0.65
+
+            for col in 0..<totalCols {
+                let x = marginX + CGFloat(col) * cellW
+
+                // Check if this cell is the obstacle
+                let obstStart = obstacleCol - obstacleWidth / 2
+                let obstEnd = obstacleCol + (obstacleWidth + 1) / 2
+                if obstacleWidth > 0 && col >= obstStart && col < obstEnd {
+                    // Only draw obstacle on rows near center
+                    if distFromObstCenter <= 1 {
+                        drawCharBold(context, "\u{2593}", at: CGPoint(x: x, y: y), size: fontSize,
+                                     color: accentColor.opacity(0.7))
+                    } else {
+                        // Streamline diverts around obstacle — draw dash
+                        let ch = streamlineChar(col: col, totalCols: totalCols, obstacleCol: obstacleCol,
+                                                obstacleWidth: obstacleWidth, proximity: proximityFactor,
+                                                re: re, rowPhase: rowPhase, vortexFreq: vortexFreq,
+                                                viscosity: Double(viscosity), time: time, row: row)
+                        drawChar(context, ch, at: CGPoint(x: x, y: y), size: fontSize,
+                                 color: regime.1.opacity(baseOpacity))
+                    }
+                    continue
+                }
+
+                // Arrow at right edge
+                if col == totalCols - 1 {
+                    drawChar(context, "\u{2192}", at: CGPoint(x: x, y: y), size: fontSize,
+                             color: accentColor.opacity(baseOpacity))
+                    continue
+                }
+
+                // Select character based on regime + position relative to obstacle + wake
+                let ch = streamlineChar(col: col, totalCols: totalCols, obstacleCol: obstacleCol,
+                                        obstacleWidth: obstacleWidth, proximity: proximityFactor,
+                                        re: re, rowPhase: rowPhase, vortexFreq: vortexFreq,
+                                        viscosity: Double(viscosity), time: time, row: row)
+
+                // Color: blend from accent (cyan) toward regime color in wake zone
+                let isWake = col > obstacleCol && obstacleWidth > 0
+                let wakeBlend = isWake ? min(1.0, proximityFactor * 0.6) : 0
+                let charColor = wakeBlend > 0.1 ? regime.1 : accentColor
+                let opacity = baseOpacity * (isWake && proximityFactor > 0.3 ? 1.0 : 0.85)
+
+                drawChar(context, ch, at: CGPoint(x: x, y: y), size: fontSize,
+                         color: charColor.opacity(opacity))
+            }
+        }
+
+        // --- Regime label at bottom ---
+        let labelY = bottomWallY + rowH * 1.2
+        let reInt = Int(re)
+        let labelText = "\(regime.0)  Re:\(reInt)"
+        drawString(context, labelText, centerX: w * 0.5, y: labelY, cellW: cellW, fontSize: fontSize,
+                   color: regime.1.opacity(0.7), bold: true)
+    }
+
+    /// Select the appropriate streamline character based on position, regime, and wake.
+    private func streamlineChar(col: Int, totalCols: Int, obstacleCol: Int, obstacleWidth: Int,
+                                proximity: CGFloat, re: Double, rowPhase: Double,
+                                vortexFreq: Double, viscosity: Double, time: Double, row: Int) -> String {
+        // Is this column downstream of the obstacle?
+        let isDownstream = col > obstacleCol + obstacleWidth / 2
+        let downstreamDist = isDownstream ? col - obstacleCol : 0
+
+        // Wake length: low viscosity = long wake, high = short
+        let wakeLength = Int((1.0 - viscosity) * Double(totalCols) * 0.5) + 3
+
+        // Wake intensity: strong near obstacle, fading with distance
+        let inWake = isDownstream && downstreamDist < wakeLength && obstacleWidth > 0
+        let wakeFade = inWake ? max(0.0, 1.0 - Double(downstreamDist) / Double(wakeLength)) : 0.0
+        let wakeIntensity = wakeFade * Double(proximity)
+
+        // Animated phase for character cycling
+        let phase = rowPhase + Double(col) * 0.15
+        let vortexPhase = sin(time * vortexFreq + Double(row) * 1.2 + Double(col) * 0.3)
+        let cycleIndex = Int(fmod(phase, 4.0))
+
+        // Base regime characters
+        if re < 30 {
+            // LAMINAR: mostly smooth dashes, slight wave in wake
+            if wakeIntensity > 0.3 {
+                return vortexPhase > 0.3 ? "\u{223F}" : "\u{2500}"  // ∿ or ─
+            }
+            return "\u{2500}"  // ─
+        } else if re < 350 {
+            // TRANSITION: mix of dash and wave, more turbulent in wake
+            let transitionChars = ["\u{2500}", "\u{223F}", "\u{2500}", "\u{223F}"]  // ─ ∿ ─ ∿
+            let wakeChars = ["\u{223F}", "\u{2248}", "\u{223F}", "\u{223D}"]        // ∿ ≈ ∿ ∽
+            if wakeIntensity > 0.3 {
+                return wakeChars[cycleIndex % wakeChars.count]
+            }
+            return transitionChars[cycleIndex % transitionChars.count]
+        } else {
+            // TURBULENT: all chaotic, even more so in wake
+            let turbChars = ["\u{2248}", "\u{223F}", "\u{2248}", "\u{223D}"]  // ≈ ∿ ≈ ∽
+            if wakeIntensity > 0.3 && vortexPhase > 0 {
+                return "\u{2248}"  // ≈ full chaos
+            }
+            return turbChars[cycleIndex % turbChars.count]
         }
     }
 
@@ -123,20 +346,12 @@ struct FlowPanel: View {
             }
 
             if flowConfig != nil {
-                // Regime indicator
-                let regime = regimeLabel
-                Text(regime.0)
-                    .font(.system(size: 10 * cs, weight: .bold, design: .monospaced))
-                    .foregroundColor(regime.1)
-                    .padding(.horizontal, 8 * cs)
-                    .padding(.vertical, 2 * cs)
+                // ASCII streamline schematic hero
+                flowSchematic
+                    .frame(height: 160 * cs)
                     .background(
-                        RoundedRectangle(cornerRadius: 3 * cs)
-                            .fill(regime.1.opacity(0.1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3 * cs)
-                            .stroke(regime.1.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 4 * cs)
+                            .fill(Color.black.opacity(0.3))
                     )
 
                 HStack(alignment: .top, spacing: 10 * cs) {

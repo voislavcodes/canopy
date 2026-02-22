@@ -314,6 +314,20 @@ final class AudioEngine {
         masterBusAU?.masterVolume = volume
     }
 
+    /// Set BPM on the master bus (for tempo-synced effects like DRIFT).
+    func setMasterBusBPM(_ bpm: Double) {
+        masterBusAU?.masterBPM = bpm
+    }
+
+    /// Set BPM on a specific node's FX chain via its sequencer command path.
+    /// Note: BPM is normally propagated via sequencerStart/sequencerSetBPM commands,
+    /// but this provides an explicit path for project load scenarios.
+    func setNodeFXChainBPM(_ bpm: Double, nodeID: UUID) {
+        // The FX chain gets BPM via the sequencerSetBPM command handler in the render block.
+        // On project load, we issue a BPM set so the chain has the right value before playback.
+        graph.unit(for: nodeID)?.commandBuffer.push(.sequencerSetBPM(bpm))
+    }
+
     /// Configure Shore limiter.
     func configureShore(enabled: Bool, ceiling: Double) {
         masterBusAU?.shoreEnabled = enabled

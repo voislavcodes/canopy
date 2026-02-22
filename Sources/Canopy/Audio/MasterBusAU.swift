@@ -42,6 +42,9 @@ final class MasterBusAU: AUAudioUnit {
     // Master volume
     private let volumePtr: UnsafeMutablePointer<Float>
 
+    // BPM for tempo-synced effects (e.g. DRIFT sync mode)
+    private let bpmPtr: UnsafeMutablePointer<Double>
+
     // Sample rate for render block (updated in allocateRenderResources)
     private let sampleRatePtr: UnsafeMutablePointer<Float>
 
@@ -72,6 +75,12 @@ final class MasterBusAU: AUAudioUnit {
         set { volumePtr.pointee = max(0, min(1, newValue)) }
     }
 
+    /// BPM for tempo-synced master bus effects.
+    var masterBPM: Double {
+        get { bpmPtr.pointee }
+        set { bpmPtr.pointee = newValue }
+    }
+
     override init(componentDescription: AudioComponentDescription,
                   options: AudioComponentInstantiationOptions = []) throws {
         // Pre-allocate all audio-thread state on the main thread
@@ -83,6 +92,9 @@ final class MasterBusAU: AUAudioUnit {
 
         volumePtr = .allocate(capacity: 1)
         volumePtr.initialize(to: 1.0)
+
+        bpmPtr = .allocate(capacity: 1)
+        bpmPtr.initialize(to: 120.0)
 
         sampleRatePtr = .allocate(capacity: 1)
         sampleRatePtr.initialize(to: 48000)
@@ -107,6 +119,7 @@ final class MasterBusAU: AUAudioUnit {
         let shore = shorePtr
         let fxChain = fxChainPtr
         let vol = volumePtr
+        let bpmP = bpmPtr
         let srPtr = sampleRatePtr
         let posSlot = clockPositionSlot
         let runSlot = clockRunningSlot
@@ -130,6 +143,9 @@ final class MasterBusAU: AUAudioUnit {
 
             let sampleRate = srPtr.pointee
             let volume = vol.pointee
+
+            // Propagate BPM to tempo-synced effects once per buffer
+            fxChain.pointee.updateBPM(bpmP.pointee)
 
             for frame in 0..<Int(frameCount) {
                 var sampleL = leftBuf[frame] * volume
@@ -168,6 +184,8 @@ final class MasterBusAU: AUAudioUnit {
         fxChainPtr.deallocate()
         volumePtr.deinitialize(count: 1)
         volumePtr.deallocate()
+        bpmPtr.deinitialize(count: 1)
+        bpmPtr.deallocate()
         sampleRatePtr.deinitialize(count: 1)
         sampleRatePtr.deallocate()
         clockPositionSlot.deinitialize(count: 1)

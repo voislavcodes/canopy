@@ -113,13 +113,22 @@ struct FXPopoverPanel: View {
 
             // Parameter sliders
             ForEach(keyParameters, id: \.0) { (key, label) in
-                FXParamSlider(
-                    label: label,
-                    value: effect.parameters[key] ?? 0.5,
-                    color: color,
-                    dimmed: effect.bypassed,
-                    onChange: { onParameterChange(key, $0) }
-                )
+                if effect.type.canonical == .drift && key == "distance" {
+                    // DRIFT distance row: FREE/SYNC toggle + conditional content
+                    DriftDistanceRow(
+                        effect: effect,
+                        color: color,
+                        onParameterChange: onParameterChange
+                    )
+                } else {
+                    FXParamSlider(
+                        label: label,
+                        value: effect.parameters[key] ?? 0.5,
+                        color: color,
+                        dimmed: effect.bypassed,
+                        onChange: { onParameterChange(key, $0) }
+                    )
+                }
             }
 
             // Wet/dry slider (hidden for level)
@@ -224,6 +233,97 @@ struct FXParamSlider: View {
         }
         .onAppear { localValue = value }
         .onChange(of: value) { localValue = $0 }
+    }
+}
+
+// MARK: - DRIFT Distance Row (FREE/SYNC)
+
+/// Special row for DRIFT's distance parameter: FREE/SYNC toggle with conditional content.
+/// FREE: standard distance slider. SYNC: beat division selector with chevron navigation.
+struct DriftDistanceRow: View {
+    let effect: Effect
+    let color: Color
+    let onParameterChange: (String, Double) -> Void
+
+    private static let divisionNames = ["1/32", "1/16", "1/16d", "1/8", "1/8d", "1/4", "1/4d", "1/2", "1/2d", "1/1"]
+
+    private var isSync: Bool { (effect.parameters["sync"] ?? 0) >= 0.5 }
+    private var divisionIndex: Int { max(0, min(Self.divisionNames.count - 1, Int(effect.parameters["division"] ?? 5))) }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            // FREE/SYNC toggle
+            HStack {
+                Text("distance")
+                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(effect.bypassed ? 0.3 : 0.5))
+                Spacer()
+                Button(action: {
+                    onParameterChange("sync", isSync ? 0.0 : 1.0)
+                }) {
+                    Text(isSync ? "SYNC" : "FREE")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(isSync ? color : CanopyColors.chromeText.opacity(0.6))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(isSync ? color.opacity(0.1) : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(
+                                    isSync ? color.opacity(0.5) : CanopyColors.bloomPanelBorder.opacity(0.3),
+                                    lineWidth: 1
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            if isSync {
+                // Beat division selector: < 1/4 >
+                HStack {
+                    Button(action: {
+                        let newIdx = max(0, divisionIndex - 1)
+                        onParameterChange("division", Double(newIdx))
+                    }) {
+                        Text("<")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(divisionIndex > 0 ? color : CanopyColors.chromeText.opacity(0.2))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(divisionIndex <= 0)
+
+                    Spacer()
+                    Text(Self.divisionNames[divisionIndex])
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundColor(effect.bypassed ? CanopyColors.chromeText.opacity(0.3) : color)
+                    Spacer()
+
+                    Button(action: {
+                        let newIdx = min(Self.divisionNames.count - 1, divisionIndex + 1)
+                        onParameterChange("division", Double(newIdx))
+                    }) {
+                        Text(">")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(divisionIndex < Self.divisionNames.count - 1 ? color : CanopyColors.chromeText.opacity(0.2))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(divisionIndex >= Self.divisionNames.count - 1)
+                }
+                .padding(.horizontal, 4)
+            } else {
+                // Standard distance slider
+                FXParamSlider(
+                    label: "",
+                    value: effect.parameters["distance"] ?? 0.3,
+                    color: color,
+                    dimmed: effect.bypassed,
+                    onChange: { onParameterChange("distance", $0) }
+                )
+            }
+        }
     }
 }
 

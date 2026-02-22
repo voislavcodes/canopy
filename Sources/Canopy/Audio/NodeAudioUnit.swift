@@ -173,6 +173,7 @@ final class NodeAudioUnit {
 
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerStop:
                     seq.stop()
@@ -180,6 +181,7 @@ final class NodeAudioUnit {
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -385,6 +387,7 @@ final class NodeAudioUnit {
 
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerStop:
                     seq.stop()
@@ -392,6 +395,7 @@ final class NodeAudioUnit {
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -602,6 +606,7 @@ final class NodeAudioUnit {
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     orbit.start(bpm: bpm, lengthInBeats: orbitLengthInBeats)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerStop:
                     seq.stop()
@@ -611,6 +616,7 @@ final class NodeAudioUnit {
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     orbit.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -827,6 +833,7 @@ final class NodeAudioUnit {
 
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerStop:
                     seq.stop()
@@ -834,6 +841,7 @@ final class NodeAudioUnit {
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -1047,6 +1055,7 @@ final class NodeAudioUnit {
 
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerStop:
                     seq.stop()
@@ -1054,6 +1063,7 @@ final class NodeAudioUnit {
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -1273,6 +1283,7 @@ final class NodeAudioUnit {
 
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerStop:
                     seq.stop()
@@ -1280,6 +1291,7 @@ final class NodeAudioUnit {
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -1495,6 +1507,7 @@ final class NodeAudioUnit {
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     tide.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerStop:
                     seq.stop()
@@ -1503,6 +1516,7 @@ final class NodeAudioUnit {
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     tide.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -1724,6 +1738,7 @@ final class NodeAudioUnit {
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     spore.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
                     if useSporeSeq {
                         sporeSeq.start(bpm: bpm)
                     }
@@ -1737,6 +1752,7 @@ final class NodeAudioUnit {
                     seq.setBPM(bpm)
                     sporeSeq.bpm = bpm
                     spore.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
@@ -2268,6 +2284,7 @@ final class NodeAudioUnit {
 
                 case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerStop:
                     seq.stop()
@@ -2275,6 +2292,7 @@ final class NodeAudioUnit {
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,

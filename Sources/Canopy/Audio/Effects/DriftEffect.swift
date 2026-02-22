@@ -122,6 +122,16 @@ struct DriftEffect {
     private var lcgSeedR: UInt32 = 8_765_432
     private var lcgSeedPitch: UInt32 = 5_678_901
 
+    // MARK: - Sync mode
+
+    /// Beat divisions for sync mode: label → beats
+    static let divisionBeats: [Double] = [0.125, 0.25, 0.375, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0]
+    static let divisionNames: [String] = ["1/32", "1/16", "1/16d", "1/8", "1/8d", "1/4", "1/4d", "1/2", "1/2d", "1/1"]
+
+    private var sync: Bool = false
+    private var division: Int = 5  // 1/4 note default
+    private var bpm: Double = 120.0
+
     // MARK: - Parameter targets
 
     private var distance: Double = 0.3
@@ -135,6 +145,7 @@ struct DriftEffect {
     private var mediumSmoothed: Double = 0.5
     private var wanderSmoothed: Double = 0.15
     private var decaySmoothed: Double = 0.4
+    private var delaySamplesSmoothed: Double = 0  // smoothed final delay target (both modes)
 
     // Smoothing coefficients
     private let paramSmooth: Double = 0.001
@@ -212,9 +223,19 @@ struct DriftEffect {
         wanderSmoothed += (wander - wanderSmoothed) * paramSmooth
         decaySmoothed += (decay - decaySmoothed) * paramSmooth
 
-        // 2. Compute derived values
-        let delayMs = 10.0 * pow(120.0, distanceSmoothed)
-        let delaySamples = max(1.0, delayMs / 1000.0 * Double(sampleRate))
+        // 2. Compute derived values — branch between FREE and SYNC delay
+        let delayMs: Double
+        if sync && bpm > 0 {
+            let beats = Self.divisionBeats[min(division, Self.divisionBeats.count - 1)]
+            delayMs = beats / bpm * 60_000.0
+        } else {
+            delayMs = 10.0 * pow(120.0, distanceSmoothed)
+        }
+        let delaySamplesTarget = max(1.0, min(Double(Self.delayBufferSize - 4), delayMs / 1000.0 * Double(sampleRate)))
+        // Smooth the final delay target (handles both free and sync mode transitions)
+        if delaySamplesSmoothed == 0 { delaySamplesSmoothed = delaySamplesTarget }
+        delaySamplesSmoothed += (delaySamplesTarget - delaySamplesSmoothed) * delaySmooth
+        let delaySamples = delaySamplesSmoothed
 
         let hfCutoff = 18000.0 * pow(0.7, distanceSmoothed * 6.0)
         let clampedHFCutoff = max(20.0, min(hfCutoff, Double(sampleRate) * 0.5 - 100.0))
@@ -535,6 +556,9 @@ struct DriftEffect {
         if let m = params["medium"] { medium = max(0, min(1, m)) }
         if let w = params["wander"] { wander = max(0, min(1, w)) }
         if let dc = params["decay"] { decay = max(0, min(1, dc)) }
+        if let s = params["sync"] { sync = s >= 0.5 }
+        if let div = params["division"] { division = max(0, min(Self.divisionBeats.count - 1, Int(div))) }
+        if let b = params["_bpm"] { bpm = b }
     }
 
     // MARK: - Reset

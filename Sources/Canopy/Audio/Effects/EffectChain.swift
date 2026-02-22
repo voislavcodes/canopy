@@ -90,6 +90,13 @@ struct EffectChain {
         slots[index].bypassed = bypassed
     }
 
+    /// Propagate BPM to all effect slots (for tempo-synced effects like DRIFT).
+    mutating func updateBPM(_ bpm: Double) {
+        for i in 0..<slots.count {
+            slots[i].slot.updateParameters(["_bpm": bpm])
+        }
+    }
+
     /// Reset all effect states.
     mutating func reset() {
         for i in 0..<slots.count {

@@ -25,6 +25,7 @@ class TransportState: ObservableObject {
     /// Start all sequencers.
     func startPlayback() {
         isPlaying = true
+        AudioEngine.shared.setMasterBusBPM(bpm)
         AudioEngine.shared.startAllSequencers(bpm: bpm)
     }
 
@@ -37,6 +38,7 @@ class TransportState: ObservableObject {
     /// Update BPM (live, while playing).
     func updateBPM(_ newBPM: Double) {
         bpm = max(20, min(300, newBPM))
+        AudioEngine.shared.setMasterBusBPM(bpm)
         if isPlaying {
             AudioEngine.shared.setAllSequencersBPM(bpm)
         }

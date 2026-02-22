@@ -93,7 +93,7 @@ enum EffectType: String, Codable, Equatable, CaseIterable {
         case .pressure:
             return ["weight": 0.5, "squeeze": 0.3, "speed": 0.5]
         case .drift:
-            return ["distance": 0.3, "medium": 0.5, "wander": 0.15, "decay": 0.4]
+            return ["distance": 0.3, "medium": 0.5, "wander": 0.15, "decay": 0.4, "sync": 0.0, "division": 5.0]
         case .tide:
             return ["rate": 0.3, "depth": 0.5, "stages": 4]
         case .terrain:

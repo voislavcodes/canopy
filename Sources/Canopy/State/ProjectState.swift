@@ -440,6 +440,8 @@ class ProjectState: ObservableObject {
     func syncNodeFXToEngine(nodeID: UUID) {
         guard let node = findNode(id: nodeID) else { return }
         AudioEngine.shared.configureNodeFXChain(effects: node.effects, nodeID: nodeID)
+        // Ensure BPM reaches tempo-synced effects (e.g. DRIFT sync mode) after chain rebuild
+        AudioEngine.shared.setNodeFXChainBPM(project.bpm, nodeID: nodeID)
     }
 
     // MARK: - Master Bus FX
@@ -506,6 +508,8 @@ class ProjectState: ObservableObject {
     /// Push master bus FX chain to the audio engine.
     func syncMasterFXToEngine() {
         AudioEngine.shared.configureMasterFXChain(effects: project.masterBus.effects)
+        // Ensure BPM reaches tempo-synced effects after chain rebuild
+        AudioEngine.shared.setMasterBusBPM(project.bpm)
     }
 
     /// Push master bus state (volume, shore, fx chain) to the audio engine.
