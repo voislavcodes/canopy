@@ -598,8 +598,20 @@ struct CanopyCanvasView: View {
     }
 
     private func installKeyMonitor() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak bloomState] event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak bloomState, weak projectState] event in
             guard let bloomState = bloomState else { return event }
+
+            // Enter — enter focus mode (default to sequencer) when a node is selected
+            if event.keyCode == 36, bloomState.focusedPanel == nil {
+                guard projectState?.selectedNodeID != nil else { return event }
+                DispatchQueue.main.async {
+                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                        bloomState.focusedPanel = .sequencer
+                    }
+                }
+                return nil
+            }
+
             guard bloomState.focusedPanel != nil else { return event }
 
             switch event.keyCode {
