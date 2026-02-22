@@ -121,7 +121,7 @@ struct FXLaneView: View {
                 effectPickerPopover
                     .fixedSize()
                     .position(
-                        x: addButtonFrame.midX,
+                        x: addButtonFrame.minX + 90,
                         y: -(pickerHeight / 2) - 4
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
@@ -148,7 +148,7 @@ struct FXLaneView: View {
                 )
                 .fixedSize()
                 .position(
-                    x: chipFrame.midX,
+                    x: max(chipFrame.midX, 110),
                     y: -(popoverHeight / 2) - 4
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
@@ -216,23 +216,18 @@ struct FXLaneView: View {
 
     private var effectPickerPopover: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(fxPickerOptions, id: \.0) { (type, label) in
+            ForEach(EffectType.canopyTypes, id: \.self) { type in
                 Button(action: {
                     withAnimation(.spring(duration: 0.2)) { showingPicker = false }
                     addEffect(type: type)
                 }) {
-                    HStack {
-                        Text(type.displayName)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(CanopyColors.chromeTextBright)
-                        Spacer()
-                        Text(label)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
+                    Text(type.displayName)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(CanopyColors.chromeTextBright)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -255,10 +250,6 @@ struct FXLaneView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { } // Prevent tap-through
-    }
-
-    private var fxPickerOptions: [(EffectType, String)] {
-        [(.color, "filter"), (.heat, "distortion"), (.echo, "delay"), (.drift, "traveling delay"), (.space, "reverb"), (.ghost, "living decay"), (.nebula, "evolving reverb"), (.melt, "spectral gravity"), (.pressure, "compressor"), (.level, "gain")]
     }
 
     // MARK: - Actions
