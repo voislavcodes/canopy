@@ -114,6 +114,142 @@ class BloomState: ObservableObject {
             }
         }
 
+        // Second pass: separate panels that overlap each other
+        separateOverlappingPanels(
+            &result,
+            nodePosition: nodePosition,
+            defaultOffsets: defaultOffsets,
+            panelSizes: panelSizes
+        )
+
         return result
+    }
+
+    // MARK: - Inter-Panel Separation
+
+    /// Natural escape directions for each panel type.
+    private static let naturalDirections: [BloomPanel: CGPoint] = [
+        .synth: CGPoint(x: -1, y: 0),
+        .sequencer: CGPoint(x: 1, y: 0),
+        .input: CGPoint(x: 0, y: 1)
+    ]
+
+    /// Resolves overlaps between bloom panels by pushing them apart along
+    /// natural escape directions. Iterates up to 3 passes for convergence.
+    private static func separateOverlappingPanels(
+        _ offsets: inout BloomPanelOffsets,
+        nodePosition: CGPoint,
+        defaultOffsets: [BloomPanel: CGPoint],
+        panelSizes: [BloomPanel: CGSize]
+    ) {
+        let padding: CGFloat = 10
+        let panels = BloomPanel.allCases
+        let maxPasses = 3
+
+        for _ in 0..<maxPasses {
+            var hadOverlap = false
+
+            for i in 0..<panels.count {
+                for j in (i + 1)..<panels.count {
+                    let panelA = panels[i]
+                    let panelB = panels[j]
+
+                    guard let defA = defaultOffsets[panelA],
+                          let sizeA = panelSizes[panelA],
+                          let defB = defaultOffsets[panelB],
+                          let sizeB = panelSizes[panelB] else { continue }
+
+                    let pushA = offsets.offset(for: panelA)
+                    let pushB = offsets.offset(for: panelB)
+
+                    let rectA = panelRect(
+                        nodePosition: nodePosition, defaultOffset: defA,
+                        push: pushA, size: sizeA
+                    ).insetBy(dx: -padding / 2, dy: -padding / 2)
+
+                    let rectB = panelRect(
+                        nodePosition: nodePosition, defaultOffset: defB,
+                        push: pushB, size: sizeB
+                    ).insetBy(dx: -padding / 2, dy: -padding / 2)
+
+                    guard rectA.intersects(rectB) else { continue }
+                    hadOverlap = true
+
+                    // Compute overlap on each axis
+                    let overlapX = min(rectA.maxX, rectB.maxX) - max(rectA.minX, rectB.minX)
+                    let overlapY = min(rectA.maxY, rectB.maxY) - max(rectA.minY, rectB.minY)
+
+                    let dirA = naturalDirections[panelA] ?? .zero
+                    let dirB = naturalDirections[panelB] ?? .zero
+
+                    // Resolve on minimum penetration axis
+                    if overlapX < overlapY {
+                        // Push horizontally
+                        let aAligns = dirA.x != 0
+                        let bAligns = dirB.x != 0
+                        let pushAmount = overlapX + padding
+
+                        if aAligns && !bAligns {
+                            applyPush(&offsets, panel: panelA, dx: dirA.x * pushAmount, dy: 0)
+                        } else if bAligns && !aAligns {
+                            applyPush(&offsets, panel: panelB, dx: dirB.x * pushAmount, dy: 0)
+                        } else {
+                            // Both or neither align — split evenly away from each other
+                            let sign: CGFloat = rectA.midX < rectB.midX ? -1 : 1
+                            applyPush(&offsets, panel: panelA, dx: sign * pushAmount / 2, dy: 0)
+                            applyPush(&offsets, panel: panelB, dx: -sign * pushAmount / 2, dy: 0)
+                        }
+                    } else {
+                        // Push vertically
+                        let aAligns = dirA.y != 0
+                        let bAligns = dirB.y != 0
+                        let pushAmount = overlapY + padding
+
+                        if aAligns && !bAligns {
+                            applyPush(&offsets, panel: panelA, dx: 0, dy: dirA.y * pushAmount)
+                        } else if bAligns && !aAligns {
+                            applyPush(&offsets, panel: panelB, dx: 0, dy: dirB.y * pushAmount)
+                        } else {
+                            let sign: CGFloat = rectA.midY < rectB.midY ? -1 : 1
+                            applyPush(&offsets, panel: panelA, dx: 0, dy: sign * pushAmount / 2)
+                            applyPush(&offsets, panel: panelB, dx: 0, dy: -sign * pushAmount / 2)
+                        }
+                    }
+                }
+            }
+
+            if !hadOverlap { break }
+        }
+    }
+
+    /// Build a panel's rect from its position components.
+    private static func panelRect(
+        nodePosition: CGPoint,
+        defaultOffset: CGPoint,
+        push: CGSize,
+        size: CGSize
+    ) -> CGRect {
+        let cx = nodePosition.x + defaultOffset.x + push.width
+        let cy = nodePosition.y + defaultOffset.y + push.height
+        return CGRect(
+            x: cx - size.width / 2,
+            y: cy - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    /// Add a delta to a panel's existing offset.
+    private static func applyPush(
+        _ offsets: inout BloomPanelOffsets,
+        panel: BloomPanel,
+        dx: CGFloat,
+        dy: CGFloat
+    ) {
+        let current = offsets.offset(for: panel)
+        offsets.setOffset(
+            CGSize(width: current.width + dx, height: current.height + dy),
+            for: panel
+        )
     }
 }

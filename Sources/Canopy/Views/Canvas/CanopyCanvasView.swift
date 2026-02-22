@@ -179,14 +179,18 @@ struct CanopyCanvasView: View {
     /// Single source of truth for bloom panel layout offsets (canvas points).
     private enum BloomLayout {
         // Default offsets from node center (canvas points)
-        static let synthOffset = CGPoint(x: -330, y: 20)
-        static let seqOffset = CGPoint(x: 260, y: 20)
-        static let keyboardOffset = CGPoint(x: 0, y: 180)
+        // Side panels biased up so node sits centrally in the bloom cluster
+        static let synthOffset = CGPoint(x: -330, y: -100)
+        static let seqOffset = CGPoint(x: 260, y: -100)
+        static let keyboardOffset = CGPoint(x: 0, y: 205)
 
-        // Approximate bounding box sizes for hit-testing
-        static let synthSize = CGSize(width: 370, height: 230)
-        static let seqSize = CGSize(width: 320, height: 340)
-        static let keyboardSize = CGSize(width: 400, height: 110)
+        // Approximate bounding box sizes for hit-testing (canvas points at cs=1)
+        // Synth: 220w frame + padding ≈ 220, height varies by engine (~260 for default)
+        static let synthSize = CGSize(width: 220, height: 260)
+        // Sequencer: 440w frame, grid + controls ≈ 340h
+        static let seqSize = CGSize(width: 440, height: 340)
+        // Keyboard: ~420w (keys + arrows + padding), ~250h (keys + capture controls + padding)
+        static let keyboardSize = CGSize(width: 420, height: 250)
 
         // Dictionary versions for smart positioning algorithm
         static let defaultOffsets: [BloomPanel: CGPoint] = [
