@@ -141,20 +141,20 @@ struct NebulaEffect {
     // Initial values must match what recalculateDerived produces for the default
     // params (cloud=0.5, depth=0.5, glow=0.3, drift=0.2).
 
-    private var feedbackGain: Float = 0.6475       // 0.3 + 0.5 * 0.695
-    private var feedbackGainSmoothed: Float = 0.6475
+    private var feedbackGain: Float = 0.8432       // 0.6 + pow(0.5, 0.7) * 0.395
+    private var feedbackGainSmoothed: Float = 0.8432
     private var hfDampCoeff: Float = 0.42          // 0.6 * (1.0 - 0.3)
     private var hfDampCoeffSmoothed: Float = 0.42
     private var lfDampCoeff: Float = 0.0           // max(0, (0.3-0.3)*0.36)
     private var lfDampCoeffSmoothed: Float = 0.0
-    private var depthDamping: Float = 0.985        // 1.0 - 0.5 * 0.03
-    private var depthDampingSmoothed: Float = 0.985
+    private var depthDamping: Float = 0.9925       // 1.0 - 0.5 * 0.015
+    private var depthDampingSmoothed: Float = 0.9925
     private var glowDrive: Float = 0.0             // max(0, (0.3-0.4)*1.67) = 0
     private var glowDriveSmoothed: Float = 0.0
     private var emissionGain: Float = 0.0          // max(0, (0.3-0.5)*0.4) = 0
     private var emissionGainSmoothed: Float = 0.0
-    private var pitchShiftSemitones: Float = -0.008 // (0.5-0.3)*-4.0/100.0
-    private var pitchShiftSemitonesSmoothed: Float = -0.008
+    private var pitchShiftSemitones: Float = 0.0    // glow 0.3 in dead zone [0.3, 0.7]
+    private var pitchShiftSemitonesSmoothed: Float = 0.0
     private var apCoeffBase: Float = 0.35          // 0.5 * 0.7
     private var apCoeffBaseSmoothed: Float = 0.35
     private var delayModDepth: Float = 40.0        // 0.2 * 200.0
@@ -444,9 +444,12 @@ struct NebulaEffect {
     // MARK: - Damping filter
 
     private mutating func processDamping(lineIndex i: Int, input: Float) -> Float {
-        // One-pole LP (HF damping)
-        dampLP[i] += hfDampCoeffSmoothed * (input - dampLP[i])
-        let afterLP = dampLP[i]
+        // One-pole LP reference (fixed cutoff ~5kHz at 48kHz)
+        dampLP[i] += 0.5 * (input - dampLP[i])
+
+        // Blend toward LP: hfDampCoeff is damping amount (0 = transparent, 0.6 = dark)
+        // Signal always passes — no more frozen filter at high glow
+        let afterLP = input + (dampLP[i] - input) * hfDampCoeffSmoothed
 
         // One-pole HP (LF damping)
         dampHP[i] += lfDampCoeffSmoothed * (afterLP - dampHP[i])
@@ -474,7 +477,7 @@ struct NebulaEffect {
         // Skip processing if shift is negligible (< 1 cent = 0.01 semitones).
         // The grain overlap pitch shifter introduces comb filtering and ~1024 samples
         // of grain fill-up latency, which is destructive for near-zero shifts.
-        if abs(totalShift) < 0.01 {
+        if abs(totalShift) < 0.02 {
             return input
         }
 
@@ -638,8 +641,8 @@ struct NebulaEffect {
         let baseDelayMs = 10.0 * powf(200.0, d)
         let baseDelaySamples = baseDelayMs * 0.001 * sampleRate
 
-        feedbackGain = 0.3 + d * 0.695
-        depthDamping = 1.0 - d * 0.03
+        feedbackGain = 0.6 + 0.395 * powf(d, 0.7)
+        depthDamping = 1.0 - d * 0.015
 
         // ── Cloud → allpass, delay spread, injection ──
         let c = cloud
@@ -672,10 +675,12 @@ struct NebulaEffect {
         glowDrive = max(0, (g - 0.4) * 1.67)
         emissionGain = max(0, (g - 0.5) * 0.4)
 
-        if g < 0.5 {
-            pitchShiftSemitones = (0.5 - g) * -4.0 / 100.0  // cents → semitones
+        if g < 0.3 {
+            pitchShiftSemitones = (0.3 - g) * -6.0 / 100.0  // red-shift up to -1.8 cents
+        } else if g > 0.7 {
+            pitchShiftSemitones = (g - 0.7) * 12.0 / 100.0  // blue-shift up to +3.6 cents
         } else {
-            pitchShiftSemitones = (g - 0.5) * 8.0 / 100.0
+            pitchShiftSemitones = 0  // dead zone — no comb artifacts in feedback loop
         }
 
         // ── Drift → modulation depths ──
