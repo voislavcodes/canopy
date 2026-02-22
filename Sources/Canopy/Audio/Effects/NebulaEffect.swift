@@ -670,11 +670,12 @@ struct NebulaEffect {
 
         // ── Glow → damping profile, excitation, pitch ──
         let g = glow
-        hfDampCoeff = 0.6 * (1.0 - g)
-        lfDampCoeff = max(0, (g - 0.3) * 0.36)
-
         glowDrive = max(0, (g - 0.4) * 1.67)
         emissionGain = max(0, (g - 0.5) * 0.4)
+
+        // HF damping floor scales with excitation to prevent self-oscillation
+        hfDampCoeff = 0.6 * (1.0 - g) + glowDrive * 0.15
+        lfDampCoeff = max(0, (g - 0.3) * 0.36)
 
         if g < 0.3 {
             pitchShiftSemitones = (0.3 - g) * -6.0 / 100.0  // red-shift up to -1.8 cents
