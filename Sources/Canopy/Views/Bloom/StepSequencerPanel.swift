@@ -84,10 +84,10 @@ struct StepSequencerPanel: View {
     /// Available = panelWidth - padding(28) - labels(22) - touchStrip(~10) - spacings(8)
     private var gridFontSize: CGFloat {
         let available = (panelWidth - 68) * cs
-        let size = available / (CGFloat(gridCharCols) * 0.62)
+        let size = available / (CGFloat(gridCharCols) * 0.78)
         return max(9, size)
     }
-    private var gridCellW: CGFloat { gridFontSize * 0.62 }
+    private var gridCellW: CGFloat { gridFontSize * 0.78 }
     private var gridRowH: CGFloat { gridFontSize * 1.9 }
 
     /// Average pixel width per step (accounts for separator columns between steps).
@@ -564,6 +564,22 @@ struct StepSequencerPanel: View {
 
                     let velColor = CanopyColors.glowColor.opacity((vel > 0 ? 0.5 : 0.1) * dimFactor)
                     drawCharSeq(context, ch, at: CGPoint(x: x, y: velY), size: fontSize, color: velColor)
+                }
+
+                // === Drag handle (only visible during active span drag) ===
+                if let drag = spanDragState {
+                    let dragPitch = drag.pitch
+                    let dragEnd = min(drag.currentEndStep, cols)
+                    if let rowIdx = pitches.firstIndex(of: dragPitch), dragEnd > 0 {
+                        let handleStep = dragEnd - 1
+                        let handleCharCol = colMap[min(handleStep, displayColumns - 1)]
+                        let hx = CGFloat(handleCharCol) * cw + cw / 2
+                        let hy = CGFloat(rowIdx) * rh + rh / 2
+                        let handleColor = isArp
+                            ? Color(red: 0.2, green: 0.7, blue: 0.8)
+                            : CanopyColors.gridCellActive
+                        drawCharSeqBold(context, "┃", at: CGPoint(x: hx + cw * 0.45, y: hy), size: fontSize, color: handleColor.opacity(0.8))
+                    }
                 }
             }
             .frame(width: canvasWidth, height: canvasHeight)
@@ -1254,8 +1270,8 @@ struct StepSequencerPanel: View {
 
     // MARK: - Span Drag Handles (overlay)
 
-    /// Drag handles on the right edge of every note for extending duration.
-    /// The span body itself (─ characters) is drawn in the ASCII Canvas.
+    /// Invisible hit zones over each note for drag-to-extend.
+    /// The ASCII handle character (┃) is drawn in the grid Canvas only during active drag.
     private func spanDragHandles(sequence: NoteSequence) -> some View {
         let sd = NoteSequence.stepDuration
         let pitches = visiblePitches
@@ -1276,10 +1292,6 @@ struct StepSequencerPanel: View {
             spansByPitch[note.pitch, default: []].append((startStep: startStep, endStep: endStep, noteIndex: idx))
         }
 
-        let spanColor = isArpActive
-            ? Color(red: 0.2, green: 0.7, blue: 0.8)
-            : CanopyColors.gridCellActive
-
         return ZStack(alignment: .topLeading) {
             ForEach(pitches, id: \.self) { pitch in
                 let rowIndex = pitches.firstIndex(of: pitch) ?? 0
@@ -1289,19 +1301,17 @@ struct StepSequencerPanel: View {
                     ForEach(spans, id: \.startStep) { span in
                         let visibleEnd = min(span.endStep, columns)
                         if visibleEnd > span.startStep && span.startStep < columns {
-                            // Position handle at the right edge of the last step in the span
+                            // Invisible hit zone over the last step cell
                             let lastStepCharCol = colMap[min(visibleEnd - 1, displayColumns - 1)]
-                            let handleX = CGFloat(lastStepCharCol) * cw + cw * 0.5
+                            let handleX = CGFloat(lastStepCharCol) * cw
 
-                            Rectangle()
-                                .fill(spanColor.opacity(0.5))
-                                .frame(width: max(4 * cs, cw * 0.6), height: rh * 0.7)
-                                .clipShape(RoundedRectangle(cornerRadius: 1 * cs))
-                                .offset(x: handleX - max(4 * cs, cw * 0.6) / 2, y: y + rh * 0.15)
+                            Color.clear
+                                .frame(width: cw, height: rh)
+                                .contentShape(Rectangle())
+                                .offset(x: handleX, y: y)
                                 .gesture(
                                     DragGesture(minimumDistance: 2)
                                         .onChanged { drag in
-                                            // Use pixelsPerStep (accounts for separator columns) for 1:1 mouse tracking
                                             let dragSteps = Int(round(drag.translation.width / pps))
                                             let newEnd = max(span.startStep + 1, min(columns, span.endStep + dragSteps))
                                             spanDragState = (pitch: pitch, startStep: span.startStep, currentEndStep: newEnd)
