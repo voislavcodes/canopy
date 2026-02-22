@@ -1028,7 +1028,7 @@ enum SoundType: Codable, Equatable {
     case quake(QuakeConfig)
     case spore(SporeConfig)
     case fuse(FuseConfig)
-    case volt(VoltConfig)
+    case volt(VoltDrumKitConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }

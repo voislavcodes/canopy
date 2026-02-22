@@ -253,9 +253,9 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.configureFuse(config)
     }
 
-    /// Configure VOLT parameters on a specific node.
-    func configureVolt(_ config: VoltConfig, nodeID: UUID) {
-        graph.unit(for: nodeID)?.configureVolt(config)
+    /// Configure a single VOLT drum kit slot on a specific node.
+    func configureVoltSlot(index: Int, _ config: VoltConfig, nodeID: UUID) {
+        graph.unit(for: nodeID)?.configureVoltSlot(index: index, config)
     }
 
     /// Push SPORE imprint harmonic amplitudes to a specific node.

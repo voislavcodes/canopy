@@ -63,7 +63,7 @@ struct FusePanel: View {
                         } else if type == "spore" {
                             projectState.swapEngine(nodeID: nodeID, to: .spore(SporeConfig()))
                         } else if type == "volt" {
-                            projectState.swapEngine(nodeID: nodeID, to: .volt(VoltConfig()))
+                            projectState.swapEngine(nodeID: nodeID, to: .volt(VoltDrumKitConfig.defaultKit()))
                         }
                     }
                 )

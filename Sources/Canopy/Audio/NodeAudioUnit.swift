@@ -267,7 +267,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in oscillator path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
                     break // ignored in oscillator path
 
                 case .setFXChain(let chain):
@@ -487,7 +487,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in drum kit path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
                     break // ignored in drum kit path
 
                 case .setFXChain(let chain):
@@ -706,7 +706,7 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in quake path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
                     break // ignored in quake path
 
                 case .setFXChain(let chain):
@@ -943,7 +943,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in west coast path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
                     break // ignored in west coast path
 
                 case .setFXChain(let chain):
@@ -1158,7 +1158,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in flow path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
                     break // ignored in flow path
 
                 case .setFXChain(let chain):
@@ -1383,7 +1383,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in swarm path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
                     break // ignored in swarm path
 
                 case .setFXChain(let chain):
@@ -1612,7 +1612,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in tide path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVolt:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
                     break // ignored in tide path
 
                 case .setFXChain(let chain):
@@ -1862,7 +1862,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in spore path
 
-                case .setFuse, .setVolt:
+                case .setFuse, .setVoltSlot:
                     break // ignored in spore path
 
                 case .setFXChain(let chain):
@@ -2245,7 +2245,7 @@ final class NodeAudioUnit {
         ))
     }
 
-    func configureVolt(_ config: VoltConfig) {
+    func configureVoltSlot(index: Int, _ config: VoltConfig) {
         let layerAInt: Int
         switch config.layerA {
         case .resonant: layerAInt = 0
@@ -2264,7 +2264,8 @@ final class NodeAudioUnit {
         } else {
             layerBInt = -1
         }
-        commandBuffer.push(.setVolt(
+        commandBuffer.push(.setVoltSlot(
+            index: index,
             layerA: layerAInt, layerB: layerBInt, mix: config.mix,
             resPitch: config.resPitch, resSweep: config.resSweep,
             resDecay: config.resDecay, resDrive: config.resDrive, resPunch: config.resPunch,
@@ -2275,7 +2276,7 @@ final class NodeAudioUnit {
             metRing: config.metRing, metBand: config.metBand, metDensity: config.metDensity,
             tonPitch: config.tonPitch, tonFM: config.tonFM,
             tonShape: config.tonShape, tonBend: config.tonBend, tonDecay: config.tonDecay,
-            warm: config.warm, volume: config.volume
+            warm: config.warm
         ))
     }
 
@@ -2395,7 +2396,7 @@ final class NodeAudioUnit {
                      .setFlowImprint, .setTideImprint, .setSwarmImprint,
                      .setQuakeVoice, .setQuakeVolume, .setOrbit, .useOrbitSequencer,
                      .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale,
-                     .sporeSeqStart, .sporeSeqStop, .setVolt:
+                     .sporeSeqStart, .sporeSeqStop, .setVoltSlot:
                     break // ignored in fuse path
                 }
             }
@@ -2566,15 +2567,15 @@ final class NodeAudioUnit {
                 case .setLFOSlotCount(let count):
                     lfoBank.slotCount = count
 
-                case .setVolt(let layerA, let layerB, let mix,
+                case .setVoltSlot(let index, let layerA, let layerB, let mix,
                               let resPitch, let resSweep, let resDecay, let resDrive, let resPunch,
                               let noiseColor, let noiseSnap, let noiseBody,
                               let noiseClap, let noiseTone, let noiseFilter,
                               let metSpread, let metTune, let metRing, let metBand, let metDensity,
                               let tonPitch, let tonFM, let tonShape, let tonBend, let tonDecay,
-                              let warm, let newVolume):
-                    volume = newVolume
-                    volt.configure(
+                              let warm):
+                    volt.configureSlot(
+                        index: index,
                         layerA: layerA, layerB: layerB, mix: Float(mix),
                         resPitch: Float(resPitch), resSweep: Float(resSweep),
                         resDecay: Float(resDecay), resDrive: Float(resDrive), resPunch: Float(resPunch),

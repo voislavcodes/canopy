@@ -57,7 +57,7 @@ struct QuakePanel: View {
                         } else if type == "fuse" {
                             projectState.swapEngine(nodeID: nodeID, to: .fuse(FuseConfig()))
                         } else if type == "volt" {
-                            projectState.swapEngine(nodeID: nodeID, to: .volt(VoltConfig()))
+                            projectState.swapEngine(nodeID: nodeID, to: .volt(VoltDrumKitConfig.defaultKit()))
                         }
                     }
                 )

@@ -29,18 +29,9 @@ struct WarmVoiceState {
     var dcPrevInR: Float = 0
     var dcPrevOutR: Float = 0
 
-    // Pink noise floor (Paul Kellet 3-stage approximation)
-    var pinkState0: Float = 0
-    var pinkState1: Float = 0
-    var pinkState2: Float = 0
-    var noiseRNG: UInt32 = 54321
-
     // HF rolloff (one-pole lowpass)
     var hfStateL: Float = 0
     var hfStateR: Float = 0
-
-    // Noise envelope follower (tracks signal level for noise gating)
-    var noiseEnvelope: Float = 0
 }
 
 /// Per-manager (node-level) analog warmth state for inter-voice power sag.
@@ -83,11 +74,9 @@ enum WarmProcessor {
         h = h &* 1664525 &+ 1013904223
         state.hfCutoffOffset = Float(Int32(bitPattern: h)) / Float(Int32.max) * 0.1
 
-        // RNG seeds (ensure non-zero)
+        // Drift RNG seed (ensure non-zero)
         h = h &* 1664525 &+ 1013904223
         state.driftRNG = h | 1
-        h = h &* 1664525 &+ 1013904223
-        state.noiseRNG = h | 1
     }
 
     // MARK: - Pitch Drift
@@ -132,7 +121,7 @@ enum WarmProcessor {
     // MARK: - Sample Processing (Mono)
 
     /// Process a single mono sample through the WARM chain:
-    ///   saturation (ADAA) → DC block → pink noise → HF rolloff.
+    ///   saturation (ADAA) → DC block → HF rolloff.
     /// WARM=0 returns input unchanged (true bypass).
     @inline(__always)
     static func processSample(
@@ -143,15 +132,6 @@ enum WarmProcessor {
 
         var x = sample
         let w2 = warm * warm
-        let w3 = w2 * warm
-
-        // Track signal level for noise scaling (instant attack, ~100ms release)
-        let inputMag = abs(sample)
-        if inputMag > state.noiseEnvelope {
-            state.noiseEnvelope = inputMag
-        } else {
-            state.noiseEnvelope *= 0.999
-        }
 
         // --- 1. Asymmetric saturation with first-order ADAA ---
         let drive: Float = 1.0 + warm * 3.0   // linear: 1→4
@@ -170,10 +150,7 @@ enum WarmProcessor {
         state.dcPrevOutL = dcOut
         x = dcOut
 
-        // --- 3. Pink noise floor (scaled by signal envelope — fades with release) ---
-        x += pinkNoise(&state) * w3 * state.noiseEnvelope * 0.003
-
-        // --- 4. HF rolloff (one-pole lowpass, linear cutoff 22kHz→12kHz) ---
+        // --- 3. HF rolloff (one-pole lowpass, linear cutoff 22kHz→12kHz) ---
         let cutoff = 22000.0 - warm * 10000.0
         let cutoffVar = cutoff * (1.0 + state.hfCutoffOffset * w2)
         let hfCoeff = 1.0 - expf(-2.0 * .pi * cutoffVar / sampleRate)
@@ -197,15 +174,6 @@ enum WarmProcessor {
         var xL = sampleL
         var xR = sampleR
         let w2 = warm * warm
-        let w3 = w2 * warm
-
-        // Track signal level for noise scaling (instant attack, ~100ms release)
-        let inputMag = max(abs(sampleL), abs(sampleR))
-        if inputMag > state.noiseEnvelope {
-            state.noiseEnvelope = inputMag
-        } else {
-            state.noiseEnvelope *= 0.999
-        }
 
         // --- 1. Asymmetric saturation with ADAA ---
         let drive: Float = 1.0 + warm * 3.0
@@ -235,12 +203,7 @@ enum WarmProcessor {
         state.dcPrevOutR = dcOutR
         xR = dcOutR
 
-        // --- 3. Pink noise floor (scaled by signal envelope — fades with release) ---
-        let noiseScale = w3 * state.noiseEnvelope * 0.003
-        xL += pinkNoise(&state) * noiseScale
-        xR += pinkNoise(&state) * noiseScale
-
-        // --- 4. HF rolloff ---
+        // --- 3. HF rolloff ---
         let cutoff = 22000.0 - warm * 10000.0
         let cutoffVar = cutoff * (1.0 + state.hfCutoffOffset * w2)
         let hfCoeff = 1.0 - expf(-2.0 * .pi * cutoffVar / sampleRate)
@@ -358,22 +321,4 @@ enum WarmProcessor {
         }
     }
 
-    // MARK: - Private: Pink Noise
-
-    /// Pink noise via Paul Kellet's 3-stage approximation.
-    /// Uses per-voice xorshift LCG for decorrelated noise across voices.
-    @inline(__always)
-    private static func pinkNoise(_ state: inout WarmVoiceState) -> Float {
-        // White noise source (LCG)
-        state.noiseRNG = state.noiseRNG &* 1664525 &+ 1013904223
-        let white = Float(Int32(bitPattern: state.noiseRNG)) / Float(Int32.max)
-
-        // Paul Kellet's pink noise filter (3 one-pole stages)
-        state.pinkState0 = 0.99886 * state.pinkState0 + white * 0.0555179
-        state.pinkState1 = 0.99332 * state.pinkState1 + white * 0.0750759
-        state.pinkState2 = 0.96900 * state.pinkState2 + white * 0.1538520
-
-        let pink = state.pinkState0 + state.pinkState1 + state.pinkState2 + white * 0.5362
-        return pink * 0.2  // normalize to roughly ±1
-    }
 }

@@ -243,6 +243,12 @@ struct VoltVoice {
             output = a
         }
 
+        // Check if voice has decayed to silence (before WARM — don't feed dead signal into DC blocker)
+        if envelopeLevel < 0.0001 {
+            isActive = false
+            return 0
+        }
+
         // Apply WARM processing
         if warm > 0.01 {
             output = WarmProcessor.processSample(&warmState, sample: output, warm: warm, sampleRate: sampleRate)
@@ -250,12 +256,6 @@ struct VoltVoice {
 
         // Apply per-voice gain tolerance
         output *= (1.0 + tolerance.gainOffset * warm)
-
-        // Check if voice has decayed to silence
-        if envelopeLevel < 0.0001 {
-            isActive = false
-            return 0
-        }
 
         return output
     }
@@ -390,6 +390,10 @@ struct VoltVoice {
     private mutating func triggerNoise(state: inout NoiseCircuitState, params: VoltParams) {
         let clap = params.noiseClap
         let triggerVoltage: Float = 0.5 + velocity * 0.5
+
+        // Seed noise RNG from voice RNG (xorshift64(0) = 0 forever)
+        state.noiseRNG = rng | 1  // ensure non-zero seed
+        rng = rng &* 6364136223846793005 &+ 1442695040888963407  // advance voice RNG
 
         let burstCount = 1 + Int(clap * 5)  // 1–6 caps
         state.envCapCount = burstCount
@@ -551,7 +555,8 @@ struct VoltVoice {
         // Density: 2–6 oscillators
         let oscCount = 2 + Int(densityParam * 4)
         let clampedOscCount = min(max(oscCount, 2), 6)
-        let supplyV = state.envCapVoltage
+        // Fixed supply for oscillation — envelope controls VCA only (real 808 pattern)
+        let supplyV: Float = 1.0
 
         // Render each Schmitt trigger oscillator
         var sum: Float = 0
@@ -656,7 +661,7 @@ struct VoltVoice {
         let (modTri, _, _) = SchmittCircuit.render(
             capVoltage: &state.modCap,
             switchState: &state.modSwitch,
-            supplyV: state.envCapVoltage,
+            supplyV: 1.0,  // Fixed supply — envelope controls VCA only
             targetFreq: modFreq,
             soul: 0.5,
             tolerance: (
@@ -669,8 +674,8 @@ struct VoltVoice {
             couplingInput: 0
         )
 
-        // FM coupling: modulator → carrier frequency
-        let fmDepth = fm * fm * fm * tolerancedPitch * 3.0
+        // FM coupling: modulator → carrier frequency (quadratic for usable range)
+        let fmDepth = fm * fm * tolerancedPitch * 4.0
         let fmModulation = modTri * fmDepth
 
         // Carrier circuit
@@ -679,7 +684,7 @@ struct VoltVoice {
         let (carrierTri, carrierSq, _) = SchmittCircuit.render(
             capVoltage: &state.carrierCap,
             switchState: &state.carrierSwitch,
-            supplyV: state.envCapVoltage,
+            supplyV: 1.0,  // Fixed supply — envelope controls VCA only
             targetFreq: carrierFreq,
             soul: shape,  // Shape IS Soul
             tolerance: (
@@ -692,7 +697,7 @@ struct VoltVoice {
             couplingInput: fmModulation / max(tolerancedPitch, 1.0)
         )
 
-        let blend = shape * shape
+        let blend = shape  // Linear blend for full range control
         let carrierOut = carrierTri * (1.0 - blend) + carrierSq * blend
 
         // Envelope cap discharge

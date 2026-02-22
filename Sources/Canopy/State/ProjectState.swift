@@ -289,8 +289,10 @@ class ProjectState: ObservableObject {
                 )
             case .fuse(let config):
                 AudioEngine.shared.configureFuse(config, nodeID: nodeID)
-            case .volt(let config):
-                AudioEngine.shared.configureVolt(config, nodeID: nodeID)
+            case .volt(let kit):
+                for i in 0..<kit.voices.count {
+                    AudioEngine.shared.configureVoltSlot(index: i, kit.voices[i], nodeID: nodeID)
+                }
             default:
                 break
             }

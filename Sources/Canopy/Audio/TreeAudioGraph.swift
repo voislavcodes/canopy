@@ -195,8 +195,10 @@ final class TreeAudioGraph {
             }
         case .fuse(let config):
             unit.configureFuse(config)
-        case .volt(let config):
-            unit.configureVolt(config)
+        case .volt(let kit):
+            for i in 0..<kit.voices.count {
+                unit.configureVoltSlot(index: i, kit.voices[i])
+            }
         default:
             break
         }

@@ -182,3 +182,40 @@ struct VoltConfig: Codable, Equatable {
         resPitch: 0.3, resDecay: 0.7,
         metSpread: 0.45, metTune: 0.2, metRing: 0.85, metDensity: 1.0)
 }
+
+// MARK: - 8-Slot Drum Kit
+
+/// 8-voice drum kit configuration wrapping independent VoltConfig per slot.
+/// Same architecture as DrumKitConfig for FM drums: fixed MIDI mapping, per-slot params.
+struct VoltDrumKitConfig: Codable, Equatable {
+    var voices: [VoltConfig]  // exactly 8
+
+    static let voiceNames = ["KICK", "SNARE", "C.HAT", "O.HAT", "TOM L", "TOM H", "CRASH", "RIDE"]
+    static let midiPitches = [36, 38, 42, 46, 41, 43, 49, 51]
+
+    static func defaultKit() -> VoltDrumKitConfig {
+        VoltDrumKitConfig(voices: [
+            .kick808,       // KICK
+            .analogSnare,   // SNARE
+            .closedHat,     // C.HAT
+            .openHat,       // O.HAT
+            .deepTom,       // TOM L
+            {               // TOM H — higher tuned
+                var t = VoltConfig.deepTom
+                t.resPitch = 0.5
+                t.tonPitch = 0.48
+                return t
+            }(),
+            .crash,         // CRASH
+            .cowbell,       // RIDE
+        ])
+    }
+
+    /// Map a MIDI pitch to a voice index. Returns -1 if no match.
+    static func voiceIndex(forPitch pitch: Int) -> Int {
+        for i in 0..<midiPitches.count {
+            if midiPitches[i] == pitch { return i }
+        }
+        return -1
+    }
+}

@@ -8,6 +8,10 @@ struct VoltPanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
 
+    // MARK: - Slot selection
+
+    @State private var selectedSlot: Int = 0
+
     // MARK: - Local drag state: Layer selection
 
     @State private var localLayerA: VoltTopology = .resonant
@@ -56,10 +60,16 @@ struct VoltPanel: View {
     private var node: Node? { projectState.selectedNode }
     private var patch: SoundPatch? { node?.patch }
 
-    private var voltConfig: VoltConfig? {
+    private var voltKit: VoltDrumKitConfig? {
         guard let patch else { return nil }
-        if case .volt(let config) = patch.soundType { return config }
+        if case .volt(let kit) = patch.soundType { return kit }
         return nil
+    }
+
+    private var voltConfig: VoltConfig? {
+        guard let kit = voltKit else { return nil }
+        guard selectedSlot >= 0, selectedSlot < kit.voices.count else { return nil }
+        return kit.voices[selectedSlot]
     }
 
     private let accentColor = CanopyColors.nodeVolt
@@ -102,7 +112,10 @@ struct VoltPanel: View {
                 )
             }
 
-            if voltConfig != nil {
+            if voltKit != nil {
+                // 8-slot voice selector (4x2 grid)
+                voiceSelector
+
                 // ASCII circuit schematic hero — topology-reactive
                 circuitSchematic
                     .frame(height: 180 * cs)
@@ -170,6 +183,49 @@ struct VoltPanel: View {
         .onTapGesture { }
         .onAppear { syncFromModel() }
         .onChange(of: projectState.selectedNodeID) { _ in syncFromModel() }
+    }
+
+    // MARK: - Voice Selector (8-slot drum kit)
+
+    private var voiceSelector: some View {
+        VStack(spacing: 2 * cs) {
+            // Row 1: KICK, SNARE, C.HAT, O.HAT
+            HStack(spacing: 2 * cs) {
+                ForEach(0..<4, id: \.self) { i in
+                    voiceSlotButton(index: i)
+                }
+            }
+            // Row 2: TOM L, TOM H, CRASH, RIDE
+            HStack(spacing: 2 * cs) {
+                ForEach(4..<8, id: \.self) { i in
+                    voiceSlotButton(index: i)
+                }
+            }
+        }
+    }
+
+    private func voiceSlotButton(index: Int) -> some View {
+        let isSelected = selectedSlot == index
+        let name = VoltDrumKitConfig.voiceNames[index]
+        return Button(action: {
+            selectedSlot = index
+            syncFromModel()
+        }) {
+            Text(name)
+                .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                .foregroundColor(isSelected ? accentColor : CanopyColors.chromeText.opacity(0.5))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4 * cs)
+                .background(
+                    RoundedRectangle(cornerRadius: 3 * cs)
+                        .fill(isSelected ? accentColor.opacity(0.15) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3 * cs)
+                        .stroke(isSelected ? accentColor.opacity(0.5) : CanopyColors.bloomPanelBorder.opacity(0.2), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Topology Selector
@@ -918,10 +974,12 @@ struct VoltPanel: View {
 
     private func commitConfig(_ transform: (inout VoltConfig) -> Void) {
         guard let nodeID = projectState.selectedNodeID else { return }
+        let slot = selectedSlot
         projectState.updateNode(id: nodeID) { node in
-            if case .volt(var config) = node.patch.soundType {
-                transform(&config)
-                node.patch.soundType = .volt(config)
+            if case .volt(var kit) = node.patch.soundType {
+                guard slot >= 0, slot < kit.voices.count else { return }
+                transform(&kit.voices[slot])
+                node.patch.soundType = .volt(kit)
             }
         }
         pushConfigToEngine()
@@ -950,6 +1008,6 @@ struct VoltPanel: View {
             tonBend: localTonBend, tonDecay: localTonDecay,
             warm: localWarm, volume: localVolume, pan: localPan
         )
-        AudioEngine.shared.configureVolt(config, nodeID: nodeID)
+        AudioEngine.shared.configureVoltSlot(index: selectedSlot, config, nodeID: nodeID)
     }
 }

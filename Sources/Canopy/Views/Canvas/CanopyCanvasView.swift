@@ -298,8 +298,8 @@ struct CanopyCanvasView: View {
         }()
 
         // Resolve effective module types (override or derive from SoundType)
-        let effectiveSeqType = node.sequencerType ?? (isSporeEngine ? .sporeSeq : (isDrumEngine || isQuakeEngine) ? .drum : .pitched)
-        let effectiveInputMode = node.inputMode ?? ((isDrumEngine || isQuakeEngine) ? .padGrid : .keyboard)
+        let effectiveSeqType = node.sequencerType ?? (isSporeEngine ? .sporeSeq : (isDrumEngine || isQuakeEngine || isVoltEngine) ? .drum : .pitched)
+        let effectiveInputMode = node.inputMode ?? ((isDrumEngine || isQuakeEngine || isVoltEngine) ? .padGrid : .keyboard)
 
         // Focus mode: show dimming overlay + single centered panel
         if let focused = bloomState.focusedPanel {
