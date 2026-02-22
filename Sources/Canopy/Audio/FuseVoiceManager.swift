@@ -227,8 +227,9 @@ struct FuseVoiceManager {
         let warmLevel = Float(voices.0.warmthParam)
         mix = WarmProcessor.applyPowerSagMono(&warmNodeState, sample: mix, warm: warmLevel)
 
-        // Fixed-gain output limiting (no dynamic headroom — avoids clicks from voice count changes)
-        return Float(tanh(Double(mix) * 0.5) * 2.5)
+        // Gentle output limiting — low pre-gain keeps 1–4 voices in tanh's
+        // linear region, preventing gain pumping when voices start/stop
+        return Float(tanh(Double(mix) * 0.3) * 3.0)
     }
 
     /// Kill all voices immediately.

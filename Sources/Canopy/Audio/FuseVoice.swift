@@ -201,10 +201,14 @@ struct FuseVoice {
 
         advanceEnvelope()
         guard envValue > 0.0001 else {
-            isActive = false
-            envelopeLevel = 0
-            envPhase = 0
-            envValue = 0
+            // Don't kill during attack ramp-up — slow attacks need
+            // multiple samples before envValue exceeds threshold
+            if envPhase != 1 {
+                isActive = false
+                envelopeLevel = 0
+                envPhase = 0
+                envValue = 0
+            }
             return 0
         }
         envelopeLevel = Float(envValue)
