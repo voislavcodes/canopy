@@ -90,9 +90,6 @@ struct StepSequencerPanel: View {
     private var gridCellW: CGFloat { gridFontSize * 0.78 }
     private var gridRowH: CGFloat { gridFontSize * 1.9 }
 
-    /// Average pixel width per step (accounts for separator columns between steps).
-    private var pixelsPerStep: CGFloat { gridCellW * CGFloat(gridCharCols) / CGFloat(displayColumns) }
-
     /// Derive cellSize/cellSpacing from ASCII geometry for span overlay compatibility.
     private var cellSize: CGFloat { gridCellW }
     private var cellSpacing: CGFloat { 0 }
@@ -181,12 +178,8 @@ struct StepSequencerPanel: View {
                     // Note labels
                     noteLabels
 
-                    // ASCII grid + span drag handles
-                    ZStack(alignment: .topLeading) {
-                        asciiGridCanvas(sequence: node.sequence, nodeID: node.id)
-
-                        spanDragHandles(sequence: node.sequence)
-                    }
+                    // ASCII grid (tap to toggle, drag to extend)
+                    asciiGridCanvas(sequence: node.sequence, nodeID: node.id)
                 }
             }
 
@@ -586,21 +579,63 @@ struct StepSequencerPanel: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let dx = abs(value.translation.width)
+                        let dy = abs(value.translation.height)
+                        // Only enter span drag if horizontal drag exceeds threshold
+                        guard dx > 5 && dx > dy else { return }
+
+                        // Determine which note the drag started on
+                        let startCharCol = Int(value.startLocation.x / cw)
+                        let startRowIdx = Int(value.startLocation.y / rh)
+                        guard startRowIdx >= 0, startRowIdx < pitches.count,
+                              startCharCol >= 0, startCharCol < charCols else { return }
+                        guard let startStep = reverseMap[startCharCol], startStep < cols else { return }
+                        let pitch = pitches[startRowIdx]
+
+                        // Only drag-to-extend if there's a note at the start position
+                        let noteKey = pitch &* 1000 &+ startStep
+                        guard lookup[noteKey] != nil else { return }
+
+                        // Compute target end step from absolute mouse X position
+                        let currentCharCol = max(0, min(charCols - 1, Int(value.location.x / cw)))
+                        let targetStep = nearestStep(forCharCol: currentCharCol, reverseMap: reverseMap, maxStep: cols)
+                        let newEnd = max(startStep + 1, min(cols, targetStep + 1))
+                        spanDragState = (pitch: pitch, startStep: startStep, currentEndStep: newEnd)
+                    }
                     .onEnded { value in
-                        guard abs(value.translation.width) < 5,
-                              abs(value.translation.height) < 5 else { return }
-                        let loc = value.startLocation
-                        let charCol = Int(loc.x / cw)
-                        let rowIdx = Int(loc.y / rh)
-                        guard rowIdx >= 0, rowIdx < pitches.count,
-                              charCol >= 0, charCol < charCols else { return }
-                        // Convert char column to step via reverse mapping
-                        guard let step = reverseMap[charCol], step < cols else { return }
-                        let pitch = pitches[rowIdx]
-                        toggleNote(pitch: pitch, step: step)
+                        if let drag = spanDragState {
+                            commitSpanDrag(pitch: drag.pitch, startStep: drag.startStep, newEndStep: drag.currentEndStep)
+                            spanDragState = nil
+                        } else {
+                            // Tap: toggle note (only if movement was minimal)
+                            guard abs(value.translation.width) < 5,
+                                  abs(value.translation.height) < 5 else { return }
+                            let loc = value.startLocation
+                            let charCol = Int(loc.x / cw)
+                            let rowIdx = Int(loc.y / rh)
+                            guard rowIdx >= 0, rowIdx < pitches.count,
+                                  charCol >= 0, charCol < charCols else { return }
+                            guard let step = reverseMap[charCol], step < cols else { return }
+                            let pitch = pitches[rowIdx]
+                            toggleNote(pitch: pitch, step: step)
+                        }
                     }
             )
         }
+    }
+
+    /// Find the nearest valid step for a given character column (skipping separators).
+    private func nearestStep(forCharCol charCol: Int, reverseMap: [Int?], maxStep: Int) -> Int {
+        if let step = reverseMap[charCol] { return min(step, maxStep - 1) }
+        // Separator column — find nearest step by searching left then right
+        for offset in 1..<reverseMap.count {
+            let left = charCol - offset
+            if left >= 0, let step = reverseMap[left] { return min(step, maxStep - 1) }
+            let right = charCol + offset
+            if right < reverseMap.count, let step = reverseMap[right] { return min(step, maxStep - 1) }
+        }
+        return 0
     }
 
     // MARK: - ASCII Drawing Primitives
@@ -1266,68 +1301,6 @@ struct StepSequencerPanel: View {
             node.sequence.accumulator?.mode = mode
         }
         reloadSequence()
-    }
-
-    // MARK: - Span Drag Handles (overlay)
-
-    /// Invisible hit zones over each note for drag-to-extend.
-    /// The ASCII handle character (┃) is drawn in the grid Canvas only during active drag.
-    private func spanDragHandles(sequence: NoteSequence) -> some View {
-        let sd = NoteSequence.stepDuration
-        let pitches = visiblePitches
-        let cw = gridCellW
-        let rh = gridRowH
-        let colMap = stepToCharCol
-        let pps = pixelsPerStep
-
-        var spansByPitch: [Int: [(startStep: Int, endStep: Int, noteIndex: Int)]] = [:]
-        for (idx, note) in sequence.notes.enumerated() {
-            let startStep = Int(round(note.startBeat / sd))
-            let endStep: Int
-            if let drag = spanDragState, drag.pitch == note.pitch && drag.startStep == startStep {
-                endStep = drag.currentEndStep
-            } else {
-                endStep = max(startStep + 1, Int(round((note.startBeat + note.duration) / sd)))
-            }
-            spansByPitch[note.pitch, default: []].append((startStep: startStep, endStep: endStep, noteIndex: idx))
-        }
-
-        return ZStack(alignment: .topLeading) {
-            ForEach(pitches, id: \.self) { pitch in
-                let rowIndex = pitches.firstIndex(of: pitch) ?? 0
-                let y = CGFloat(rowIndex) * rh
-
-                if let spans = spansByPitch[pitch] {
-                    ForEach(spans, id: \.startStep) { span in
-                        let visibleEnd = min(span.endStep, columns)
-                        if visibleEnd > span.startStep && span.startStep < columns {
-                            // Invisible hit zone over the last step cell
-                            let lastStepCharCol = colMap[min(visibleEnd - 1, displayColumns - 1)]
-                            let handleX = CGFloat(lastStepCharCol) * cw
-
-                            Color.clear
-                                .frame(width: cw, height: rh)
-                                .contentShape(Rectangle())
-                                .offset(x: handleX, y: y)
-                                .gesture(
-                                    DragGesture(minimumDistance: 2)
-                                        .onChanged { drag in
-                                            let dragSteps = Int(round(drag.translation.width / pps))
-                                            let newEnd = max(span.startStep + 1, min(columns, span.endStep + dragSteps))
-                                            spanDragState = (pitch: pitch, startStep: span.startStep, currentEndStep: newEnd)
-                                        }
-                                        .onEnded { _ in
-                                            if let drag = spanDragState {
-                                                commitSpanDrag(pitch: drag.pitch, startStep: drag.startStep, newEndStep: drag.currentEndStep)
-                                            }
-                                            spanDragState = nil
-                                        }
-                                )
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /// Commit a span drag: update the NoteEvent duration to match the new end step.
