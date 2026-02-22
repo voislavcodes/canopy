@@ -1,69 +1,217 @@
 import SwiftUI
 
-/// Preference key to report chip frames from children up to the strip.
-private struct ChipFramePreferenceKey: PreferenceKey {
+/// Tab for the bottom lane: FX (effects chain) or MOD (LFO modulation).
+private enum BottomLaneTab {
+    case fx, mod
+}
+
+/// Preference key to report FX chip frames from children up to the strip.
+private struct FXChipFrameKey: PreferenceKey {
     static var defaultValue: [UUID: CGRect] = [:]
     static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { $1 })
     }
 }
 
-/// Bottom bar showing project-level LFOs as draggable chips.
-/// Tapping a chip opens a settings popover anchored directly above it.
-struct ModulatorStripView: View {
-    @ObservedObject var projectState: ProjectState
-    @State private var chipFrames: [UUID: CGRect] = [:]
+/// Preference key to report the add button frame for picker positioning.
+private struct AddButtonFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
 
-    private let stripCoordSpace = "modulatorStrip"
+/// Preference key to report LFO chip frames.
+private struct LFOChipFrameKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+/// Single bottom lane with tabbed FX / MOD views.
+///
+/// FX tab (default): shows the selected node's or master bus effect chain.
+/// MOD tab: shows project-level LFOs as draggable chips.
+struct BottomLaneView: View {
+    @ObservedObject var projectState: ProjectState
+    @State private var activeTab: BottomLaneTab = .fx
+
+    // FX state
+    @State private var showingPicker: Bool = false
+    @State private var selectedFXID: UUID?
+    @State private var fxChipFrames: [UUID: CGRect] = [:]
+    @State private var addButtonFrame: CGRect = .zero
+    @State private var pickerHeight: CGFloat = 240
+    @State private var fxPopoverHeight: CGFloat = 200
+
+    // LFO state
+    @State private var lfoChipFrames: [UUID: CGRect] = [:]
+    @State private var lfoPopoverHeight: CGFloat = 300
+
+    private let stripCoordSpace = "bottomLaneStrip"
+
+    /// Whether we're showing the master bus (no node selected) or a node's chain.
+    private var isShowingMasterBus: Bool {
+        projectState.selectedNodeID == nil
+    }
+
+    /// Current effects list (node or master bus).
+    private var effects: [Effect] {
+        if let nodeID = projectState.selectedNodeID,
+           let node = projectState.findNode(id: nodeID) {
+            return node.effects
+        }
+        return projectState.project.masterBus.effects
+    }
 
     var body: some View {
-        HStack(spacing: 8) {
-            // "+ LFO" button
-            Button(action: {
-                let lfo = projectState.addLFO()
-                projectState.selectedLFOID = lfo.id
-            }) {
-                HStack(spacing: 4) {
-                    Text("+")
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    Text("LFO")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        VStack(spacing: 0) {
+            // Top border
+            Rectangle()
+                .fill(CanopyColors.chromeBorder)
+                .frame(height: 1)
+
+            HStack(spacing: 6) {
+                // Tab switch
+                tabSwitch
+
+                // Add button
+                addButton
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: AddButtonFrameKey.self,
+                                value: geo.frame(in: .named(stripCoordSpace))
+                            )
+                        }
+                    )
+
+                // Tab content
+                if activeTab == .fx {
+                    fxContent
+                } else {
+                    modContent
                 }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .frame(height: 36)
+        }
+        .background(CanopyColors.chromeBackground)
+        .coordinateSpace(name: stripCoordSpace)
+        .onPreferenceChange(AddButtonFrameKey.self) { addButtonFrame = $0 }
+        .onPreferenceChange(FXChipFrameKey.self) { fxChipFrames = $0 }
+        .onPreferenceChange(LFOChipFrameKey.self) { lfoChipFrames = $0 }
+        // Popovers overlay
+        .overlay {
+            if activeTab == .fx {
+                fxPopovers
+            } else {
+                modPopovers
+            }
+        }
+    }
+
+    // MARK: - Tab Switch
+
+    private var tabSwitch: some View {
+        HStack(spacing: 4) {
+            tabButton("FX", tab: .fx)
+            tabButton("MOD", tab: .mod)
+        }
+    }
+
+    private func tabButton(_ label: String, tab: BottomLaneTab) -> some View {
+        let isActive = activeTab == tab
+        return Button(action: {
+            withAnimation(.spring(duration: 0.2)) {
+                activeTab = tab
+                // Dismiss the other tab's popovers
+                if tab == .fx {
+                    projectState.selectedLFOID = nil
+                } else {
+                    selectedFXID = nil
+                    showingPicker = false
+                }
+            }
+        }) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(isActive ? CanopyColors.chromeTextBright : CanopyColors.chromeText)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isActive ? CanopyColors.nodeFill.opacity(0.1) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(
+                            isActive ? CanopyColors.nodeFill.opacity(0.4) : CanopyColors.chromeBorder,
+                            lineWidth: 1
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Add Button
+
+    private var addButton: some View {
+        Button(action: {
+            withAnimation(.spring(duration: 0.2)) {
+                if activeTab == .fx {
+                    selectedFXID = nil
+                    showingPicker.toggle()
+                } else {
+                    let lfo = projectState.addLFO()
+                    projectState.selectedLFOID = lfo.id
+                }
+            }
+        }) {
+            Text("+")
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 8)
                 .padding(.vertical, 5)
                 .background(
                     RoundedRectangle(cornerRadius: 5)
                         .strokeBorder(CanopyColors.chromeBorder, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 )
-            }
-            .buttonStyle(.plain)
+        }
+        .buttonStyle(.plain)
+    }
 
-            // Scrollable chip list
+    // MARK: - FX Content
+
+    private var fxContent: some View {
+        HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(projectState.project.lfos) { lfo in
-                        LFOChipView(
-                            lfo: lfo,
-                            isSelected: projectState.selectedLFOID == lfo.id,
+                    ForEach(effects) { effect in
+                        FXChipView(
+                            effect: effect,
+                            isSelected: selectedFXID == effect.id,
                             onTap: {
                                 withAnimation(.spring(duration: 0.2)) {
-                                    if projectState.selectedLFOID == lfo.id {
-                                        projectState.selectedLFOID = nil
+                                    showingPicker = false
+                                    if selectedFXID == effect.id {
+                                        selectedFXID = nil
                                     } else {
-                                        projectState.selectedLFOID = lfo.id
+                                        selectedFXID = effect.id
                                     }
                                 }
                             },
-                            onDelete: {
-                                projectState.removeLFO(id: lfo.id)
-                            }
+                            onDelete: { removeEffect(effect.id) }
                         )
                         .background(
                             GeometryReader { geo in
                                 Color.clear.preference(
-                                    key: ChipFramePreferenceKey.self,
-                                    value: [lfo.id: geo.frame(in: .named(stripCoordSpace))]
+                                    key: FXChipFrameKey.self,
+                                    value: [effect.id: geo.frame(in: .named(stripCoordSpace))]
                                 )
                             }
                         )
@@ -71,37 +219,234 @@ struct ModulatorStripView: View {
                 }
             }
 
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 36)
-        .background(CanopyColors.chromeBackground)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(CanopyColors.chromeBorder)
-                .frame(height: 1)
-        }
-        .coordinateSpace(name: stripCoordSpace)
-        .onPreferenceChange(ChipFramePreferenceKey.self) { chipFrames = $0 }
-        // Popover: GeometryReader overlay so we get the full strip coordinate space.
-        // position() places the popover center at (chipMidX, -measuredHeight/2 - 4),
-        // which puts the popover's bottom edge 4px above the strip's top border.
-        .overlay {
-            if let lfoID = projectState.selectedLFOID,
-               let lfo = projectState.project.lfos.first(where: { $0.id == lfoID }),
-               let chipFrame = chipFrames[lfoID] {
-                LFOPopoverPanel(lfo: lfo, projectState: projectState, measuredHeight: $popoverHeight)
-                    .fixedSize()
-                    .position(
-                        x: chipFrame.midX,
-                        y: -(popoverHeight / 2) - 4
-                    )
-                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
+            // Shore indicator (master bus only)
+            if isShowingMasterBus {
+                shoreIndicator
             }
         }
     }
 
-    @State private var popoverHeight: CGFloat = 300
+    // MARK: - MOD Content
+
+    private var modContent: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(projectState.project.lfos) { lfo in
+                    LFOChipView(
+                        lfo: lfo,
+                        isSelected: projectState.selectedLFOID == lfo.id,
+                        onTap: {
+                            withAnimation(.spring(duration: 0.2)) {
+                                if projectState.selectedLFOID == lfo.id {
+                                    projectState.selectedLFOID = nil
+                                } else {
+                                    projectState.selectedLFOID = lfo.id
+                                }
+                            }
+                        },
+                        onDelete: {
+                            projectState.removeLFO(id: lfo.id)
+                        }
+                    )
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: LFOChipFrameKey.self,
+                                value: [lfo.id: geo.frame(in: .named(stripCoordSpace))]
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: - FX Popovers
+
+    @ViewBuilder
+    private var fxPopovers: some View {
+        // Effect picker popover
+        if showingPicker {
+            effectPickerPopover
+                .fixedSize()
+                .position(
+                    x: addButtonFrame.minX + 90,
+                    y: -(pickerHeight / 2) - 4
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
+        }
+
+        // FX settings popover (above selected chip)
+        if let fxID = selectedFXID,
+           let effect = effects.first(where: { $0.id == fxID }),
+           let chipFrame = fxChipFrames[fxID] {
+            FXPopoverPanel(
+                effect: effect,
+                color: fxColor(effect.type),
+                onClose: {
+                    withAnimation(.spring(duration: 0.2)) { selectedFXID = nil }
+                },
+                onToggleBypass: { toggleBypass(fxID) },
+                onParameterChange: { key, value in
+                    updateParameter(effectID: fxID, key: key, value: value)
+                },
+                onWetDryChange: { value in
+                    updateWetDry(effectID: fxID, value: value)
+                },
+                measuredHeight: $fxPopoverHeight
+            )
+            .fixedSize()
+            .position(
+                x: max(chipFrame.midX, 110),
+                y: -(fxPopoverHeight / 2) - 4
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
+        }
+    }
+
+    // MARK: - MOD Popovers
+
+    @ViewBuilder
+    private var modPopovers: some View {
+        if let lfoID = projectState.selectedLFOID,
+           let lfo = projectState.project.lfos.first(where: { $0.id == lfoID }),
+           let chipFrame = lfoChipFrames[lfoID] {
+            LFOPopoverPanel(lfo: lfo, projectState: projectState, measuredHeight: $lfoPopoverHeight)
+                .fixedSize()
+                .position(
+                    x: chipFrame.midX,
+                    y: -(lfoPopoverHeight / 2) - 4
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
+        }
+    }
+
+    // MARK: - Shore Indicator
+
+    private var shoreIndicator: some View {
+        let shore = projectState.project.masterBus.shore
+        return HStack(spacing: 3) {
+            Text("shore")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(shore.enabled ? CanopyColors.nodeFill : CanopyColors.chromeText.opacity(0.4))
+            Text(String(format: "%.1f dB", shore.ceiling))
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(shore.enabled ? CanopyColors.nodeFill.opacity(0.08) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(shore.enabled ? CanopyColors.nodeFill.opacity(0.3) : CanopyColors.chromeBorder, lineWidth: 1)
+        )
+        .onTapGesture {
+            projectState.configureShore(
+                enabled: !shore.enabled,
+                ceiling: shore.ceiling
+            )
+        }
+    }
+
+    // MARK: - Effect Picker Popover
+
+    private var effectPickerPopover: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(EffectType.canopyTypes, id: \.self) { type in
+                Button(action: {
+                    withAnimation(.spring(duration: 0.2)) { showingPicker = false }
+                    addEffect(type: type)
+                }) {
+                    Text(type.displayName)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(CanopyColors.chromeTextBright)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 8)
+        .frame(width: 180)
+        .background(CanopyColors.bloomPanelBackground.opacity(0.95))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(CanopyColors.bloomPanelBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { pickerHeight = geo.size.height }
+                    .onChange(of: geo.size.height) { pickerHeight = $0 }
+            }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { } // Prevent tap-through
+    }
+
+    // MARK: - FX Actions
+
+    private func addEffect(type: EffectType) {
+        let effect: Effect
+        if let nodeID = projectState.selectedNodeID {
+            effect = projectState.addNodeEffect(nodeID: nodeID, type: type)
+        } else {
+            effect = projectState.addMasterEffect(type: type)
+        }
+        withAnimation(.spring(duration: 0.2)) {
+            selectedFXID = effect.id
+        }
+    }
+
+    private func removeEffect(_ effectID: UUID) {
+        if let nodeID = projectState.selectedNodeID {
+            projectState.removeNodeEffect(nodeID: nodeID, effectID: effectID)
+        } else {
+            projectState.removeMasterEffect(effectID: effectID)
+        }
+        if selectedFXID == effectID {
+            selectedFXID = nil
+        }
+    }
+
+    private func toggleBypass(_ effectID: UUID) {
+        if let nodeID = projectState.selectedNodeID {
+            projectState.toggleNodeEffectBypass(nodeID: nodeID, effectID: effectID)
+        } else {
+            projectState.toggleMasterEffectBypass(effectID: effectID)
+        }
+    }
+
+    private func updateParameter(effectID: UUID, key: String, value: Double) {
+        if let nodeID = projectState.selectedNodeID {
+            projectState.updateNodeEffect(nodeID: nodeID, effectID: effectID) { effect in
+                effect.parameters[key] = value
+            }
+        } else {
+            projectState.updateMasterEffect(effectID: effectID) { effect in
+                effect.parameters[key] = value
+            }
+        }
+    }
+
+    private func updateWetDry(effectID: UUID, value: Double) {
+        if let nodeID = projectState.selectedNodeID {
+            projectState.updateNodeEffect(nodeID: nodeID, effectID: effectID) { effect in
+                effect.wetDry = value
+            }
+        } else {
+            projectState.updateMasterEffect(effectID: effectID) { effect in
+                effect.wetDry = value
+            }
+        }
+    }
 }
 
 // MARK: - LFO Chip
@@ -431,7 +776,7 @@ private struct RoutingDepthSlider: View {
 
 // MARK: - LFO Color Palette
 
-/// Maps a color index (0–7) to an LFO chip color.
+/// Maps a color index (0-7) to an LFO chip color.
 func lfoColor(_ index: Int) -> Color {
     let colors: [Color] = [
         Color(red: 0.9, green: 0.3, blue: 0.3),   // red

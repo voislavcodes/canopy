@@ -21,9 +21,7 @@ struct MainContentView: View {
                 transportState: transportState
             )
 
-            FXLaneView(projectState: projectState)
-
-            ModulatorStripView(projectState: projectState)
+            BottomLaneView(projectState: projectState)
         }
         .background(CanopyColors.canvasBackground)
         .onAppear {
