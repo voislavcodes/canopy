@@ -77,12 +77,18 @@ struct StepSequencerPanel: View {
 
     // MARK: - ASCII Grid Geometry
 
-    private var gridFontSize: CGFloat { max(9, 10 * cs) }
-    private var gridCellW: CGFloat { gridFontSize * 0.62 }
-    private var gridRowH: CGFloat { gridFontSize * 1.35 }
-
     /// 32 content chars + 8 beat separators + 1 left edge = 41 char columns
     private var gridCharCols: Int { 41 }
+
+    /// Font size derived from panel width so the grid fills available space.
+    /// Available = panelWidth - padding(28) - labels(22) - touchStrip(~10) - spacings(8)
+    private var gridFontSize: CGFloat {
+        let available = (panelWidth - 68) * cs
+        let size = available / (CGFloat(gridCharCols) * 0.62)
+        return max(9, size)
+    }
+    private var gridCellW: CGFloat { gridFontSize * 0.62 }
+    private var gridRowH: CGFloat { gridFontSize * 1.35 }
 
     /// Derive cellSize/cellSpacing from ASCII geometry for span overlay compatibility.
     private var cellSize: CGFloat { gridCellW }
@@ -1245,7 +1251,7 @@ struct StepSequencerPanel: View {
 
     // MARK: - Span Drag Handles (overlay)
 
-    /// Thin drag handles on the right edge of multi-step note spans.
+    /// Drag handles on the right edge of every note for extending duration.
     /// The span body itself (─ characters) is drawn in the ASCII Canvas.
     private func spanDragHandles(sequence: NoteSequence) -> some View {
         let sd = NoteSequence.stepDuration
@@ -1263,10 +1269,7 @@ struct StepSequencerPanel: View {
             } else {
                 endStep = max(startStep + 1, Int(round((note.startBeat + note.duration) / sd)))
             }
-            // Only show handles for multi-step spans
-            if endStep - startStep > 1 {
-                spansByPitch[note.pitch, default: []].append((startStep: startStep, endStep: endStep, noteIndex: idx))
-            }
+            spansByPitch[note.pitch, default: []].append((startStep: startStep, endStep: endStep, noteIndex: idx))
         }
 
         let spanColor = isArpActive
@@ -1282,14 +1285,15 @@ struct StepSequencerPanel: View {
                     ForEach(spans, id: \.startStep) { span in
                         let visibleEnd = min(span.endStep, columns)
                         if visibleEnd > span.startStep && span.startStep < columns {
-                            let endCharCol = visibleEnd < displayColumns ? colMap[visibleEnd] : gridCharCols
-                            let handleX = CGFloat(endCharCol) * cw - 2 * cs
+                            // Position handle at the right edge of the last step in the span
+                            let lastStepCharCol = colMap[min(visibleEnd - 1, displayColumns - 1)]
+                            let handleX = CGFloat(lastStepCharCol) * cw + cw * 0.5
 
                             Rectangle()
-                                .fill(spanColor.opacity(0.6))
-                                .frame(width: 3 * cs, height: rh * 0.5)
+                                .fill(spanColor.opacity(0.5))
+                                .frame(width: max(4 * cs, cw * 0.6), height: rh * 0.7)
                                 .clipShape(RoundedRectangle(cornerRadius: 1 * cs))
-                                .offset(x: handleX, y: y + rh * 0.25)
+                                .offset(x: handleX - max(4 * cs, cw * 0.6) / 2, y: y + rh * 0.15)
                                 .gesture(
                                     DragGesture(minimumDistance: 2)
                                         .onChanged { drag in
