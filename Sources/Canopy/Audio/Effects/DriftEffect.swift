@@ -643,19 +643,19 @@ struct DriftEffect {
         return ((c3 * frac + c2) * frac + c1) * frac + c0
     }
 
-    /// Fixed-delay allpass filter
+    /// Fixed-delay Schroeder allpass filter (true unity gain)
     private static func processAllpass(input: inout Float, buf: UnsafeMutablePointer<Float>,
                                         writeIdx: inout Int, bufSize: Int,
                                         delay: Int, coeff: Float) {
         let readIdx = (writeIdx - delay + bufSize) % bufSize
         let delayed = buf[readIdx]
-        let output = -input * coeff + delayed
-        buf[writeIdx] = input + delayed * coeff
+        let v = input - coeff * delayed
+        buf[writeIdx] = v
         writeIdx = (writeIdx + 1) % bufSize
-        input = output
+        input = coeff * v + delayed
     }
 
-    /// Modulated allpass filter with linear interpolation
+    /// Modulated Schroeder allpass filter with linear interpolation (true unity gain)
     private static func processModulatedAllpass(input: inout Float, buf: UnsafeMutablePointer<Float>,
                                                  writeIdx: inout Int, bufSize: Int,
                                                  nominalDelay: Int, modOffset: Float,
@@ -667,9 +667,9 @@ struct DriftEffect {
         let frac = readPos - Float(Int(readPos))
         let delayed = buf[idx0] * (1.0 - frac) + buf[idx1] * frac
 
-        let output = -input * coeff + delayed
-        buf[writeIdx] = input + delayed * coeff
+        let v = input - coeff * delayed
+        buf[writeIdx] = v
         writeIdx = (writeIdx + 1) % bufSize
-        input = output
+        input = coeff * v + delayed
     }
 }
