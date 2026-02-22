@@ -139,6 +139,8 @@ struct VoltVoiceManager {
         index: Int,
         layerA: Int, layerB: Int, mix: Float,
         resPitch: Float, resSweep: Float, resDecay: Float, resDrive: Float, resPunch: Float,
+        resHarmonics: Float, resClick: Float, resNoise: Float,
+        resBody: Float, resTone: Float,
         noiseColor: Float, noiseSnap: Float, noiseBody: Float,
         noiseClap: Float, noiseTone: Float, noiseFilter: Float,
         metSpread: Float, metTune: Float, metRing: Float, metBand: Float, metDensity: Float,
@@ -151,6 +153,8 @@ struct VoltVoiceManager {
         p.mix = mix
         p.resPitch = resPitch; p.resSweep = resSweep; p.resDecay = resDecay
         p.resDrive = resDrive; p.resPunch = resPunch
+        p.resHarmonics = resHarmonics; p.resClick = resClick; p.resNoise = resNoise
+        p.resBody = resBody; p.resTone = resTone
         p.noiseColor = noiseColor; p.noiseSnap = noiseSnap; p.noiseBody = noiseBody
         p.noiseClap = noiseClap; p.noiseTone = noiseTone; p.noiseFilter = noiseFilter
         p.metSpread = metSpread; p.metTune = metTune; p.metRing = metRing

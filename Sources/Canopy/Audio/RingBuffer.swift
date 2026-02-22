@@ -110,6 +110,8 @@ enum AudioCommand {
                      mix: Double,
                      resPitch: Double, resSweep: Double, resDecay: Double,
                      resDrive: Double, resPunch: Double,
+                     resHarmonics: Double, resClick: Double, resNoise: Double,
+                     resBody: Double, resTone: Double,
                      noiseColor: Double, noiseSnap: Double, noiseBody: Double,
                      noiseClap: Double, noiseTone: Double, noiseFilter: Double,
                      metSpread: Double, metTune: Double, metRing: Double,

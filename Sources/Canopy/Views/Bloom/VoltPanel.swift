@@ -25,6 +25,11 @@ struct VoltPanel: View {
     @State private var localResDecay: Double = 0.4
     @State private var localResDrive: Double = 0.2
     @State private var localResPunch: Double = 0.4
+    @State private var localResHarmonics: Double = 0.0
+    @State private var localResClick: Double = 0.0
+    @State private var localResNoise: Double = 0.0
+    @State private var localResBody: Double = 0.0
+    @State private var localResTone: Double = 0.0
 
     // MARK: - NOISE params
 
@@ -293,6 +298,33 @@ struct VoltPanel: View {
                 commitConfig { $0.resPunch = localResPunch }
             } onDrag: { pushConfigToEngine() }
 
+            sectionDivider
+
+            paramSlider(label: "HARM", value: $localResHarmonics, range: 0...1,
+                        format: { "\(Int($0 * 100))%" }) {
+                commitConfig { $0.resHarmonics = localResHarmonics }
+            } onDrag: { pushConfigToEngine() }
+
+            paramSlider(label: "CLCK", value: $localResClick, range: 0...1,
+                        format: { "\(Int($0 * 100))%" }) {
+                commitConfig { $0.resClick = localResClick }
+            } onDrag: { pushConfigToEngine() }
+
+            paramSlider(label: "NOIS", value: $localResNoise, range: 0...1,
+                        format: { "\(Int($0 * 100))%" }) {
+                commitConfig { $0.resNoise = localResNoise }
+            } onDrag: { pushConfigToEngine() }
+
+            paramSlider(label: "BODY", value: $localResBody, range: 0...1,
+                        format: { "\(Int($0 * 100))%" }) {
+                commitConfig { $0.resBody = localResBody }
+            } onDrag: { pushConfigToEngine() }
+
+            paramSlider(label: "TONE", value: $localResTone, range: 0...1,
+                        format: { resToneHz($0) }) {
+                commitConfig { $0.resTone = localResTone }
+            } onDrag: { pushConfigToEngine() }
+
         case .noise:
             paramSlider(label: "COLR", value: $localNoiseColor, range: 0...1,
                         format: { "\(Int($0 * 100))%" }) {
@@ -459,12 +491,21 @@ struct VoltPanel: View {
         let decay = CGFloat(localResDecay)
         let drive = CGFloat(localResDrive)
         let punch = CGFloat(localResPunch)
+        let harmonics = CGFloat(localResHarmonics)
+        let click = CGFloat(localResClick)
+        let noise = CGFloat(localResNoise)
+        let body = CGFloat(localResBody)
+        let tone = CGFloat(localResTone)
 
         func rowY(_ row: Int) -> CGFloat { topY + height * 0.06 + CGFloat(row) * rowH }
 
-        // Row 0: trigger
+        // Row 0: trigger + transient indicators
         let trigPulse = 0.3 + punch * 0.4 + 0.1 * CGFloat(sin(time * 4.0))
-        drawString(context, "\u{2500}\u{2500} trigger \u{2500}\u{2500}", centerX: centerX, y: rowY(0), cellW: cellW, fontSize: fontSize, color: accentColor.opacity(trigPulse))
+        var trigLabel = "\u{2500}\u{2500} trigger"
+        if click > 0.05 { trigLabel += "+CLK" }
+        if noise > 0.05 { trigLabel += "+NOI" }
+        trigLabel += " \u{2500}\u{2500}"
+        drawString(context, trigLabel, centerX: centerX, y: rowY(0), cellW: cellW, fontSize: fontSize, color: accentColor.opacity(trigPulse))
 
         // Row 1: wire down + split
         drawChar(context, "\u{252c}", at: CGPoint(x: centerX, y: rowY(1)), size: fontSize, color: wireColor.opacity(wireOp))
@@ -509,18 +550,45 @@ struct VoltPanel: View {
         drawString(context, "\u{2502} BJT\u{2502}", centerX: centerX, y: rowY(6) + rowH * 0.5, cellW: cellW, fontSize: fontSize, color: accentColor.opacity(bjtGlow), bold: true)
         drawString(context, "\u{2514}\u{2500}\u{2500}\u{252c}\u{2500}\u{2518}", centerX: centerX, y: rowY(7), cellW: cellW, fontSize: fontSize, color: accentColor.opacity(bjtGlow))
 
-        // Row 8: wire
-        drawChar(context, "\u{2502}", at: CGPoint(x: centerX, y: rowY(8)), size: fontSize, color: wireColor.opacity(wireOp))
+        // Row 8: body indicator (if active)
+        if body > 0.05 {
+            let bodyGlow = 0.3 + body * 0.5 + body * 0.1 * CGFloat(sin(time * 2.0))
+            drawString(context, "\u{2502} BODY \u{2502}", centerX: centerX, y: rowY(8), cellW: cellW, fontSize: fontSize, color: accentColor.opacity(bodyGlow))
+        } else {
+            drawChar(context, "\u{2502}", at: CGPoint(x: centerX, y: rowY(8)), size: fontSize, color: wireColor.opacity(wireOp))
+        }
 
-        // Row 9: sweep indicator
+        // Row 9: harmonics waveshaper (if active)
+        if harmonics > 0.05 {
+            let harmGlow = 0.3 + harmonics * 0.5 + harmonics * 0.1 * CGFloat(sin(time * 6.0))
+            drawString(context, "\u{250c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}", centerX: centerX, y: rowY(9), cellW: cellW, fontSize: fontSize, color: accentColor.opacity(harmGlow))
+            drawString(context, "\u{2502}HARM\u{2502}", centerX: centerX, y: rowY(9) + rowH * 0.5, cellW: cellW, fontSize: fontSize, color: accentColor.opacity(harmGlow), bold: true)
+            drawString(context, "\u{2514}\u{2500}\u{252c}\u{2500}\u{2500}\u{2518}", centerX: centerX, y: rowY(10), cellW: cellW, fontSize: fontSize, color: accentColor.opacity(harmGlow))
+        } else {
+            drawChar(context, "\u{2502}", at: CGPoint(x: centerX, y: rowY(9)), size: fontSize, color: wireColor.opacity(wireOp))
+            drawChar(context, "\u{2502}", at: CGPoint(x: centerX, y: rowY(10)), size: fontSize, color: wireColor.opacity(wireOp))
+        }
+
+        // Row 11: tone LP filter (if active)
+        if tone > 0.05 {
+            let toneGlow = 0.3 + tone * 0.5 + tone * 0.1 * CGFloat(sin(time * 3.0))
+            drawString(context, "\u{250c}\u{2500}\u{2500}\u{2500}\u{2510}", centerX: centerX, y: rowY(11), cellW: cellW, fontSize: fontSize, color: accentColor.opacity(toneGlow))
+            drawString(context, "\u{2502} LP\u{2502}", centerX: centerX, y: rowY(11) + rowH * 0.5, cellW: cellW, fontSize: fontSize, color: accentColor.opacity(toneGlow), bold: true)
+            drawString(context, "\u{2514}\u{252c}\u{2500}\u{2500}\u{2518}", centerX: centerX, y: rowY(12), cellW: cellW, fontSize: fontSize, color: accentColor.opacity(toneGlow))
+        } else {
+            drawChar(context, "\u{2502}", at: CGPoint(x: centerX, y: rowY(11)), size: fontSize, color: wireColor.opacity(wireOp))
+            drawChar(context, "\u{2502}", at: CGPoint(x: centerX, y: rowY(12)), size: fontSize, color: wireColor.opacity(wireOp))
+        }
+
+        // Row 13: sweep indicator
         if sweep > 0.05 {
             let sweepHz = resPitchHz(localResPitch)
             let sweepLabel = "\u{2193}" + sweepHz
-            drawString(context, sweepLabel, centerX: centerX, y: rowY(9), cellW: cellW, fontSize: fontSize, color: accentColor.opacity(0.3 + sweep * 0.4))
+            drawString(context, sweepLabel, centerX: centerX, y: rowY(13), cellW: cellW, fontSize: fontSize, color: accentColor.opacity(0.3 + sweep * 0.4))
         }
 
-        // Row 10: output
-        drawString(context, "\u{25bc} out", centerX: centerX, y: rowY(10), cellW: cellW, fontSize: fontSize, color: wireColor.opacity(dimOp + 0.15))
+        // Row 14: output
+        drawString(context, "\u{25bc} out", centerX: centerX, y: rowY(14), cellW: cellW, fontSize: fontSize, color: wireColor.opacity(dimOp + 0.15))
     }
 
     // MARK: - NOISE Schematic
@@ -790,6 +858,11 @@ struct VoltPanel: View {
         localResDecay = config.resDecay
         localResDrive = config.resDrive
         localResPunch = config.resPunch
+        localResHarmonics = config.resHarmonics
+        localResClick = config.resClick
+        localResNoise = config.resNoise
+        localResBody = config.resBody
+        localResTone = config.resTone
         localNoiseColor = config.noiseColor
         localNoiseSnap = config.noiseSnap
         localNoiseBody = config.noiseBody
@@ -943,10 +1016,17 @@ struct VoltPanel: View {
 
     // MARK: - Display Helpers
 
-    /// Resonant pitch: 0–1 → 30–500 Hz exponential
+    /// Resonant pitch: 0–1 → 15–500 Hz exponential
     private func resPitchHz(_ v: Double) -> String {
-        let hz = 30.0 * pow(500.0 / 30.0, v)
+        let hz = 15.0 * pow(500.0 / 15.0, v)
         if hz < 100 { return String(format: "%.0fHz", hz) }
+        return String(format: "%.0fHz", hz)
+    }
+
+    /// Resonant tone filter: 0–1 → 20kHz–200Hz LP cutoff
+    private func resToneHz(_ v: Double) -> String {
+        let hz = 200.0 * pow(100.0, 1.0 - v)
+        if hz >= 1000 { return String(format: "%.1fk", hz / 1000) }
         return String(format: "%.0fHz", hz)
     }
 
@@ -1000,6 +1080,8 @@ struct VoltPanel: View {
             mix: localMix,
             resPitch: localResPitch, resSweep: localResSweep, resDecay: localResDecay,
             resDrive: localResDrive, resPunch: localResPunch,
+            resHarmonics: localResHarmonics, resClick: localResClick, resNoise: localResNoise,
+            resBody: localResBody, resTone: localResTone,
             noiseColor: localNoiseColor, noiseSnap: localNoiseSnap, noiseBody: localNoiseBody,
             noiseClap: localNoiseClap, noiseTone: localNoiseTone, noiseFilter: localNoiseFilter,
             metSpread: localMetSpread, metTune: localMetTune, metRing: localMetRing,

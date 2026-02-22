@@ -9,6 +9,11 @@ struct ResonantCircuitState {
     var transistorState: Float = 0  // Q1 collector voltage (feedback state)
     var leakCharge: Float = 0       // excess charge from trigger (decays → pitch sweep)
     var triggerEnergy: Float = 0    // remaining trigger pulse energy
+    var clickEnergy: Float = 0      // click impulse (decays ~0.5ms)
+    var noiseEnergy: Float = 0      // noise burst (decays at punch width)
+    var noiseRNG: UInt64 = 0        // per-circuit xorshift64
+    var bodyTimer: Float = 0        // samples since trigger (for body staging)
+    var toneFilterState: Float = 0  // one-pole LP state
 }
 
 /// Transistor noise circuit state: cap discharge envelope + noise source + RC filter.
@@ -115,6 +120,11 @@ struct VoltParams {
     var resDecay: Float = 0.4
     var resDrive: Float = 0.2
     var resPunch: Float = 0.4
+    var resHarmonics: Float = 0.0
+    var resClick: Float = 0.0
+    var resNoise: Float = 0.0
+    var resBody: Float = 0.0
+    var resTone: Float = 0.0
 
     // Noise
     var noiseColor: Float = 0.5
@@ -310,6 +320,11 @@ struct VoltVoice {
         let triggerVoltage = (0.3 + punch * 0.7) * (0.5 + velocity * 0.5)
         state.triggerEnergy = triggerVoltage
         state.leakCharge = triggerVoltage * sweep * (1.0 + velocity * 0.5)
+        state.clickEnergy = params.resClick * (0.5 + velocity * 0.5)
+        state.noiseEnergy = params.resNoise * (0.5 + velocity * 0.5)
+        state.noiseRNG = rng | 1
+        rng = rng &* 6364136223846793005 &+ 1442695040888963407
+        state.bodyTimer = 0
     }
 
     private mutating func renderResonant(
@@ -323,9 +338,12 @@ struct VoltVoice {
         let decay = params.resDecay
         let drive = params.resDrive
         let punch = params.resPunch
+        let harmonics = params.resHarmonics
+        let body = params.resBody
+        let tone = params.resTone
 
-        // Map pitch param to Hz: 30–500 Hz exponential
-        let pitchHz = 30.0 * powf(500.0 / 30.0, pitch)
+        // Map pitch param to Hz: 15–500 Hz exponential
+        let pitchHz = 15.0 * powf(500.0 / 15.0, pitch)
 
         // Trigger pulse injection (short burst of energy into C1)
         if state.triggerEnergy > 0.001 {
@@ -368,8 +386,21 @@ struct VoltVoice {
         // BJT feedback injects energy into C1 (sustains/drives the oscillation)
         state.capVoltage1 += saturated * omega
 
-        // Per-sample damping: energy lost each cycle
-        let damping = 1.0 - (1.0 - feedbackGain) * omega
+        // Body-aware damping: two-stage envelope
+        state.bodyTimer += 1
+        let baseDamping = (1.0 - feedbackGain) * omega
+        let damping: Float
+        if body > 0.01 {
+            let transitionSamples = 0.05 * sampleRate  // 50ms
+            if state.bodyTimer < transitionSamples {
+                damping = 1.0 - baseDamping
+            } else {
+                let sustainFactor = 1.0 - body * 0.75  // at body=1: tail 4x slower
+                damping = 1.0 - baseDamping * sustainFactor
+            }
+        } else {
+            damping = 1.0 - baseDamping
+        }
         state.capVoltage1 *= damping
         state.capVoltage2 *= damping
 
@@ -382,7 +413,39 @@ struct VoltVoice {
         state.transistorState += (state.capVoltage2 - state.transistorState) * transistorSlew
 
         // Output from C2 (bridged-T output node)
-        return tanhf(state.capVoltage2 * 2.0)  // Rule 6
+        var output = state.capVoltage2
+
+        // Harmonics waveshaper: sine → parabolic crossfade
+        if harmonics > 0.01 {
+            let absOut = abs(output)
+            let parabolic = output >= 0 ? absOut * absOut : -(absOut * absOut)
+            let gainComp: Float = 1.0 + harmonics * 0.4
+            output = (output * (1.0 - harmonics) + parabolic * harmonics) * gainComp
+        }
+
+        // Tone LP filter: 20kHz → 200Hz
+        if tone > 0.01 {
+            let cutoffHz = 200.0 * powf(100.0, 1.0 - tone)
+            let clampedCutoff = min(cutoffHz, 0.48 * sampleRate)
+            let lpCoeff = expf(-2.0 * Float.pi * clampedCutoff / sampleRate)
+            state.toneFilterState = output * (1.0 - lpCoeff) + state.toneFilterState * lpCoeff
+            output = state.toneFilterState
+        }
+
+        // Click transient: sharp impulse decaying in ~0.5ms
+        if state.clickEnergy > 0.001 {
+            output += state.clickEnergy
+            state.clickEnergy *= powf(0.001, 1.0 / (0.0005 * sampleRate))
+        }
+
+        // Noise transient: breathy burst at attack
+        if state.noiseEnergy > 0.001 {
+            output += VoltVoice.bipolarRandom(&state.noiseRNG) * state.noiseEnergy
+            let noiseDecayTime = 0.002 + punch * 0.003
+            state.noiseEnergy *= powf(0.001, 1.0 / (noiseDecayTime * sampleRate))
+        }
+
+        return tanhf(output * 2.0)  // Rule 6
     }
 
     // MARK: - NOISE Topology

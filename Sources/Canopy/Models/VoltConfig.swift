@@ -20,13 +20,18 @@ struct VoltConfig: Codable, Equatable {
     var layerB: VoltTopology? = nil   // nil = single layer
     var mix: Double = 0.5             // A/B balance when B active
 
-    // MARK: - RESONANT (5 params)
+    // MARK: - RESONANT (10 params)
 
-    var resPitch: Double = 0.3        // 0–1 → 30–500 Hz exponential
+    var resPitch: Double = 0.3        // 0–1 → 15–500 Hz exponential
     var resSweep: Double = 0.25       // 0–1: voltage leakage rate
     var resDecay: Double = 0.4        // 0–1: feedback gain (0.9 to ~1.0)
     var resDrive: Double = 0.2        // 0–1: BJT saturation depth
     var resPunch: Double = 0.4        // 0–1: trigger pulse energy
+    var resHarmonics: Double = 0.0    // 0–1: parabolic waveshaper depth
+    var resClick: Double = 0.0        // 0–1: transient click level
+    var resNoise: Double = 0.0        // 0–1: transient noise burst level
+    var resBody: Double = 0.0         // 0–1: envelope sustain reshaping
+    var resTone: Double = 0.0         // 0–1: output LP filter
 
     // MARK: - NOISE (6 params)
 
@@ -65,6 +70,8 @@ struct VoltConfig: Codable, Equatable {
         mix: Double = 0.5,
         resPitch: Double = 0.3, resSweep: Double = 0.25, resDecay: Double = 0.4,
         resDrive: Double = 0.2, resPunch: Double = 0.4,
+        resHarmonics: Double = 0.0, resClick: Double = 0.0, resNoise: Double = 0.0,
+        resBody: Double = 0.0, resTone: Double = 0.0,
         noiseColor: Double = 0.5, noiseSnap: Double = 0.5, noiseBody: Double = 0.3,
         noiseClap: Double = 0.0, noiseTone: Double = 0.0, noiseFilter: Double = 0.0,
         metSpread: Double = 0.3, metTune: Double = 0.5, metRing: Double = 0.3,
@@ -78,6 +85,8 @@ struct VoltConfig: Codable, Equatable {
         self.mix = mix
         self.resPitch = resPitch; self.resSweep = resSweep; self.resDecay = resDecay
         self.resDrive = resDrive; self.resPunch = resPunch
+        self.resHarmonics = resHarmonics; self.resClick = resClick; self.resNoise = resNoise
+        self.resBody = resBody; self.resTone = resTone
         self.noiseColor = noiseColor; self.noiseSnap = noiseSnap; self.noiseBody = noiseBody
         self.noiseClap = noiseClap; self.noiseTone = noiseTone; self.noiseFilter = noiseFilter
         self.metSpread = metSpread; self.metTune = metTune; self.metRing = metRing
@@ -99,6 +108,11 @@ struct VoltConfig: Codable, Equatable {
         resDecay = try container.decodeIfPresent(Double.self, forKey: .resDecay) ?? 0.4
         resDrive = try container.decodeIfPresent(Double.self, forKey: .resDrive) ?? 0.2
         resPunch = try container.decodeIfPresent(Double.self, forKey: .resPunch) ?? 0.4
+        resHarmonics = try container.decodeIfPresent(Double.self, forKey: .resHarmonics) ?? 0.0
+        resClick = try container.decodeIfPresent(Double.self, forKey: .resClick) ?? 0.0
+        resNoise = try container.decodeIfPresent(Double.self, forKey: .resNoise) ?? 0.0
+        resBody = try container.decodeIfPresent(Double.self, forKey: .resBody) ?? 0.0
+        resTone = try container.decodeIfPresent(Double.self, forKey: .resTone) ?? 0.0
         noiseColor = try container.decodeIfPresent(Double.self, forKey: .noiseColor) ?? 0.5
         noiseSnap = try container.decodeIfPresent(Double.self, forKey: .noiseSnap) ?? 0.5
         noiseBody = try container.decodeIfPresent(Double.self, forKey: .noiseBody) ?? 0.3
@@ -181,6 +195,14 @@ struct VoltConfig: Codable, Equatable {
     static let gong = VoltConfig(layerA: .metallic, layerB: .resonant, mix: 0.6,
         resPitch: 0.3, resDecay: 0.7,
         metSpread: 0.45, metTune: 0.2, metRing: 0.85, metDensity: 1.0)
+    /// Jomox-style kick: harmonics + click + fat body.
+    static let jomoxKick = VoltConfig(
+        resPitch: 0.3, resSweep: 0.3, resDecay: 0.5, resDrive: 0.3, resPunch: 0.5,
+        resHarmonics: 0.6, resClick: 0.4, resNoise: 0.15, resBody: 0.5, resTone: 0.2)
+    /// Sub-bass: ultra-deep (15 Hz range) with body sustain.
+    static let subKick = VoltConfig(
+        resPitch: 0.1, resSweep: 0.15, resDecay: 0.7, resDrive: 0.1, resPunch: 0.3,
+        resBody: 0.7, resTone: 0.6)
 }
 
 // MARK: - 8-Slot Drum Kit
