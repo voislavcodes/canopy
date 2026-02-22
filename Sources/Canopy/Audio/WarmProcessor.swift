@@ -32,6 +32,16 @@ struct WarmVoiceState {
     // HF rolloff (one-pole lowpass)
     var hfStateL: Float = 0
     var hfStateR: Float = 0
+
+    // 2x oversampling state for saturation anti-aliasing
+    var oversamplePrevL: Float = 0
+    var oversamplePrevR: Float = 0
+
+    // Pink noise floor (thermal noise simulation)
+    var noiseRNG: UInt32 = 54321
+    var pinkState0: Float = 0    // slow band (~1 Hz corner)
+    var pinkState1: Float = 0    // mid band (~5 Hz corner)
+    var pinkState2: Float = 0    // fast band (~25 Hz corner)
 }
 
 /// Per-manager (node-level) analog warmth state for inter-voice power sag.
@@ -44,7 +54,7 @@ struct WarmNodeState {
 /// Every function takes state as `inout` for audio-thread safety.
 ///
 /// Signal chain per voice:
-///   pitch drift (control rate) → asymmetric saturation (ADAA) → DC block → pink noise → HF rolloff
+///   pitch drift (control rate) → 2x oversampled [asymmetric saturation (ADAA) → DC block → pink noise → HF rolloff]
 ///
 /// Signal chain per manager (post voice sum):
 ///   power sag → safety tanh
@@ -77,6 +87,10 @@ enum WarmProcessor {
         // Drift RNG seed (ensure non-zero)
         h = h &* 1664525 &+ 1013904223
         state.driftRNG = h | 1
+
+        // Noise RNG seed (different sequence from drift)
+        h = h &* 1664525 &+ 1013904223
+        state.noiseRNG = h | 1
     }
 
     // MARK: - Pitch Drift
@@ -120,8 +134,9 @@ enum WarmProcessor {
 
     // MARK: - Sample Processing (Mono)
 
-    /// Process a single mono sample through the WARM chain:
+    /// Process a single mono sample through the 2x oversampled WARM chain:
     ///   saturation (ADAA) → DC block → HF rolloff.
+    /// The entire chain runs at 2x rate to suppress aliasing from saturation harmonics.
     /// WARM=0 returns input unchanged (true bypass).
     @inline(__always)
     static func processSample(
@@ -130,39 +145,38 @@ enum WarmProcessor {
     ) -> Float {
         guard warm > 0.001 else { return sample }
 
-        var x = sample
         let w2 = warm * warm
+        let drive: Float = 1.0 + warm * 3.0
+        let wetMix = w2
+        let gainMul = 1.0 + state.gainOffset * w2
+        let noiseLevel = w2 * warm * 0.003  // cubic, ~-50dB at max
 
-        // --- 1. Asymmetric saturation with first-order ADAA ---
-        let drive: Float = 1.0 + warm * 3.0   // linear: 1→4
-        let wetMix = w2                         // quadratic onset
-
-        let driven = x * drive + state.satBiasOffset * w2
-        let saturated = adaaSaturate(&state, sample: driven, isLeft: true)
-        x = x * (1.0 - wetMix) + saturated * wetMix
-
-        // Gain offset (component tolerance, quadratic)
-        x *= 1.0 + state.gainOffset * w2
-
-        // --- 2. DC blocker ---
-        let dcOut = x - state.dcPrevInL + 0.995 * state.dcPrevOutL
-        state.dcPrevInL = x
-        state.dcPrevOutL = dcOut
-        x = dcOut
-
-        // --- 3. HF rolloff (one-pole lowpass, linear cutoff 22kHz→12kHz) ---
+        // HF rolloff coefficient at 2x rate
         let cutoff = 22000.0 - warm * 10000.0
         let cutoffVar = cutoff * (1.0 + state.hfCutoffOffset * w2)
-        let hfCoeff = 1.0 - expf(-2.0 * .pi * cutoffVar / sampleRate)
-        state.hfStateL += (x - state.hfStateL) * hfCoeff
-        x = state.hfStateL
+        let hfCoeff = 1.0 - expf(-2.0 * .pi * cutoffVar / (sampleRate * 2.0))
 
-        return x
+        // 2x oversample: interpolate midpoint, process full chain twice, average
+        let mid = (state.oversamplePrevL + sample) * 0.5
+        state.oversamplePrevL = sample
+
+        let out1 = warmChainMono(
+            &state, sample: mid,
+            drive: drive, wetMix: wetMix, gainMul: gainMul,
+            w2: w2, noiseLevel: noiseLevel, hfCoeff: hfCoeff
+        )
+        let out2 = warmChainMono(
+            &state, sample: sample,
+            drive: drive, wetMix: wetMix, gainMul: gainMul,
+            w2: w2, noiseLevel: noiseLevel, hfCoeff: hfCoeff
+        )
+
+        return (out1 + out2) * 0.5
     }
 
     // MARK: - Sample Processing (Stereo)
 
-    /// Process a stereo pair through the WARM chain.
+    /// Process a stereo pair through the 2x oversampled WARM chain.
     /// Each channel gets independent ADAA state and DC blocking.
     @inline(__always)
     static func processStereo(
@@ -171,48 +185,35 @@ enum WarmProcessor {
     ) -> (Float, Float) {
         guard warm > 0.001 else { return (sampleL, sampleR) }
 
-        var xL = sampleL
-        var xR = sampleR
         let w2 = warm * warm
-
-        // --- 1. Asymmetric saturation with ADAA ---
         let drive: Float = 1.0 + warm * 3.0
         let wetMix = w2
-
-        let drivenL = xL * drive + state.satBiasOffset * w2
-        let drivenR = xR * drive + state.satBiasOffset * w2
-        let satL = adaaSaturate(&state, sample: drivenL, isLeft: true)
-        let satR = adaaSaturate(&state, sample: drivenR, isLeft: false)
-        xL = xL * (1.0 - wetMix) + satL * wetMix
-        xR = xR * (1.0 - wetMix) + satR * wetMix
-
-        // Gain offset
         let gainMul = 1.0 + state.gainOffset * w2
-        xL *= gainMul
-        xR *= gainMul
+        let noiseLevel = w2 * warm * 0.003  // cubic, ~-50dB at max
 
-        // --- 2. DC blocker (L) ---
-        let dcOutL = xL - state.dcPrevInL + 0.995 * state.dcPrevOutL
-        state.dcPrevInL = xL
-        state.dcPrevOutL = dcOutL
-        xL = dcOutL
-
-        // DC blocker (R)
-        let dcOutR = xR - state.dcPrevInR + 0.995 * state.dcPrevOutR
-        state.dcPrevInR = xR
-        state.dcPrevOutR = dcOutR
-        xR = dcOutR
-
-        // --- 3. HF rolloff ---
+        // HF rolloff coefficient at 2x rate
         let cutoff = 22000.0 - warm * 10000.0
         let cutoffVar = cutoff * (1.0 + state.hfCutoffOffset * w2)
-        let hfCoeff = 1.0 - expf(-2.0 * .pi * cutoffVar / sampleRate)
-        state.hfStateL += (xL - state.hfStateL) * hfCoeff
-        xL = state.hfStateL
-        state.hfStateR += (xR - state.hfStateR) * hfCoeff
-        xR = state.hfStateR
+        let hfCoeff = 1.0 - expf(-2.0 * .pi * cutoffVar / (sampleRate * 2.0))
 
-        return (xL, xR)
+        // 2x oversample: interpolate midpoints, process full chain twice, average
+        let midL = (state.oversamplePrevL + sampleL) * 0.5
+        let midR = (state.oversamplePrevR + sampleR) * 0.5
+        state.oversamplePrevL = sampleL
+        state.oversamplePrevR = sampleR
+
+        let (outL1, outR1) = warmChainStereo(
+            &state, sampleL: midL, sampleR: midR,
+            drive: drive, wetMix: wetMix, gainMul: gainMul,
+            w2: w2, noiseLevel: noiseLevel, hfCoeff: hfCoeff
+        )
+        let (outL2, outR2) = warmChainStereo(
+            &state, sampleL: sampleL, sampleR: sampleR,
+            drive: drive, wetMix: wetMix, gainMul: gainMul,
+            w2: w2, noiseLevel: noiseLevel, hfCoeff: hfCoeff
+        )
+
+        return ((outL1 + outL2) * 0.5, (outR1 + outR2) * 0.5)
     }
 
     // MARK: - Power Sag (Stereo)
@@ -265,26 +266,139 @@ enum WarmProcessor {
         return sample * sagGain
     }
 
+    // MARK: - Private: Oversampled Chain
+
+    /// Full inner chain for one mono sample: saturation ADAA → DC block → pink noise → HF rolloff.
+    /// Called twice per output sample for 2x oversampling.
+    @inline(__always)
+    private static func warmChainMono(
+        _ state: inout WarmVoiceState, sample: Float,
+        drive: Float, wetMix: Float, gainMul: Float,
+        w2: Float, noiseLevel: Float, hfCoeff: Float
+    ) -> Float {
+        var x = sample
+
+        // Asymmetric saturation with ADAA
+        let driven = x * drive + state.satBiasOffset * w2
+        let saturated = adaaSaturate(&state, sample: driven, isLeft: true)
+        x = x * (1.0 - wetMix) + saturated * wetMix
+
+        // Gain offset
+        x *= gainMul
+
+        // DC blocker
+        let dcOut = x - state.dcPrevInL + 0.995 * state.dcPrevOutL
+        state.dcPrevInL = x
+        state.dcPrevOutL = dcOut
+        x = dcOut
+
+        // Pink noise floor (thermal noise — dithers saturation, tamed by HF rolloff)
+        x += pinkNoise(&state) * noiseLevel
+
+        // HF rolloff
+        state.hfStateL += (x - state.hfStateL) * hfCoeff
+        x = state.hfStateL
+
+        return x
+    }
+
+    /// Full inner chain for one stereo pair: saturation ADAA → DC block → pink noise → HF rolloff.
+    /// Called twice per output sample for 2x oversampling.
+    @inline(__always)
+    private static func warmChainStereo(
+        _ state: inout WarmVoiceState, sampleL: Float, sampleR: Float,
+        drive: Float, wetMix: Float, gainMul: Float,
+        w2: Float, noiseLevel: Float, hfCoeff: Float
+    ) -> (Float, Float) {
+        var xL = sampleL
+        var xR = sampleR
+
+        // Asymmetric saturation with ADAA
+        let drivenL = xL * drive + state.satBiasOffset * w2
+        let drivenR = xR * drive + state.satBiasOffset * w2
+        let satL = adaaSaturate(&state, sample: drivenL, isLeft: true)
+        let satR = adaaSaturate(&state, sample: drivenR, isLeft: false)
+        xL = xL * (1.0 - wetMix) + satL * wetMix
+        xR = xR * (1.0 - wetMix) + satR * wetMix
+
+        // Gain offset
+        xL *= gainMul
+        xR *= gainMul
+
+        // DC blocker (L)
+        let dcOutL = xL - state.dcPrevInL + 0.995 * state.dcPrevOutL
+        state.dcPrevInL = xL
+        state.dcPrevOutL = dcOutL
+        xL = dcOutL
+
+        // DC blocker (R)
+        let dcOutR = xR - state.dcPrevInR + 0.995 * state.dcPrevOutR
+        state.dcPrevInR = xR
+        state.dcPrevOutR = dcOutR
+        xR = dcOutR
+
+        // Pink noise floor (same sample for both channels — decorrelation
+        // not perceptible at -50dB, saves 3 filter states per voice)
+        let noise = pinkNoise(&state) * noiseLevel
+        xL += noise
+        xR += noise
+
+        // HF rolloff
+        state.hfStateL += (xL - state.hfStateL) * hfCoeff
+        xL = state.hfStateL
+        state.hfStateR += (xR - state.hfStateR) * hfCoeff
+        xR = state.hfStateR
+
+        return (xL, xR)
+    }
+
+    // MARK: - Private: Pink Noise
+
+    /// 3-stage Voss-McCartney pink noise approximation.
+    /// Three one-pole lowpass filters at different cutoffs (~1, 5, 25 Hz corners)
+    /// sum with a white component to produce a roughly 1/f spectrum.
+    /// Models thermal noise from semiconductor junctions.
+    @inline(__always)
+    private static func pinkNoise(_ state: inout WarmVoiceState) -> Float {
+        // LCG white noise source
+        state.noiseRNG = state.noiseRNG &* 1664525 &+ 1013904223
+        let white = Float(Int32(bitPattern: state.noiseRNG)) / Float(Int32.max)
+
+        // Three-stage pink approximation
+        state.pinkState0 += (white - state.pinkState0) * 0.004
+        state.pinkState1 += (white - state.pinkState1) * 0.02
+        state.pinkState2 += (white - state.pinkState2) * 0.1
+
+        return (state.pinkState0 + state.pinkState1 + state.pinkState2 + white * 0.5) * 0.25
+    }
+
     // MARK: - Private: Saturation
 
     /// Asymmetric soft-clip with first-order ADAA (anti-derivative anti-aliasing).
     /// Positive: x/(1+x) — soft knee, odd harmonics dominant.
     /// Negative: x/(1-0.8x) — harder knee, generates even harmonics.
     /// The asymmetry creates even+odd harmonic content like real analog circuits.
+    ///
+    /// Uses Double precision for the ADAA computation to eliminate Float32
+    /// cancellation noise — subtracting two close antiderivative values in Float
+    /// destroys precision and produces audible crackle.
     @inline(__always)
     private static func adaaSaturate(
         _ state: inout WarmVoiceState, sample x: Float, isLeft: Bool
     ) -> Float {
         let prevX = isLeft ? state.prevSampleL : state.prevSampleR
-        let diff = x - prevX
 
         let result: Float
-        if abs(diff) < 1e-5 {
-            // Near-zero difference: use direct evaluation (avoids division by ~0)
+        if x == prevX {
             result = saturate(x)
         } else {
-            // First-order ADAA: (F(x) - F(x_prev)) / (x - x_prev)
-            result = (saturateAntideriv(x) - saturateAntideriv(prevX)) / diff
+            // Double-precision ADAA: (F(x) - F(prev)) / (x - prev)
+            // Float32 only has ~7 digits — subtracting close F values destroys
+            // precision and creates noise. Double's ~15 digits eliminates this.
+            let dx = Double(x)
+            let dprev = Double(prevX)
+            let dResult = (saturateAntiderivD(dx) - saturateAntiderivD(dprev)) / (dx - dprev)
+            result = Float(dResult)
         }
 
         if isLeft {
@@ -296,9 +410,7 @@ enum WarmProcessor {
         return result
     }
 
-    /// Asymmetric saturation function.
-    /// Positive: x/(1+x) — asymptotes to 1.
-    /// Negative: x/(1-0.8x) — asymptotes to -1.25 (harder clip).
+    /// Asymmetric saturation function (Float, for fallback when x == prev).
     @inline(__always)
     private static func saturate(_ x: Float) -> Float {
         if x >= 0 {
@@ -308,16 +420,16 @@ enum WarmProcessor {
         }
     }
 
-    /// Antiderivative of the asymmetric saturation function.
+    /// Double-precision antiderivative of the asymmetric saturation.
     /// Positive: F(x) = x - ln(1+x)
     /// Negative: F(x) = -1.5625·ln(1-0.8x) - 1.25x
-    /// Both branches are continuous and equal at x=0 (F(0)=0).
+    /// Uses log1p for precision with small values near zero.
     @inline(__always)
-    private static func saturateAntideriv(_ x: Float) -> Float {
+    private static func saturateAntiderivD(_ x: Double) -> Double {
         if x >= 0 {
-            return x - logf(1.0 + x)
+            return x - log1p(x)
         } else {
-            return -1.5625 * logf(1.0 - 0.8 * x) - 1.25 * x
+            return -1.5625 * log1p(-0.8 * x) - 1.25 * x
         }
     }
 
