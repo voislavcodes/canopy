@@ -7,7 +7,7 @@ enum EffectType: String, Codable, Equatable, CaseIterable {
     case echo       // delay
     case space      // reverb (Freeverb)
     case pressure   // compressor
-    case drift      // chorus
+    case drift      // traveling delay
     case tide       // phaser
     case terrain    // EQ
     case level      // gain staging utility
@@ -93,7 +93,7 @@ enum EffectType: String, Codable, Equatable, CaseIterable {
         case .pressure:
             return ["weight": 0.5, "squeeze": 0.3, "speed": 0.5]
         case .drift:
-            return ["rate": 0.3, "depth": 0.5]
+            return ["distance": 0.3, "medium": 0.5, "wander": 0.15, "decay": 0.4]
         case .tide:
             return ["rate": 0.3, "depth": 0.5, "stages": 4]
         case .terrain:
@@ -119,7 +119,7 @@ enum EffectType: String, Codable, Equatable, CaseIterable {
         case .echo:     return 0.3
         case .space:    return 0.3
         case .pressure: return 1.0   // compressor is typically fully wet
-        case .drift:    return 0.5
+        case .drift:    return 0.4
         case .tide:     return 0.5
         case .terrain:  return 1.0   // EQ is typically fully wet
         case .level:    return 1.0   // gain utility is always fully wet

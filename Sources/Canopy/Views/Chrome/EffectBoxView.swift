@@ -162,7 +162,7 @@ struct FXPopoverPanel: View {
         case .echo:     return [("distance", "distance"), ("decay", "decay")]
         case .space:    return [("size", "size"), ("damp", "damp")]
         case .pressure: return [("weight", "weight"), ("squeeze", "squeeze")]
-        case .drift:    return [("rate", "rate"), ("depth", "depth")]
+        case .drift:    return [("distance", "distance"), ("medium", "medium"), ("wander", "wander"), ("decay", "decay")]
         case .tide:     return [("rate", "rate"), ("depth", "depth")]
         case .terrain:  return [("low", "low"), ("mid", "mid"), ("high", "high")]
         case .level:    return [("amount", "level")]

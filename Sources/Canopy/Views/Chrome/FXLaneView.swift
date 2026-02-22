@@ -258,7 +258,7 @@ struct FXLaneView: View {
     }
 
     private var fxPickerOptions: [(EffectType, String)] {
-        [(.color, "filter"), (.heat, "distortion"), (.echo, "delay"), (.space, "reverb"), (.ghost, "living decay"), (.nebula, "evolving reverb"), (.melt, "spectral gravity"), (.pressure, "compressor"), (.level, "gain")]
+        [(.color, "filter"), (.heat, "distortion"), (.echo, "delay"), (.drift, "traveling delay"), (.space, "reverb"), (.ghost, "living decay"), (.nebula, "evolving reverb"), (.melt, "spectral gravity"), (.pressure, "compressor"), (.level, "gain")]
     }
 
     // MARK: - Actions

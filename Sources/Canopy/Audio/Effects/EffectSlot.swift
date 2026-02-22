@@ -15,6 +15,7 @@ enum EffectSlot {
     case ghost(GhostEffect)
     case nebula(NebulaEffect)
     case melt(MeltEffect)
+    case drift(DriftEffect)
 
     /// Process a single sample through the effect.
     mutating func process(sample: Float, sampleRate: Float) -> Float {
@@ -55,6 +56,10 @@ enum EffectSlot {
             let out = fx.process(sample: sample, sampleRate: sampleRate)
             self = .melt(fx)
             return out
+        case .drift(var fx):
+            let out = fx.process(sample: sample, sampleRate: sampleRate)
+            self = .drift(fx)
+            return out
         }
     }
 
@@ -73,6 +78,10 @@ enum EffectSlot {
         case .melt(var fx):
             let out = fx.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: sampleRate)
             self = .melt(fx)
+            return out
+        case .drift(var fx):
+            let out = fx.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: sampleRate)
+            self = .drift(fx)
             return out
         default:
             // All other effects: process L then R through the mono path
@@ -112,6 +121,9 @@ enum EffectSlot {
         case .melt(var fx):
             fx.updateParameters(params)
             self = .melt(fx)
+        case .drift(var fx):
+            fx.updateParameters(params)
+            self = .drift(fx)
         }
     }
 
@@ -145,6 +157,9 @@ enum EffectSlot {
         case .melt(var fx):
             fx.reset()
             self = .melt(fx)
+        case .drift(var fx):
+            fx.reset()
+            self = .drift(fx)
         }
     }
 
@@ -162,6 +177,7 @@ enum EffectSlot {
         case .ghost:    slot = .ghost(GhostEffect())
         case .nebula:   slot = .nebula(NebulaEffect())
         case .melt:     slot = .melt(MeltEffect())
+        case .drift:    slot = .drift(DriftEffect())
         default:        slot = .color(ColorEffect()) // fallback
         }
         slot.updateParameters(parameters)
