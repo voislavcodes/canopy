@@ -65,9 +65,7 @@ final class TreeAudioGraph {
         if case .quake = node.patch.soundType { isQuake = true } else { isQuake = false }
         let isSpore: Bool
         if case .spore = node.patch.soundType { isSpore = true } else { isSpore = false }
-        let isFuse: Bool
-        if case .fuse = node.patch.soundType { isFuse = true } else { isFuse = false }
-        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow, isTide: isTide, isSwarm: isSwarm, isQuake: isQuake, isSpore: isSpore, isFuse: isFuse,
+        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow, isTide: isTide, isSwarm: isSwarm, isQuake: isQuake, isSpore: isSpore,
                                  clockSamplePosition: clockSamplePosition, clockIsRunning: clockIsRunning)
         engine.attach(unit.sourceNode)
         // Connect directly to main mixer — same pattern as Phase 2.
@@ -191,8 +189,6 @@ final class TreeAudioGraph {
             if config.spectralSource == .imprint, let imprint = config.imprint {
                 unit.configureSporeImprint(imprint.harmonicAmplitudes)
             }
-        case .fuse(let config):
-            unit.configureFuse(config)
         default:
             break
         }

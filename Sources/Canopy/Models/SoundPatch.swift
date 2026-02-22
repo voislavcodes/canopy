@@ -926,123 +926,6 @@ struct SporeSeqConfig: Codable, Equatable {
     static let lullaby = SporeSeqConfig(subdivision: .eighth, density: 0.35, focus: 0.7, drift: 0.1, memory: 0.7, rangeOctaves: 2)
 }
 
-/// FUSE engine: coupled nonlinear oscillator synthesis.
-/// Three analog-modeled oscillators form a mutual influence network where
-/// coupling strength, frequency relationships, and feedback create a continuous space
-/// that unifies subtractive, FM, hard sync, ring mod, cross-modulation, and waveshaping.
-struct FuseConfig: Codable, Equatable {
-    var character: Double    // 0–1: waveshaping (sine → ADAA saturation → sinusoidal fold)
-    var tune: Double         // 0–1: oscillator frequency ratios (smooth power curve)
-    var matrix: Double       // 0–1: coupling topology morph (none → symmetric → FM chain → asymmetric → full)
-    var filter: Double       // 0–1: SVF filter cutoff (60Hz–18kHz)
-    var feedback: Double     // 0–1: global output feedback
-    var filterFB: Double     // 0–1: SVF bandpass depth into coupling network
-    var attack: Double       // 0–1: AD attack time (1ms–500ms)
-    var decay: Double        // 0–1: AD decay time (50ms–5000ms)
-    var warmth: Double       // 0–1: per-voice WARM analog processing
-    var volume: Double       // 0–1
-    var pan: Double          // -1 to +1
-
-    init(
-        character: Double = 0.1,
-        tune: Double = 0.0,
-        matrix: Double = 0.0,
-        filter: Double = 0.7,
-        feedback: Double = 0.0,
-        filterFB: Double = 0.0,
-        attack: Double = 0.1,
-        decay: Double = 0.5,
-        warmth: Double = 0.3,
-        volume: Double = 0.8,
-        pan: Double = 0.0
-    ) {
-        self.character = character
-        self.tune = tune
-        self.matrix = matrix
-        self.filter = filter
-        self.feedback = feedback
-        self.filterFB = filterFB
-        self.attack = attack
-        self.decay = decay
-        self.warmth = warmth
-        self.volume = volume
-        self.pan = pan
-    }
-
-    // MARK: - Backward-compatible Decoding
-
-    enum CodingKeys: String, CodingKey {
-        case character, tune, matrix, couple, filter, feedback, filterFB, attack, decay, warmth, volume, pan
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        character = try c.decodeIfPresent(Double.self, forKey: .character) ?? 0.1
-        tune = try c.decodeIfPresent(Double.self, forKey: .tune) ?? 0.0
-        // Read `matrix` first; fall back to legacy `couple`
-        matrix = try c.decodeIfPresent(Double.self, forKey: .matrix)
-            ?? c.decodeIfPresent(Double.self, forKey: .couple) ?? 0.0
-        filter = try c.decodeIfPresent(Double.self, forKey: .filter) ?? 0.7
-        feedback = try c.decodeIfPresent(Double.self, forKey: .feedback) ?? 0.0
-        filterFB = try c.decodeIfPresent(Double.self, forKey: .filterFB) ?? 0.0
-        attack = try c.decodeIfPresent(Double.self, forKey: .attack) ?? 0.1
-        decay = try c.decodeIfPresent(Double.self, forKey: .decay) ?? 0.5
-        warmth = try c.decodeIfPresent(Double.self, forKey: .warmth) ?? 0.3
-        volume = try c.decodeIfPresent(Double.self, forKey: .volume) ?? 0.8
-        pan = try c.decodeIfPresent(Double.self, forKey: .pan) ?? 0.0
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(character, forKey: .character)
-        try c.encode(tune, forKey: .tune)
-        try c.encode(matrix, forKey: .matrix)
-        try c.encode(filter, forKey: .filter)
-        try c.encode(feedback, forKey: .feedback)
-        try c.encode(filterFB, forKey: .filterFB)
-        try c.encode(attack, forKey: .attack)
-        try c.encode(decay, forKey: .decay)
-        try c.encode(warmth, forKey: .warmth)
-        try c.encode(volume, forKey: .volume)
-        try c.encode(pan, forKey: .pan)
-    }
-
-    // MARK: - Preset Seeds
-
-    /// Warm analog pad: gentle saturation, chorus detune, light symmetric coupling.
-    static let analogPad = FuseConfig(character: 0.15, tune: 0.05, matrix: 0.15, filter: 0.6, feedback: 0.05, filterFB: 0.1, attack: 0.3, decay: 0.7)
-    /// Crystalline keys: moderate waveshaping, harmonic tuning, FM chain coupling.
-    static let glassKeys = FuseConfig(character: 0.4, tune: 0.35, matrix: 0.5, filter: 0.8, feedback: 0.1, attack: 0.05, decay: 0.4)
-    /// Hard sync lead: high character, close interval, asymmetric coupling.
-    static let syncLead = FuseConfig(character: 0.7, tune: 0.2, matrix: 0.7, filter: 0.75, feedback: 0.15, filterFB: 0.2, attack: 0.0, decay: 0.35)
-    /// Acid bass: saturated, filtered, moderate feedback with filter resonance.
-    static let acidBass = FuseConfig(character: 0.5, tune: 0.12, matrix: 0.35, filter: 0.35, feedback: 0.2, filterFB: 0.3, attack: 0.0, decay: 0.3)
-    /// Deep sub: pure sine, minimal everything, long decay.
-    static let deepSub = FuseConfig(character: 0.0, tune: 0.0, matrix: 0.0, filter: 0.9, feedback: 0.0, decay: 0.7)
-    /// Brass stab: bright, coupled, punchy attack.
-    static let brassStab = FuseConfig(character: 0.55, tune: 0.3, matrix: 0.5, filter: 0.7, feedback: 0.1, filterFB: 0.15, attack: 0.05, decay: 0.3)
-    /// Crystal ring mod: harmonic ratios, strong asymmetric coupling.
-    static let crystalRing = FuseConfig(character: 0.3, tune: 0.45, matrix: 0.75, filter: 0.85, feedback: 0.05, attack: 0.1, decay: 0.5)
-    /// Chaos drone: high everything, full matrix, long decay.
-    static let chaosDrone = FuseConfig(character: 0.8, tune: 0.75, matrix: 0.95, filter: 0.5, feedback: 0.7, filterFB: 0.5, attack: 0.2, decay: 0.9)
-    /// West coast: sinusoidal fold, moderate symmetric coupling.
-    static let westCoastPreset = FuseConfig(character: 0.85, tune: 0.15, matrix: 0.3, filter: 0.65, feedback: 0.15, filterFB: 0.2, attack: 0.05, decay: 0.5)
-    /// Organ: harmonic tuning, light coupling, sustained decay.
-    static let organ = FuseConfig(character: 0.1, tune: 0.35, matrix: 0.25, filter: 0.9, feedback: 0.0, attack: 0.05, decay: 0.8)
-    /// Noir piano: detuned, dark filtered, subtle feedback.
-    static let noirPiano = FuseConfig(character: 0.25, tune: 0.08, matrix: 0.15, filter: 0.4, feedback: 0.08, filterFB: 0.1, attack: 0.0, decay: 0.45)
-    /// Feedback flute: sine with feedback driving resonance, breathy.
-    static let feedbackFlute = FuseConfig(character: 0.05, tune: 0.0, matrix: 0.05, filter: 0.55, feedback: 0.4, filterFB: 0.1, attack: 0.15, decay: 0.6)
-    /// Industrial: harsh, enharmonic, heavy feedback, full coupling.
-    static let industrial = FuseConfig(character: 0.9, tune: 0.65, matrix: 0.85, filter: 0.6, feedback: 0.6, filterFB: 0.4, attack: 0.0, decay: 0.25)
-    /// Soft PWM: subtle asymmetric saturation, detuned, symmetric coupling.
-    static let softPWM = FuseConfig(character: 0.35, tune: 0.06, matrix: 0.25, filter: 0.7, feedback: 0.0, attack: 0.1, decay: 0.5)
-    /// Frozen lake: metallic, sparse, filtered, FM chain.
-    static let frozenLake = FuseConfig(character: 0.45, tune: 0.55, matrix: 0.5, filter: 0.3, feedback: 0.12, filterFB: 0.25, attack: 0.05, decay: 0.55)
-    /// Transformer: extreme modulation, full matrix, robotic.
-    static let transformer = FuseConfig(character: 0.65, tune: 0.85, matrix: 0.95, filter: 0.45, feedback: 0.5, filterFB: 0.35, attack: 0.0, decay: 0.2)
-}
-
 enum SoundType: Codable, Equatable {
     case oscillator(OscillatorConfig)
     case drumKit(DrumKitConfig)
@@ -1052,7 +935,6 @@ enum SoundType: Codable, Equatable {
     case swarm(SwarmConfig)
     case quake(QuakeConfig)
     case spore(SporeConfig)
-    case fuse(FuseConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }

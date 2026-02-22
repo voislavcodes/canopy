@@ -8,25 +8,32 @@ import Accelerate
 /// floor (hard stop), heat (up + turbulence). The spectrum is a physical system.
 ///
 /// True stereo: shared physics engine (both channels' bins fall at same rate),
-/// independent magnitude buffers per channel, independent heat turbulence noise.
+/// independent amplitude envelopes per channel from separate FFT analyses.
+///
+/// Resynthesis: oscillator bank. Each FFT bin maps to a sine oscillator whose
+/// frequency tracks the displaced bin position and whose amplitude tracks the
+/// analyzed magnitude. Per-sample linear interpolation of frequency and amplitude
+/// ensures continuous transitions — no frame boundaries, no overlap-add, no crackles.
 ///
 /// Parameters:
 /// - `gravity`: Downward force strength (0.0–1.0). 0 = zero-G, 1 = singularity.
 /// - `viscosity`: Resistance to falling (0.0–1.0). 0 = vacuum, 1 = tar.
-/// - `floor`: Lowest frequency bins can fall to (0.0–1.0). 0 = sub-bass, 1 = treble.
+/// - `floor`: Lowest frequency bins can fall to (0.0–1.0). 0 = sub-bass, 1 = upper-mid.
 /// - `heat`: Upward restoring force + turbulence (0.0–1.0). 0 = cold, 1 = plasma.
 struct MeltEffect {
 
     // MARK: - FFT Constants
 
     private static let fftSize = 2048
-    private static let halfFFT = 1024       // numBins
-    private static let hopSize = 512        // 75% overlap
-    private static let overlapFactor = 4    // fftSize / hopSize
-    /// vDSP log2 of fftSize
-    private static let log2n: vDSP_Length = 11  // log2(2048)
+    private static let halfFFT = 1024
+    private static let hopSize = 512
+    private static let log2n: vDSP_Length = 11
 
-    // MARK: - FFT Setup (persistent, never deallocated during lifetime)
+    /// Converts FFT magnitude → oscillator amplitude.
+    /// 4/N compensates for Hann window coherent gain in the DFT.
+    private static let oscAmpScale: Float = 4.0 / Float(fftSize)
+
+    // MARK: - FFT Setup
 
     private let fftSetup: FFTSetup
 
@@ -36,32 +43,11 @@ struct MeltEffect {
     private let inputRingR: UnsafeMutablePointer<Float>
     private var inputWritePos: Int = 0
 
-    // MARK: - Output Overlap-Add Buffers (stereo)
-    // Double the FFT size for overlap-add headroom
-
-    private static let overlapBufSize = fftSize * 2
-    private let overlapBufL: UnsafeMutablePointer<Float>
-    private let overlapBufR: UnsafeMutablePointer<Float>
-    private var overlapWritePos: Int = 0
-    private var overlapReadPos: Int = 0
-
-    // MARK: - FFT Working Buffers
+    // MARK: - FFT Working Buffers (analysis only)
 
     private let windowedBuf: UnsafeMutablePointer<Float>
     private let fftRealIn: UnsafeMutablePointer<Float>
     private let fftImagIn: UnsafeMutablePointer<Float>
-    private let fftRealOut: UnsafeMutablePointer<Float>
-    private let fftImagOut: UnsafeMutablePointer<Float>
-    private let ifftOutput: UnsafeMutablePointer<Float>
-
-    // MARK: - Spectral Data Buffers
-
-    private let magnitudesL: UnsafeMutablePointer<Float>
-    private let magnitudesR: UnsafeMutablePointer<Float>
-    private let phases: UnsafeMutablePointer<Float>
-    private let displacedMagsL: UnsafeMutablePointer<Float>
-    private let displacedMagsR: UnsafeMutablePointer<Float>
-    private let outputPhases: UnsafeMutablePointer<Float>
 
     // MARK: - Physics State (shared across L/R)
 
@@ -72,6 +58,20 @@ struct MeltEffect {
     // MARK: - Pre-computed Window
 
     private let hannWindow: UnsafeMutablePointer<Float>
+
+    // MARK: - Oscillator Bank
+
+    private let oscPhases: UnsafeMutablePointer<Float>
+    private let oscFreqs: UnsafeMutablePointer<Float>
+    private let oscFreqIncs: UnsafeMutablePointer<Float>
+    private let oscAmpsL: UnsafeMutablePointer<Float>
+    private let oscAmpsR: UnsafeMutablePointer<Float>
+    private let oscAmpIncsL: UnsafeMutablePointer<Float>
+    private let oscAmpIncsR: UnsafeMutablePointer<Float>
+
+    // Scratch buffers for vectorized sin
+    private let sinInput: UnsafeMutablePointer<Float>
+    private let sinOutput: UnsafeMutablePointer<Float>
 
     // MARK: - Hop Counter
 
@@ -85,7 +85,7 @@ struct MeltEffect {
     private var dcX1R: Float = 0
     private var dcY1R: Float = 0
 
-    // MARK: - Noise State (per-channel for independent turbulence)
+    // MARK: - Noise State
 
     private var noiseStateL: UInt32 = 77_777
     private var noiseStateR: UInt32 = 54_321
@@ -109,12 +109,10 @@ struct MeltEffect {
     // MARK: - Init
 
     init() {
-        // Create FFT setup
         fftSetup = vDSP_create_fftsetup(Self.log2n, FFTRadix(kFFTRadix2))!
 
         let fft = Self.fftSize
         let half = Self.halfFFT
-        let ovBuf = Self.overlapBufSize
 
         // Input ring buffers
         inputRingL = .allocate(capacity: fft)
@@ -122,39 +120,13 @@ struct MeltEffect {
         inputRingR = .allocate(capacity: fft)
         inputRingR.initialize(repeating: 0, count: fft)
 
-        // Output overlap-add buffers
-        overlapBufL = .allocate(capacity: ovBuf)
-        overlapBufL.initialize(repeating: 0, count: ovBuf)
-        overlapBufR = .allocate(capacity: ovBuf)
-        overlapBufR.initialize(repeating: 0, count: ovBuf)
-
-        // FFT working buffers
+        // FFT working buffers (analysis only)
         windowedBuf = .allocate(capacity: fft)
         windowedBuf.initialize(repeating: 0, count: fft)
         fftRealIn = .allocate(capacity: half)
         fftRealIn.initialize(repeating: 0, count: half)
         fftImagIn = .allocate(capacity: half)
         fftImagIn.initialize(repeating: 0, count: half)
-        fftRealOut = .allocate(capacity: half)
-        fftRealOut.initialize(repeating: 0, count: half)
-        fftImagOut = .allocate(capacity: half)
-        fftImagOut.initialize(repeating: 0, count: half)
-        ifftOutput = .allocate(capacity: fft)
-        ifftOutput.initialize(repeating: 0, count: fft)
-
-        // Spectral data
-        magnitudesL = .allocate(capacity: half)
-        magnitudesL.initialize(repeating: 0, count: half)
-        magnitudesR = .allocate(capacity: half)
-        magnitudesR.initialize(repeating: 0, count: half)
-        phases = .allocate(capacity: half)
-        phases.initialize(repeating: 0, count: half)
-        displacedMagsL = .allocate(capacity: half)
-        displacedMagsL.initialize(repeating: 0, count: half)
-        displacedMagsR = .allocate(capacity: half)
-        displacedMagsR.initialize(repeating: 0, count: half)
-        outputPhases = .allocate(capacity: half)
-        outputPhases.initialize(repeating: 0, count: half)
 
         // Physics state
         binPositions = .allocate(capacity: half)
@@ -167,13 +139,34 @@ struct MeltEffect {
             binVelocities[i] = 0
         }
 
-        // Pre-compute Hann window
+        // Hann window
         hannWindow = .allocate(capacity: fft)
         for i in 0..<fft {
             hannWindow[i] = 0.5 * (1.0 - cos(2.0 * .pi * Float(i) / Float(fft)))
         }
 
-        // Start with full hop to fill initial buffer
+        // Oscillator bank
+        oscPhases = .allocate(capacity: half)
+        oscPhases.initialize(repeating: 0, count: half)
+        oscFreqs = .allocate(capacity: half)
+        oscFreqs.initialize(repeating: 0, count: half)
+        oscFreqIncs = .allocate(capacity: half)
+        oscFreqIncs.initialize(repeating: 0, count: half)
+        oscAmpsL = .allocate(capacity: half)
+        oscAmpsL.initialize(repeating: 0, count: half)
+        oscAmpsR = .allocate(capacity: half)
+        oscAmpsR.initialize(repeating: 0, count: half)
+        oscAmpIncsL = .allocate(capacity: half)
+        oscAmpIncsL.initialize(repeating: 0, count: half)
+        oscAmpIncsR = .allocate(capacity: half)
+        oscAmpIncsR.initialize(repeating: 0, count: half)
+
+        // Scratch for vectorized sin
+        sinInput = .allocate(capacity: half)
+        sinInput.initialize(repeating: 0, count: half)
+        sinOutput = .allocate(capacity: half)
+        sinOutput.initialize(repeating: 0, count: half)
+
         hopCounter = Self.hopSize
     }
 
@@ -187,37 +180,68 @@ struct MeltEffect {
     // MARK: - True Stereo Processing
 
     mutating func processStereo(sampleL: Float, sampleR: Float, sampleRate: Float) -> (Float, Float) {
-        // Smooth parameters per-sample
+        // Smooth parameters
         gravitySmooth += (gravity - gravitySmooth) * paramSmoothCoeff
         viscositySmooth += (viscosity - viscositySmooth) * paramSmoothCoeff
         floorSmooth += (floor_ - floorSmooth) * paramSmoothCoeff
         heatSmooth += (heat - heatSmooth) * paramSmoothCoeff
 
-        // Push samples to input ring buffers
+        // Push to ring buffers
         inputRingL[inputWritePos] = sampleL
         inputRingR[inputWritePos] = sampleR
         inputWritePos = (inputWritePos + 1) % Self.fftSize
 
-        // Decrement hop counter
+        // Hop check
         hopCounter -= 1
         if hopCounter <= 0 {
             hopCounter = Self.hopSize
             processHop(sampleRate: sampleRate)
         }
 
-        // Read from overlap-add output buffers
-        var outL = overlapBufL[overlapReadPos]
-        var outR = overlapBufR[overlapReadPos]
-
-        // Clear the read position for next overlap cycle
-        overlapBufL[overlapReadPos] = 0
-        overlapBufR[overlapReadPos] = 0
-        overlapReadPos = (overlapReadPos + 1) % Self.overlapBufSize
-
-        // Silence during initial latency fill
         samplesProcessed += 1
+
+        // Silence during ring buffer fill (oscillators ramp from 0 naturally)
         if samplesProcessed < Self.fftSize {
             return (0, 0)
+        }
+
+        // ── Oscillator bank output (vectorized) ──
+        let half = Self.halfFFT
+
+        // Interpolate frequencies: oscFreqs += oscFreqIncs
+        vDSP_vadd(oscFreqs, 1, oscFreqIncs, 1, oscFreqs, 1, vDSP_Length(half))
+
+        // Interpolate amplitudes
+        vDSP_vadd(oscAmpsL, 1, oscAmpIncsL, 1, oscAmpsL, 1, vDSP_Length(half))
+        vDSP_vadd(oscAmpsR, 1, oscAmpIncsR, 1, oscAmpsR, 1, vDSP_Length(half))
+
+        // Advance phases: oscPhases += oscFreqs / sampleRate
+        var invSR = 1.0 / sampleRate
+        vDSP_vsma(oscFreqs, 1, &invSR, oscPhases, 1, oscPhases, 1, vDSP_Length(half))
+
+        // Wrap phases to [0, 1): oscPhases -= floor(oscPhases)
+        var count = Int32(half)
+        vvfloorf(sinInput, oscPhases, &count)
+        vDSP_vsub(sinInput, 1, oscPhases, 1, oscPhases, 1, vDSP_Length(half))
+
+        // sin(2π × phases)
+        var twoPi = Float(2.0 * .pi)
+        vDSP_vsmul(oscPhases, 1, &twoPi, sinInput, 1, vDSP_Length(half))
+        vvsinf(sinOutput, sinInput, &count)
+
+        // Dot product: outL = sum(oscAmpsL * sinOutput)
+        var outL: Float = 0
+        var outR: Float = 0
+        vDSP_dotpr(oscAmpsL, 1, sinOutput, 1, &outL, vDSP_Length(half))
+        vDSP_dotpr(oscAmpsR, 1, sinOutput, 1, &outR, vDSP_Length(half))
+
+        // Fade-in over 512 samples after initial silence (avoids click at unmute)
+        let fadeLen: Float = 512
+        let fadeSamples = samplesProcessed - Self.fftSize
+        if fadeSamples < Int(fadeLen) {
+            let fade = Float(fadeSamples) / fadeLen
+            outL *= fade
+            outR *= fade
         }
 
         // DC blockers (5Hz one-pole HP)
@@ -239,80 +263,74 @@ struct MeltEffect {
     // MARK: - Per-Hop Processing
 
     private mutating func processHop(sampleRate: Float) {
-        let fft = Self.fftSize
         let half = Self.halfFFT
         let hop = Self.hopSize
-
-        // ── 1. Advance physics (shared across L/R) ──
         let dt = Float(hop) / sampleRate
+        let nyquist = sampleRate * 0.5
+        let invHop = 1.0 / Float(hop)
+
+        // 1. Advance physics
         advancePhysics(dt: dt)
 
-        // ── 2. Analyze L channel ──
-        analyzeChannel(inputRing: inputRingL, magnitudes: magnitudesL, sampleRate: sampleRate)
+        // 2. Analyze L → set L amplitude targets
+        analyzeChannel(inputRing: inputRingL)
+        for bin in 1..<half {
+            let re = fftRealIn[bin]
+            let im = fftImagIn[bin]
+            let mag = sqrtf(re * re + im * im)
+            let target = mag * Self.oscAmpScale
+            oscAmpIncsL[bin] = (target - oscAmpsL[bin]) * invHop
+        }
 
-        // ── 3. Displace L spectrum ──
-        displaceSpectrum(inputMags: magnitudesL, outputMags: displacedMagsL)
+        // 3. Analyze R → set R amplitude targets
+        analyzeChannel(inputRing: inputRingR)
+        for bin in 1..<half {
+            let re = fftRealIn[bin]
+            let im = fftImagIn[bin]
+            let mag = sqrtf(re * re + im * im)
+            let target = mag * Self.oscAmpScale
+            oscAmpIncsR[bin] = (target - oscAmpsR[bin]) * invHop
+        }
 
-        // ── 4. Energy normalization for L ──
-        normalizeEnergy(inputMags: magnitudesL, outputMags: displacedMagsL)
-
-        // ── 5. Advance output phases ──
-        advanceOutputPhases(sampleRate: sampleRate)
-
-        // ── 6. Resynthesize L ──
-        resynthesize(displacedMags: displacedMagsL, overlapBuf: overlapBufL, sampleRate: sampleRate)
-
-        // ── 7. Analyze R channel ──
-        analyzeChannel(inputRing: inputRingR, magnitudes: magnitudesR, sampleRate: sampleRate)
-
-        // ── 8. Displace R spectrum ──
-        displaceSpectrum(inputMags: magnitudesR, outputMags: displacedMagsR)
-
-        // ── 9. Energy normalization for R ──
-        normalizeEnergy(inputMags: magnitudesR, outputMags: displacedMagsR)
-
-        // ── 10. Resynthesize R (reuse same output phases — shared physics) ──
-        resynthesize(displacedMags: displacedMagsR, overlapBuf: overlapBufR, sampleRate: sampleRate)
+        // 4. Set frequency targets from displaced bin positions
+        for bin in 1..<half {
+            let targetFreq = binPositions[bin] * nyquist
+            oscFreqIncs[bin] = (targetFreq - oscFreqs[bin]) * invHop
+        }
     }
 
     // MARK: - FFT Analysis
 
-    private mutating func analyzeChannel(inputRing: UnsafeMutablePointer<Float>,
-                                         magnitudes: UnsafeMutablePointer<Float>,
-                                         sampleRate: Float) {
+    private mutating func analyzeChannel(inputRing: UnsafeMutablePointer<Float>) {
         let fft = Self.fftSize
         let half = Self.halfFFT
 
-        // Copy from ring buffer with windowing
+        // Copy from ring buffer with Hann windowing
         for i in 0..<fft {
             let ringIdx = (inputWritePos - fft + i + fft) % fft
             windowedBuf[i] = inputRing[ringIdx] * hannWindow[i]
         }
 
-        // Perform forward FFT using vDSP
         // Pack into split complex format
-        var splitReal = fftRealIn
-        var splitImag = fftImagIn
+        let splitReal = fftRealIn
+        let splitImag = fftImagIn
         windowedBuf.withMemoryRebound(to: DSPComplex.self, capacity: half) { complexPtr in
             var split = DSPSplitComplex(realp: splitReal, imagp: splitImag)
             vDSP_ctoz(complexPtr, 2, &split, 1, vDSP_Length(half))
         }
 
+        // Forward FFT
         var splitComplex = DSPSplitComplex(realp: fftRealIn, imagp: fftImagIn)
         vDSP_fft_zrip(fftSetup, &splitComplex, 1, Self.log2n, FFTDirection(kFFTDirection_Forward))
 
-        // Scale by 1/2 (vDSP convention)
+        // Scale by 0.5 (vDSP convention)
         var scale: Float = 0.5
         vDSP_vsmul(fftRealIn, 1, &scale, fftRealIn, 1, vDSP_Length(half))
         vDSP_vsmul(fftImagIn, 1, &scale, fftImagIn, 1, vDSP_Length(half))
 
-        // Extract magnitudes and phases
-        for bin in 0..<half {
-            let re = fftRealIn[bin]
-            let im = fftImagIn[bin]
-            magnitudes[bin] = sqrtf(re * re + im * im)
-            phases[bin] = atan2f(im, re)
-        }
+        // Zero DC (realp[0]) and Nyquist (imagp[0]) — vDSP packed format
+        fftRealIn[0] = 0
+        fftImagIn[0] = 0
     }
 
     // MARK: - Physics Engine
@@ -321,32 +339,27 @@ struct MeltEffect {
         let half = Self.halfFFT
         let gravityForce = gravitySmooth * 2.0
         let viscCoeff = 0.01 + viscositySmooth * 0.99
-        let floorPos = floorSmooth
         let heatForce = heatSmooth * 2.0
+
+        // Remap floor: quadratic curve, 0→sub-bass, 1→~3.3 kHz (bin 154)
+        let effectiveFloor = floorSmooth * floorSmooth * 0.15
+        let minPos = max(effectiveFloor, 1.0 / Float(half))
 
         for bin in 0..<half {
             let naturalPos = naturalPositions[bin]
             let currentPos = binPositions[bin]
 
-            // Force 1: Gravity (downward — toward position 0.0)
-            let heightAboveFloor = max(0, currentPos - floorPos)
+            // Gravity (toward floor)
+            let heightAboveFloor = max(0, currentPos - effectiveFloor)
             let gForce = -gravityForce * heightAboveFloor
 
-            // Force 2: Viscosity (opposes motion)
+            // Viscosity (opposes motion)
             let viscForce = -binVelocities[bin] * viscCoeff * 10.0
 
-            // Force 3: Floor collision (spring repulsion)
-            var floorForce: Float = 0
-            if currentPos < floorPos + 0.01 {
-                let penetration = floorPos + 0.01 - currentPos
-                floorForce = penetration * 50.0
-            }
+            // Heat restoring (toward natural position)
+            let hForce = heatForce * (naturalPos - currentPos)
 
-            // Force 4: Heat restoring (push toward natural position)
-            let displacement = naturalPos - currentPos
-            let hForce = heatForce * displacement
-
-            // Force 5: Heat turbulence (random upward kicks) — use shared noise
+            // Heat turbulence (random kicks)
             var turbulence: Float = 0
             if heatSmooth > 0.1 {
                 noiseStateL = noiseStateL &* 1_664_525 &+ 1_013_904_223
@@ -354,129 +367,19 @@ struct MeltEffect {
                 turbulence = (rand01 - 0.3) * heatSmooth * 0.5
             }
 
-            // Semi-implicit Euler integration
-            let totalForce = gForce + viscForce + floorForce + hForce + turbulence
+            // Semi-implicit Euler
+            let totalForce = gForce + viscForce + hForce + turbulence
             binVelocities[bin] += totalForce * dt
             binVelocities[bin] = max(-2.0, min(2.0, binVelocities[bin]))
             binPositions[bin] += binVelocities[bin] * dt
-            binPositions[bin] = max(0.0, min(1.0, binPositions[bin]))
-        }
-    }
 
-    // MARK: - Spectral Displacement
-
-    private func displaceSpectrum(inputMags: UnsafeMutablePointer<Float>,
-                                  outputMags: UnsafeMutablePointer<Float>) {
-        let half = Self.halfFFT
-
-        // Clear output
-        for bin in 0..<half {
-            outputMags[bin] = 0
-        }
-
-        // Place each bin's energy at its displaced position
-        for sourceBin in 0..<half {
-            let energy = inputMags[sourceBin]
-            if energy < 1e-8 { continue }
-
-            let targetPos = binPositions[sourceBin] * Float(half)
-            let targetBin = Int(targetPos)
-            let frac = targetPos - Float(targetBin)
-
-            if targetBin >= 0 && targetBin < half {
-                outputMags[targetBin] += energy * (1.0 - frac)
+            // Hard floor clamp
+            if binPositions[bin] < minPos {
+                binPositions[bin] = minPos
+                if binVelocities[bin] < 0 { binVelocities[bin] = 0 }
             }
-            if targetBin + 1 >= 0 && targetBin + 1 < half {
-                outputMags[targetBin + 1] += energy * frac
-            }
+            binPositions[bin] = min(1.0, binPositions[bin])
         }
-    }
-
-    // MARK: - Energy Normalization
-
-    private func normalizeEnergy(inputMags: UnsafeMutablePointer<Float>,
-                                 outputMags: UnsafeMutablePointer<Float>) {
-        let half = Self.halfFFT
-
-        var inputEnergy: Float = 0
-        var outputEnergy: Float = 0
-        for bin in 0..<half {
-            inputEnergy += inputMags[bin] * inputMags[bin]
-            outputEnergy += outputMags[bin] * outputMags[bin]
-        }
-
-        // Normalize output to match input energy, capped at 4x to prevent extreme gain
-        let normFactor: Float
-        if outputEnergy > 1e-10 {
-            normFactor = min(4.0, sqrtf(max(inputEnergy, 1e-10) / outputEnergy))
-        } else {
-            normFactor = 1.0
-        }
-
-        for bin in 0..<half {
-            outputMags[bin] *= normFactor
-        }
-    }
-
-    // MARK: - Phase Management
-
-    private mutating func advanceOutputPhases(sampleRate: Float) {
-        let half = Self.halfFFT
-        let hop = Self.hopSize
-
-        for bin in 0..<half {
-            let targetFreq = Float(bin) * sampleRate / Float(Self.fftSize)
-            let phaseIncrement = 2.0 * .pi * targetFreq * Float(hop) / sampleRate
-            outputPhases[bin] += phaseIncrement
-            // Wrap phase to [-pi, pi]
-            while outputPhases[bin] > .pi { outputPhases[bin] -= 2.0 * .pi }
-            while outputPhases[bin] < -.pi { outputPhases[bin] += 2.0 * .pi }
-        }
-    }
-
-    // MARK: - IFFT Resynthesis + Overlap-Add
-
-    private mutating func resynthesize(displacedMags: UnsafeMutablePointer<Float>,
-                                       overlapBuf: UnsafeMutablePointer<Float>,
-                                       sampleRate: Float) {
-        let fft = Self.fftSize
-        let half = Self.halfFFT
-        let hop = Self.hopSize
-
-        // Build spectrum from displaced magnitudes + managed phases
-        for bin in 0..<half {
-            fftRealOut[bin] = displacedMags[bin] * cosf(outputPhases[bin])
-            fftImagOut[bin] = displacedMags[bin] * sinf(outputPhases[bin])
-        }
-
-        // Perform inverse FFT
-        var splitComplex = DSPSplitComplex(realp: fftRealOut, imagp: fftImagOut)
-        vDSP_fft_zrip(fftSetup, &splitComplex, 1, Self.log2n, FFTDirection(kFFTDirection_Inverse))
-
-        // Scale by 1/(2*fftSize) (vDSP convention for inverse)
-        var scale: Float = 1.0 / Float(2 * fft)
-        vDSP_vsmul(fftRealOut, 1, &scale, fftRealOut, 1, vDSP_Length(half))
-        vDSP_vsmul(fftImagOut, 1, &scale, fftImagOut, 1, vDSP_Length(half))
-
-        // Unpack from split complex to interleaved time-domain
-        var split = DSPSplitComplex(realp: fftRealOut, imagp: fftImagOut)
-        ifftOutput.withMemoryRebound(to: DSPComplex.self, capacity: half) { complexPtr in
-            vDSP_ztoc(&split, 1, complexPtr, 2, vDSP_Length(half))
-        }
-
-        // Apply synthesis Hann window and accumulate into overlap-add buffer
-        // Normalization: with 75% overlap and Hann window, COLA gain = hopSize/fftSize * 2
-        let overlapNorm: Float = 2.0 / Float(Self.overlapFactor)
-        let ovBufSize = Self.overlapBufSize
-
-        for i in 0..<fft {
-            let windowed = ifftOutput[i] * hannWindow[i] * overlapNorm
-            let writeIdx = (overlapWritePos + i) % ovBufSize
-            overlapBuf[writeIdx] += windowed
-        }
-
-        // Advance overlap write position by hop
-        overlapWritePos = (overlapWritePos + hop) % ovBufSize
     }
 
     // MARK: - Update Parameters
@@ -495,7 +398,6 @@ struct MeltEffect {
             heat = max(0, min(1, Float(h)))
         }
 
-        // Snap smoothed to targets on fresh creation
         gravitySmooth = gravity
         viscositySmooth = viscosity
         floorSmooth = floor_
@@ -507,57 +409,40 @@ struct MeltEffect {
     mutating func reset() {
         let fft = Self.fftSize
         let half = Self.halfFFT
-        let ovBuf = Self.overlapBufSize
 
-        // Clear input ring buffers
         for i in 0..<fft {
             inputRingL[i] = 0
             inputRingR[i] = 0
+            windowedBuf[i] = 0
         }
         inputWritePos = 0
 
-        // Clear overlap-add buffers
-        for i in 0..<ovBuf {
-            overlapBufL[i] = 0
-            overlapBufR[i] = 0
-        }
-        overlapWritePos = 0
-        overlapReadPos = 0
-
-        // Clear FFT working buffers
-        for i in 0..<fft {
-            windowedBuf[i] = 0
-            ifftOutput[i] = 0
-        }
         for i in 0..<half {
             fftRealIn[i] = 0
             fftImagIn[i] = 0
-            fftRealOut[i] = 0
-            fftImagOut[i] = 0
-            magnitudesL[i] = 0
-            magnitudesR[i] = 0
-            phases[i] = 0
-            displacedMagsL[i] = 0
-            displacedMagsR[i] = 0
-            outputPhases[i] = 0
+            oscPhases[i] = 0
+            oscFreqs[i] = 0
+            oscFreqIncs[i] = 0
+            oscAmpsL[i] = 0
+            oscAmpsR[i] = 0
+            oscAmpIncsL[i] = 0
+            oscAmpIncsR[i] = 0
+            sinInput[i] = 0
+            sinOutput[i] = 0
         }
 
-        // Reset physics state
         for i in 0..<half {
             let pos = Float(i) / Float(half)
             binPositions[i] = pos
             binVelocities[i] = 0
         }
 
-        // Reset counters
         hopCounter = Self.hopSize
         samplesProcessed = 0
 
-        // Reset DC blockers
         dcX1L = 0; dcY1L = 0
         dcX1R = 0; dcY1R = 0
 
-        // Reset noise state
         noiseStateL = 77_777
         noiseStateR = 54_321
     }

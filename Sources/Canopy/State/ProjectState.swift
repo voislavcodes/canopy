@@ -287,8 +287,6 @@ class ProjectState: ObservableObject {
                     waveform: 0, detune: 0, attack: 0, decay: 0,
                     sustain: 0, release: 0, volume: config.volume, nodeID: nodeID
                 )
-            case .fuse(let config):
-                AudioEngine.shared.configureFuse(config, nodeID: nodeID)
             default:
                 break
             }
