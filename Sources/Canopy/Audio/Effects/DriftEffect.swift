@@ -232,9 +232,8 @@ struct DriftEffect {
         let waterW = Float(rawWater / weightSum)
         let metalW = Float(rawMetal / weightSum)
 
-        // Feedback: compensate for medium gain (water bass boost, metal resonance)
-        let feedbackComp: Float = 1.0 - waterW * 0.2 - metalW * 0.15
-        let feedback = Float(decaySmoothed * 0.88) * max(0.5, feedbackComp)
+        // Feedback — bass boost is output-only so loop is gain-free
+        let feedback = Float(decaySmoothed * 0.98)
 
         // 3. Update wander LFOs
         let lfoRate1 = 0.3 / (1.0 + wanderSmoothed * 4.0)
@@ -305,15 +304,10 @@ struct DriftEffect {
             var wL = Float(waterLPL)
             var wR = Float(waterLPR)
 
-            // Low shelf boost at 300Hz: extract bass, add scaled copy
+            // Low shelf state tracking at 300Hz (boost applied to output only, not feedback)
             let bassG = 1.0 - exp(-2.0 * .pi * 300.0 / Double(sampleRate))
             waterBassLPL += (Double(wL) - waterBassLPL) * bassG
             waterBassLPR += (Double(wR) - waterBassLPR) * bassG
-            let bassDecayScale = Float(1.0 - decaySmoothed * 0.6)  // less boost at high decay to prevent bass accumulation
-            let bassBoost = Float(2.0 + 2.0 * distanceSmoothed) * bassDecayScale
-            let boostLinear = powf(10.0, bassBoost / 20.0) - 1.0
-            wL += Float(waterBassLPL) * boostLinear
-            wR += Float(waterBassLPR) * boostLinear
 
             // 4-stage allpass dispersion chain
             let apCoeff = Float(0.3 + distanceSmoothed * 0.4)  // coefficient coupled to distance
@@ -414,11 +408,9 @@ struct DriftEffect {
         procL = airOutL * airW + waterOutL * waterW + metalOutL * metalW
         procR = airOutR * airW + waterOutR * waterW + metalOutR * metalW
 
-        // Unconditional loop loss — guarantees decay regardless of medium gain.
-        // More loss for water/metal (they add energy via bass boost and comb resonance).
-        let loopLoss: Float = 0.985 - waterW * 0.01 - metalW * 0.02
-        procL *= loopLoss
-        procR *= loopLoss
+        // Unconditional loop loss — guarantees decay (no gain sources remain in loop)
+        procL *= 0.995
+        procR *= 0.995
 
         // Feedback-path damping: fixed reference LP, blend by distance + excitation.
         // Signal always passes — distance controls color, not survival.
@@ -523,6 +515,15 @@ struct DriftEffect {
         // 14. Advance write index
         writeIndex += 1
         if writeIndex >= Self.delayBufferSize { writeIndex = 0 }
+
+        // 15. Output-only water bass warmth (not in feedback loop — preserves long sustain)
+        if waterW > 0.001 {
+            let bassDecayScale = Float(1.0 - decaySmoothed * 0.3)
+            let bassBoost = Float(2.0 + 2.0 * distanceSmoothed) * bassDecayScale
+            let boostLinear = powf(10.0, bassBoost / 20.0) - 1.0
+            procL += Float(waterBassLPL) * boostLinear * waterW
+            procR += Float(waterBassLPR) * boostLinear * waterW
+        }
 
         return (procL, procR)
     }
