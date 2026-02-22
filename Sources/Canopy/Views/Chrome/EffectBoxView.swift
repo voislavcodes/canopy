@@ -167,6 +167,7 @@ struct FXPopoverPanel: View {
         case .terrain:  return [("low", "low"), ("mid", "mid"), ("high", "high")]
         case .level:    return [("amount", "level")]
         case .ghost:    return [("life", "life"), ("blur", "blur"), ("shift", "shift"), ("wander", "wander"), ("delayTime", "time")]
+        case .nebula:   return [("cloud", "cloud"), ("depth", "depth"), ("glow", "glow"), ("drift", "drift")]
         default:        return []
         }
     }
@@ -240,6 +241,7 @@ func fxColor(_ type: EffectType) -> Color {
     case .terrain:  return Color(red: 0.6, green: 0.6, blue: 0.5)   // Olive
     case .level:    return Color(red: 0.7, green: 0.7, blue: 0.75)  // Silver
     case .ghost:    return Color(red: 0.55, green: 0.65, blue: 0.75)  // Pale steel-blue
+    case .nebula:   return Color(red: 0.5, green: 0.35, blue: 0.8)   // Deep violet
     default:        return CanopyColors.chromeText
     }
 }
