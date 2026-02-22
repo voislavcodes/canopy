@@ -15,6 +15,7 @@ struct FusePanel: View {
     @State private var localBody: Double = 0.15
     @State private var localColor: Double = 0.35
     @State private var localWarm: Double = 0.3
+    @State private var localKeyTracking: Bool = true
     @State private var localVolume: Double = 0.8
     @State private var localPan: Double = 0.0
 
@@ -85,6 +86,25 @@ struct FusePanel: View {
                                     format: { "\(Int($0 * 100))%" }) {
                             commitConfig { $0.couple = localCouple }
                         } onDrag: { pushConfigToEngine() }
+
+                        HStack(spacing: 4 * cs) {
+                            Text("KEY")
+                                .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                                .frame(width: 38 * cs, alignment: .trailing)
+
+                            Button(action: {
+                                localKeyTracking.toggle()
+                                commitConfig { $0.keyTracking = localKeyTracking }
+                            }) {
+                                Text(localKeyTracking ? "TRACK" : "FREE")
+                                    .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
+                                    .foregroundColor(localKeyTracking ? accentColor : CanopyColors.chromeText.opacity(0.6))
+                            }
+                            .buttonStyle(.plain)
+
+                            Spacer()
+                        }
                     }
                     .frame(maxWidth: .infinity)
 
@@ -140,6 +160,7 @@ struct FusePanel: View {
         localBody = config.body
         localColor = config.color
         localWarm = config.warm
+        localKeyTracking = config.keyTracking
         localVolume = config.volume
         localPan = config.pan
         guard let p = patch else { return }
@@ -333,6 +354,7 @@ struct FusePanel: View {
             body: localBody,
             color: localColor,
             warm: localWarm,
+            keyTracking: localKeyTracking,
             volume: localVolume,
             pan: localPan
         )

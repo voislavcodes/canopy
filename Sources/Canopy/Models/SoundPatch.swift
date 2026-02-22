@@ -937,6 +937,7 @@ struct FuseConfig: Codable, Equatable {
     var body: Double = 0.15       // 0–1: resonant body strength
     var color: Double = 0.35      // 0–1: spectral character (triangle ↔ square)
     var warm: Double = 0.3        // 0–1: component tolerance / analog imperfection
+    var keyTracking: Bool = true   // true = TRACK (exact RC physics), false = FREE (pitch-dependent character)
     var volume: Double = 0.8
     var pan: Double = 0.0
 
@@ -947,6 +948,7 @@ struct FuseConfig: Codable, Equatable {
         body: Double = 0.15,
         color: Double = 0.35,
         warm: Double = 0.3,
+        keyTracking: Bool = true,
         volume: Double = 0.8,
         pan: Double = 0.0
     ) {
@@ -956,8 +958,24 @@ struct FuseConfig: Codable, Equatable {
         self.body = body
         self.color = color
         self.warm = warm
+        self.keyTracking = keyTracking
         self.volume = volume
         self.pan = pan
+    }
+
+    // MARK: - Backward-compatible decoding
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        soul = try container.decode(Double.self, forKey: .soul)
+        tune = try container.decode(Double.self, forKey: .tune)
+        couple = try container.decode(Double.self, forKey: .couple)
+        body = try container.decode(Double.self, forKey: .body)
+        color = try container.decode(Double.self, forKey: .color)
+        warm = try container.decode(Double.self, forKey: .warm)
+        keyTracking = try container.decodeIfPresent(Bool.self, forKey: .keyTracking) ?? true
+        volume = try container.decode(Double.self, forKey: .volume)
+        pan = try container.decode(Double.self, forKey: .pan)
     }
 
     // MARK: - Preset Seeds

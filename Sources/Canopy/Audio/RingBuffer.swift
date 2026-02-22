@@ -102,7 +102,7 @@ enum AudioCommand {
 
     // FUSE engine: virtual analog circuit synthesis
     case setFuse(soul: Double, tune: Double, couple: Double, body: Double,
-                 color: Double, warm: Double, volume: Double)
+                 color: Double, warm: Double, keyTracking: Bool, volume: Double)
 
     // FX chain swap (per-node effect chain replacement)
     case setFXChain(EffectChain)

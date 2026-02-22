@@ -162,7 +162,8 @@ struct FuseVoiceManager {
     /// Apply FUSE parameters to all voices. Called from audio thread via command buffer.
     mutating func configure(
         soul: Float, tune: Float, couple: Float,
-        body: Float, color: Float, warm: Float
+        body: Float, color: Float, warm: Float,
+        keyTracking: Bool
     ) {
         params.soul = soul
         params.tune = tune
@@ -170,6 +171,7 @@ struct FuseVoiceManager {
         params.body = body
         params.color = color
         params.warm = warm
+        params.keyTracking = keyTracking
 
         // Re-seed tolerances when warm changes
         voices.0.tolerance = FuseVoice.seedTolerance(voiceIndex: 0, warm: warm)

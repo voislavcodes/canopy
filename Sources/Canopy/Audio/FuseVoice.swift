@@ -9,6 +9,7 @@ struct FuseParams {
     var body: Float = 0.15
     var color: Float = 0.35
     var warm: Float = 0.3
+    var keyTracking: Bool = true
 }
 
 /// Component-level tolerance — each voice is a DIFFERENT physical circuit.
@@ -186,8 +187,10 @@ struct FuseVoice {
         let (ratioA, ratioB) = FuseVoice.fuseRatios(tune: tune)
 
         let tol = tolerance
-        let freqA = baseFreq * ratioA * (1.0 + tol.capA * warm) * (1.0 + tol.rChargeA * warm)
-        let freqB = baseFreq * ratioB * (1.0 + tol.capB * warm) * (1.0 + tol.rChargeB * warm)
+        let keyTracking = params.keyTracking
+        let freqTolScale: Float = keyTracking ? 0.0 : 1.0
+        let freqA = baseFreq * ratioA * (1.0 + tol.capA * warm * freqTolScale) * (1.0 + tol.rChargeA * warm * freqTolScale)
+        let freqB = baseFreq * ratioB * (1.0 + tol.capB * warm * freqTolScale) * (1.0 + tol.rChargeB * warm * freqTolScale)
 
         // === Coupling computation ===
         let (freqModA, freqModB, sagAmount) = FuseVoice.computeCoupling(
@@ -220,6 +223,7 @@ struct FuseVoice {
             tolerance: (tol.rChargeA, tol.rDischargeA, tol.capA, tol.thresholdBiasA),
             warm: warm,
             couplingInput: freqModA * couple,
+            keyTracking: keyTracking,
             sampleRate: sampleRate
         )
         currentA = curA
@@ -234,6 +238,7 @@ struct FuseVoice {
             tolerance: (tol.rChargeB, tol.rDischargeB, tol.capB, tol.thresholdBiasB),
             warm: warm,
             couplingInput: freqModB * couple,
+            keyTracking: keyTracking,
             sampleRate: sampleRate
         )
         currentB = curB
@@ -292,6 +297,7 @@ struct FuseVoice {
         tolerance: (rCharge: Float, rDischarge: Float, cap: Float, thresholdBias: Float),
         warm: Float,
         couplingInput: Float,
+        keyTracking: Bool,
         sampleRate: Float
     ) -> (triangleOut: Float, squareOut: Float, current: Float) {
 
@@ -309,15 +315,33 @@ struct FuseVoice {
         // === Charge/discharge rates ===
         let asymmetry = 1.0 + soul * 0.4 + tolerance.rDischarge * warm
 
-        let threshRatio = max(vth / max(vtl, 0.01), 1.01)
-        let chargeRatio = max(supplyV / max(supplyV - vth + vtl, 0.01), 1.01)
+        let chargeRate: Float
+        let dischargeRate: Float
 
-        let totalPeriod = 1.0 / max(targetFreq + couplingInput, 0.1)
-        let tChargeFraction = 1.0 / (1.0 + asymmetry)
-        let tDischargeFraction = asymmetry / (1.0 + asymmetry)
+        if keyTracking {
+            // TRACK mode: exact RC physics solving.
+            // Derive rates from the actual exponential charge/discharge equations
+            // so the circuit produces the target frequency regardless of threshold/supply values.
+            let effectiveSupply = max(supplyV, vth + 0.01)
+            let lnCharge = logf(max((effectiveSupply - vtl) / max(effectiveSupply - vth, 0.001), 1.001))
+            let lnDischarge = logf(max(vth / max(vtl, 0.001), 1.001))
+            let periodSamples = sampleRate / max(targetFreq + couplingInput, 0.1)
+            let masterRate = (lnCharge + lnDischarge * asymmetry) / max(periodSamples * (1.0 + asymmetry), 1.0)
+            chargeRate = masterRate * (1.0 + asymmetry)
+            dischargeRate = masterRate * (1.0 + asymmetry) / max(asymmetry, 0.01)
+        } else {
+            // FREE mode: original approximate rate calculation.
+            // Character varies with pitch — more beating at higher notes.
+            let threshRatio = max(vth / max(vtl, 0.01), 1.01)
+            let chargeRatio = max(supplyV / max(supplyV - vth + vtl, 0.01), 1.01)
 
-        let chargeRate = logf(chargeRatio) / max(totalPeriod * tChargeFraction * sampleRate, 1)
-        let dischargeRate = logf(threshRatio) / max(totalPeriod * tDischargeFraction * sampleRate, 1)
+            let totalPeriod = 1.0 / max(targetFreq + couplingInput, 0.1)
+            let tChargeFraction = 1.0 / (1.0 + asymmetry)
+            let tDischargeFraction = asymmetry / (1.0 + asymmetry)
+
+            chargeRate = logf(chargeRatio) / max(totalPeriod * tChargeFraction * sampleRate, 1)
+            dischargeRate = logf(threshRatio) / max(totalPeriod * tDischargeFraction * sampleRate, 1)
+        }
 
         // Apply component tolerance
         let adjChargeRate = chargeRate * (1.0 + tolerance.rCharge * warm)

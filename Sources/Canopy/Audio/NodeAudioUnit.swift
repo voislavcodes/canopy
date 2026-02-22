@@ -2219,7 +2219,7 @@ final class NodeAudioUnit {
         commandBuffer.push(.setFuse(
             soul: config.soul, tune: config.tune, couple: config.couple,
             body: config.body, color: config.color, warm: config.warm,
-            volume: config.volume
+            keyTracking: config.keyTracking, volume: config.volume
         ))
     }
 
@@ -2322,11 +2322,12 @@ final class NodeAudioUnit {
                     lfoBank.slotCount = count
 
                 case .setFuse(let soul, let tune, let couple, let body, let color,
-                              let warm, let newVolume):
+                              let warm, let keyTracking, let newVolume):
                     volume = newVolume
                     fuse.configure(
                         soul: Float(soul), tune: Float(tune), couple: Float(couple),
-                        body: Float(body), color: Float(color), warm: Float(warm)
+                        body: Float(body), color: Float(color), warm: Float(warm),
+                        keyTracking: keyTracking
                     )
 
                 case .setFXChain(let chain):
