@@ -88,7 +88,10 @@ struct StepSequencerPanel: View {
         return max(9, size)
     }
     private var gridCellW: CGFloat { gridFontSize * 0.62 }
-    private var gridRowH: CGFloat { gridFontSize * 1.35 }
+    private var gridRowH: CGFloat { gridFontSize * 1.9 }
+
+    /// Average pixel width per step (accounts for separator columns between steps).
+    private var pixelsPerStep: CGFloat { gridCellW * CGFloat(gridCharCols) / CGFloat(displayColumns) }
 
     /// Derive cellSize/cellSpacing from ASCII geometry for span overlay compatibility.
     private var cellSize: CGFloat { gridCellW }
@@ -1259,6 +1262,7 @@ struct StepSequencerPanel: View {
         let cw = gridCellW
         let rh = gridRowH
         let colMap = stepToCharCol
+        let pps = pixelsPerStep
 
         var spansByPitch: [Int: [(startStep: Int, endStep: Int, noteIndex: Int)]] = [:]
         for (idx, note) in sequence.notes.enumerated() {
@@ -1297,7 +1301,8 @@ struct StepSequencerPanel: View {
                                 .gesture(
                                     DragGesture(minimumDistance: 2)
                                         .onChanged { drag in
-                                            let dragSteps = Int(round(drag.translation.width / cw))
+                                            // Use pixelsPerStep (accounts for separator columns) for 1:1 mouse tracking
+                                            let dragSteps = Int(round(drag.translation.width / pps))
                                             let newEnd = max(span.startStep + 1, min(columns, span.endStep + dragSteps))
                                             spanDragState = (pitch: pitch, startStep: span.startStep, currentEndStep: newEnd)
                                         }
