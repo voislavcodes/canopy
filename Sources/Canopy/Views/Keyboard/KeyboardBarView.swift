@@ -52,7 +52,8 @@ struct KeyboardBarView: View {
     }
 
     private var kbHeight: CGFloat {
-        8.5 * max(9, 10 * cs) * 1.35
+        let rows: CGFloat = scaleAwareEnabled ? 8.5 : 10.5
+        return rows * max(9, 10 * cs) * 1.35
     }
 
     var body: some View {
@@ -118,7 +119,7 @@ struct KeyboardBarView: View {
         let rowH: CGFloat = fontSize * 1.35
         let whiteKeyW = 4 * cellW
         let blackKeyW = 3 * cellW
-        let blackKeyH = 4 * rowH  // rows 0-3 (top + 2 body + join)
+        let blackKeyH = 5 * rowH  // rows 1-5 (top + 3 body + bottom)
         let whiteCount = octaveCount * 7
 
         // Which white-key-within-octave indices have a black key after them
@@ -135,15 +136,15 @@ struct KeyboardBarView: View {
             rects.append(KeyRect(rect: CGRect(x: CGFloat(i) * whiteKeyW, y: 0, width: whiteKeyW, height: canvasHeight), midiNote: note, isBlack: false))
         }
 
-        // Black keys — grid-aligned within the parent white key's interior columns
+        // Black keys — straddle the boundary between adjacent white keys
         for i in 0..<whiteCount {
             let octave = baseOctave + (i / 7)
             let whiteIndex = i % 7
             guard blackAfterWhiteIdx.contains(whiteIndex) else { continue }
             let semitone = Self.whiteKeyOffsets[whiteIndex]
             let note = midiNote(octave: octave, semitone: semitone + 1)
-            let x = CGFloat(i * 4 + 1) * cellW  // col i*4+1
-            rects.append(KeyRect(rect: CGRect(x: x, y: 0, width: blackKeyW, height: blackKeyH), midiNote: note, isBlack: true))
+            let x = CGFloat(i * 4 + 3) * cellW  // straddle: cols w*4+3 to w*4+5
+            rects.append(KeyRect(rect: CGRect(x: x, y: rowH, width: blackKeyW, height: blackKeyH), midiNote: note, isBlack: true))
         }
 
         return rects
@@ -244,7 +245,8 @@ struct KeyboardBarView: View {
         .frame(width: canvasW, height: kbHeight)
     }
 
-    /// Grid-based standard keyboard drawing. Rows 0-3 = black key zone, row 4 = join, rows 5-7 = white body, row 8 = white bottom.
+    /// Piano-like keyboard: white keys full height, black keys in upper portion straddling boundaries.
+    /// Row 0 = white top, rows 1-5 = black key zone overlaying white body, rows 6-8 = white only, row 9 = white bottom.
     private func drawStandardKeyboard(context: GraphicsContext, size: CGSize, keyRects: [KeyRect], time: Double) {
         let fontSize: CGFloat = max(9, 10 * cs)
         let cellW: CGFloat = fontSize * 0.62
@@ -253,8 +255,8 @@ struct KeyboardBarView: View {
         let pulse: CGFloat = 0.85 + 0.15 * CGFloat(sin(time * 6))
 
         let whiteCount = octaveCount * 7
-        let numCols = whiteCount * 4 + 1  // 57 for 2 octaves
-        let blackAfterIdx: Set<Int> = [0, 1, 3, 4, 5]  // within-octave white key indices
+        let numCols = whiteCount * 4 + 1
+        let blackAfterIdx: Set<Int> = [0, 1, 3, 4, 5]
 
         // Build note arrays
         var whiteNotes: [Int] = []
@@ -269,85 +271,101 @@ struct KeyboardBarView: View {
             blackNotes.append(midiNote(octave: oct, semitone: semi + 1))
         }
 
-        // Helpers
+        // Map columns to their black key owner (col -> white key index)
+        // Black keys straddle: cols w*4+3, w*4+4, w*4+5
+        var blackKeyCols: [Int: Int] = [:]
+        for w in 0..<whiteCount where hasBlack[w] {
+            for c in (w * 4 + 3)...(w * 4 + 5) where c < numCols {
+                blackKeyCols[c] = w
+            }
+        }
+
         func colX(_ col: Int) -> CGFloat { CGFloat(col) * cellW + cellW / 2 }
         func rowY(_ row: Int) -> CGFloat { CGFloat(row) * rowH + rowH / 2 }
         func wKey(_ col: Int) -> Int { min(whiteCount - 1, col / 4) }
 
         let borderDim = CanopyColors.chromeText.opacity(0.3)
-        let blackBorderDim = CanopyColors.chromeText.opacity(0.2)
+        let blackBorderDim = CanopyColors.chromeText.opacity(0.25)
         let whiteFill = Color(red: 0.52, green: 0.56, blue: 0.53)
         let blackFill = Color(red: 0.18, green: 0.2, blue: 0.19)
 
-        // === Row 0: Black key tops ===
-        for w in 0..<whiteCount where hasBlack[w] {
-            let isP = pressed.contains(blackNotes[w])
-            let bc = isP ? accentColor.opacity(0.8) : blackBorderDim
-            let c = w * 4 + 1
-            drawChar(context, "┌", at: CGPoint(x: colX(c), y: rowY(0)), size: fontSize, color: bc)
-            drawChar(context, "─", at: CGPoint(x: colX(c+1), y: rowY(0)), size: fontSize, color: bc)
-            drawChar(context, "┐", at: CGPoint(x: colX(c+2), y: rowY(0)), size: fontSize, color: bc)
-        }
-
-        // === Rows 1-3: Black key body ===
-        for row in 1...3 {
-            for w in 0..<whiteCount where hasBlack[w] {
-                let isP = pressed.contains(blackNotes[w])
-                let bc = isP ? accentColor.opacity(0.8) : blackBorderDim
-                let fc = isP ? accentColor.opacity(Double(pulse) * 0.9) : blackFill
-                let ch = isP ? "█" : "▓"
-                let c = w * 4 + 1
-                let y = rowY(row)
-                drawChar(context, "│", at: CGPoint(x: colX(c), y: y), size: fontSize, color: bc)
-                drawChar(context, ch, at: CGPoint(x: colX(c+1), y: y), size: fontSize, color: fc)
-                drawChar(context, "│", at: CGPoint(x: colX(c+2), y: y), size: fontSize, color: bc)
-            }
-        }
-
-        // === Row 4: Join row — black key bottoms meet white key tops ===
+        // === Row 0: White top border (uninterrupted) ===
         for col in 0..<numCols {
             let w = wKey(col)
-            let wPressed = pressed.contains(whiteNotes[w])
-            let bc = wPressed ? accentColor.opacity(Double(pulse) * 0.7) : borderDim
+            let isP = pressed.contains(whiteNotes[w])
+            let bc = isP ? accentColor.opacity(Double(pulse) * 0.7) : borderDim
             let ch: String
-            if col == 0 {
-                ch = "┌"
-            } else if col == numCols - 1 {
-                ch = "┐"
-            } else if col % 4 == 0 {
-                ch = "┬"
-            } else {
-                let inPos = col % 4  // 1, 2, or 3
-                if hasBlack[w] && (inPos == 1 || inPos == 3) {
-                    ch = "┴"
-                } else {
-                    ch = "─"
-                }
-            }
-            drawChar(context, ch, at: CGPoint(x: colX(col), y: rowY(4)), size: fontSize, color: bc)
+            if col == 0 { ch = "┌" }
+            else if col == numCols - 1 { ch = "┐" }
+            else if col % 4 == 0 { ch = "┬" }
+            else { ch = "─" }
+            drawChar(context, ch, at: CGPoint(x: colX(col), y: rowY(0)), size: fontSize, color: bc)
         }
 
-        // === Rows 5-6: White key body with █ fill ===
-        for row in 5...6 {
+        // === Rows 1-5: Black key zone (black keys overlay white body) ===
+        for row in 1...5 {
             let y = rowY(row)
             for col in 0..<numCols {
-                let w = wKey(col)
-                let isP = pressed.contains(whiteNotes[w])
-                if col % 4 == 0 || col == numCols - 1 {
-                    // Border column
-                    drawChar(context, "│", at: CGPoint(x: colX(col), y: y), size: fontSize, color: borderDim)
-                } else {
-                    // Interior — always filled
-                    if isP {
-                        drawChar(context, "█", at: CGPoint(x: colX(col), y: y), size: fontSize, color: accentColor.opacity(Double(pulse) * 0.65))
+                let x = colX(col)
+
+                if let bw = blackKeyCols[col] {
+                    // Black key content
+                    let bn = blackNotes[bw]
+                    let isP = pressed.contains(bn)
+                    let localCol = col - (bw * 4 + 3) // 0, 1, or 2
+                    let bc = isP ? accentColor.opacity(0.8) : blackBorderDim
+
+                    if row == 1 {
+                        // Black top border
+                        if localCol == 0 { drawChar(context, "┌", at: CGPoint(x: x, y: y), size: fontSize, color: bc) }
+                        else if localCol == 2 { drawChar(context, "┐", at: CGPoint(x: x, y: y), size: fontSize, color: bc) }
+                        else { drawChar(context, "─", at: CGPoint(x: x, y: y), size: fontSize, color: bc) }
+                    } else if row == 5 {
+                        // Black bottom border — ┴ at center for junction with white border below
+                        if localCol == 0 { drawChar(context, "└", at: CGPoint(x: x, y: y), size: fontSize, color: bc) }
+                        else if localCol == 1 { drawChar(context, "┴", at: CGPoint(x: x, y: y), size: fontSize, color: bc) }
+                        else { drawChar(context, "┘", at: CGPoint(x: x, y: y), size: fontSize, color: bc) }
                     } else {
-                        drawChar(context, "█", at: CGPoint(x: colX(col), y: y), size: fontSize, color: whiteFill.opacity(0.4))
+                        // Black body (rows 2-4)
+                        if localCol == 0 || localCol == 2 {
+                            drawChar(context, "│", at: CGPoint(x: x, y: y), size: fontSize, color: bc)
+                        } else {
+                            let fc = isP ? accentColor.opacity(Double(pulse) * 0.9) : blackFill
+                            drawChar(context, isP ? "█" : "▓", at: CGPoint(x: x, y: y), size: fontSize, color: fc)
+                        }
+                    }
+                } else {
+                    // White key body (visible between/around black keys)
+                    let w = wKey(col)
+                    let isP = pressed.contains(whiteNotes[w])
+                    if col % 4 == 0 || col == numCols - 1 {
+                        let bc = isP ? accentColor.opacity(Double(pulse) * 0.7) : borderDim
+                        drawChar(context, "│", at: CGPoint(x: x, y: y), size: fontSize, color: bc)
+                    } else {
+                        let fc = isP ? accentColor.opacity(Double(pulse) * 0.65) : whiteFill.opacity(0.4)
+                        drawChar(context, "█", at: CGPoint(x: x, y: y), size: fontSize, color: fc)
                     }
                 }
             }
         }
 
-        // === Row 7: White key bottom ===
+        // === Rows 6-8: White only body ===
+        for row in 6...8 {
+            let y = rowY(row)
+            for col in 0..<numCols {
+                let w = wKey(col)
+                let isP = pressed.contains(whiteNotes[w])
+                if col % 4 == 0 || col == numCols - 1 {
+                    let bc = isP ? accentColor.opacity(Double(pulse) * 0.7) : borderDim
+                    drawChar(context, "│", at: CGPoint(x: colX(col), y: y), size: fontSize, color: bc)
+                } else {
+                    let fc = isP ? accentColor.opacity(Double(pulse) * 0.65) : whiteFill.opacity(0.4)
+                    drawChar(context, "█", at: CGPoint(x: colX(col), y: y), size: fontSize, color: fc)
+                }
+            }
+        }
+
+        // === Row 9: White bottom border ===
         for col in 0..<numCols {
             let w = wKey(col)
             let isP = pressed.contains(whiteNotes[w])
@@ -357,13 +375,13 @@ struct KeyboardBarView: View {
             else if col == numCols - 1 { ch = "┘" }
             else if col % 4 == 0 { ch = "┴" }
             else { ch = "─" }
-            drawChar(context, ch, at: CGPoint(x: colX(col), y: rowY(7)), size: fontSize, color: bc)
+            drawChar(context, ch, at: CGPoint(x: colX(col), y: rowY(9)), size: fontSize, color: bc)
         }
 
         // === Octave labels ===
         let labelFontSize = fontSize * 0.75
         let labelCellW = labelFontSize * 0.62
-        let labelY = rowY(7) + rowH * 0.85
+        let labelY = rowY(9) + rowH * 0.85
         for w in 0..<whiteCount where whiteNotes[w] % 12 == 0 {
             let oct = (whiteNotes[w] / 12) - 1
             let cx = CGFloat(w * 4 + 2) * cellW + cellW / 2

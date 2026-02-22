@@ -181,23 +181,21 @@ struct CanopyCanvasView: View {
         // Default offsets from node center (canvas points)
         static let synthOffset = CGPoint(x: -330, y: 20)
         static let seqOffset = CGPoint(x: 260, y: 20)
-        static let promptOffset = CGPoint(x: 0, y: 180)
-        static let keyboardOffset = CGPoint(x: 0, y: 280)
+        static let keyboardOffset = CGPoint(x: 0, y: 180)
 
         // Approximate bounding box sizes for hit-testing
         static let synthSize = CGSize(width: 370, height: 230)
         static let seqSize = CGSize(width: 320, height: 340)
-        static let promptSize = CGSize(width: 350, height: 55)
         static let keyboardSize = CGSize(width: 400, height: 110)
 
         // Dictionary versions for smart positioning algorithm
         static let defaultOffsets: [BloomPanel: CGPoint] = [
             .synth: synthOffset, .sequencer: seqOffset,
-            .prompt: promptOffset, .input: keyboardOffset
+            .input: keyboardOffset
         ]
         static let panelSizes: [BloomPanel: CGSize] = [
             .synth: synthSize, .sequencer: seqSize,
-            .prompt: promptSize, .input: keyboardSize
+            .input: keyboardSize
         ]
     }
 
@@ -223,7 +221,6 @@ struct CanopyCanvasView: View {
         // Canvas-space positions (default + user drag offsets)
         let synthUserOffset = bloomState.storedOffset(panel: .synth, nodeID: node.id)
         let seqUserOffset = bloomState.storedOffset(panel: .sequencer, nodeID: node.id)
-        let promptUserOffset = bloomState.storedOffset(panel: .prompt, nodeID: node.id)
         let keyboardUserOffset = bloomState.storedOffset(panel: .input, nodeID: node.id)
 
         let synthCanvas = CGPoint(
@@ -234,10 +231,6 @@ struct CanopyCanvasView: View {
             x: node.position.x + BloomLayout.seqOffset.x + seqUserOffset.width,
             y: node.position.y + BloomLayout.seqOffset.y + seqUserOffset.height
         )
-        let promptCanvas = CGPoint(
-            x: node.position.x + BloomLayout.promptOffset.x + promptUserOffset.width,
-            y: node.position.y + BloomLayout.promptOffset.y + promptUserOffset.height
-        )
         let keyboardCanvas = CGPoint(
             x: node.position.x + BloomLayout.keyboardOffset.x + keyboardUserOffset.width,
             y: node.position.y + BloomLayout.keyboardOffset.y + keyboardUserOffset.height
@@ -247,7 +240,6 @@ struct CanopyCanvasView: View {
         let nodeScreen = canvasToScreen(CGPoint(x: node.position.x, y: node.position.y), viewSize: viewSize)
         let synthScreen = canvasToScreen(synthCanvas, viewSize: viewSize)
         let seqScreen = canvasToScreen(seqCanvas, viewSize: viewSize)
-        let promptScreen = canvasToScreen(promptCanvas, viewSize: viewSize)
         let keyboardScreen = canvasToScreen(keyboardCanvas, viewSize: viewSize)
 
         let scale = canvasState.scale
@@ -326,7 +318,7 @@ struct CanopyCanvasView: View {
                     nodeCenter: nodeScreen,
                     synthCenter: canvasToScreen(CGPoint(x: synthCanvas.x + 180, y: synthCanvas.y - 50), viewSize: viewSize),
                     seqCenter: canvasToScreen(CGPoint(x: seqCanvas.x - 120, y: seqCanvas.y - 50), viewSize: viewSize),
-                    promptCenter: canvasToScreen(CGPoint(x: promptCanvas.x, y: promptCanvas.y - 20), viewSize: viewSize)
+                    inputCenter: canvasToScreen(CGPoint(x: keyboardCanvas.x, y: keyboardCanvas.y - 20), viewSize: viewSize)
                 )
 
                 // Left panel: voice/synth controls (always follows engine type)
@@ -369,10 +361,6 @@ struct CanopyCanvasView: View {
                             StepSequencerPanel(projectState: projectState, transportState: transportState)
                         }
                     }
-                }
-
-                DraggableBloomPanel(panel: .prompt, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: promptScreen) {
-                    ClaudePromptPanel()
                 }
 
                 // Bottom: input (swappable)
@@ -477,8 +465,6 @@ struct CanopyCanvasView: View {
                     } else {
                         StepSequencerPanel(projectState: projectState, transportState: transportState)
                     }
-                case .prompt:
-                    ClaudePromptPanel()
                 case .input:
                     if effectiveInputMode == .padGrid {
                         DrumPadGridView(selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
@@ -784,7 +770,7 @@ struct BloomConnectors: View {
     let nodeCenter: CGPoint
     let synthCenter: CGPoint
     let seqCenter: CGPoint
-    let promptCenter: CGPoint
+    let inputCenter: CGPoint
 
     var body: some View {
         Canvas { context, _ in
@@ -810,10 +796,10 @@ struct BloomConnectors: View {
                 style: StrokeStyle(lineWidth: 1, dash: dash)
             )
 
-            // Node → Prompt (below)
+            // Node → Input (below)
             var pathBelow = Path()
             pathBelow.move(to: nodeCenter)
-            pathBelow.addLine(to: promptCenter)
+            pathBelow.addLine(to: inputCenter)
             context.stroke(
                 pathBelow,
                 with: .color(CanopyColors.bloomConnector.opacity(0.5)),
@@ -856,34 +842,3 @@ private struct InlineRenameField: View {
     }
 }
 
-// MARK: - Claude Prompt Placeholder
-
-struct ClaudePromptPanel: View {
-    @Environment(\.canvasScale) var cs
-
-    var body: some View {
-        HStack(spacing: 8 * cs) {
-            Text("+")
-                .font(.system(size: 14 * cs, weight: .medium, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText)
-
-            Text("describe this sound...")
-                .font(.system(size: 14 * cs, weight: .regular, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-
-            Spacer()
-        }
-        .padding(.horizontal, 20 * cs)
-        .padding(.top, 36 * cs)
-        .padding(.bottom, 14 * cs)
-        .frame(width: 340 * cs)
-        .background(CanopyColors.bloomPanelBackground.opacity(0.9))
-        .clipShape(RoundedRectangle(cornerRadius: 10 * cs))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10 * cs)
-                .stroke(CanopyColors.bloomPanelBorder.opacity(0.5), lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { }
-    }
-}

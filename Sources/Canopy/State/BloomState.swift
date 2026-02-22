@@ -5,7 +5,6 @@ import SwiftUI
 enum BloomPanel: String, CaseIterable {
     case synth
     case sequencer
-    case prompt
     case input
 }
 
