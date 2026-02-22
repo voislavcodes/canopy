@@ -26,6 +26,10 @@ struct FlowPanel: View {
     @State private var localVolume: Double = 0.8
     @State private var localPan: Double = 0.0
 
+    // Fluid knob drag tracking
+    @State private var activeKnob: Int? = nil
+    @State private var dragStartValue: Double = 0
+
     private let filterModeLabels = ["LP", "BP", "HP"]
 
     // Imprint
@@ -282,6 +286,292 @@ struct FlowPanel: View {
         }
     }
 
+    // MARK: - Fluid Knobs (ASCII)
+
+    private var fluidKnobs: some View {
+        let knobHeight: CGFloat = 130 * cs
+
+        return GeometryReader { geo in
+            let knobW = geo.size.width / 3
+
+            TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
+                Canvas { context, size in
+                    let time = timeline.date.timeIntervalSinceReferenceDate
+                    let kW = size.width / 3
+                    let values = [localCurrent, localViscosity, localDensity]
+
+                    for i in 0..<3 {
+                        let rect = CGRect(x: CGFloat(i) * kW, y: 0, width: kW, height: size.height)
+                        let isActive = activeKnob == i
+
+                        switch i {
+                        case 0: drawCurrentKnob(context: context, rect: rect, value: values[i], time: time, active: isActive)
+                        case 1: drawViscosityKnob(context: context, rect: rect, value: values[i], time: time, active: isActive)
+                        case 2: drawDensityKnob(context: context, rect: rect, value: values[i], time: time, active: isActive)
+                        default: break
+                        }
+                    }
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        if activeKnob == nil {
+                            let third = Int(drag.startLocation.x / knobW)
+                            activeKnob = min(2, max(0, third))
+                            dragStartValue = [localCurrent, localViscosity, localDensity][activeKnob!]
+                        }
+                        let delta = -drag.translation.height / (150 * cs)
+                        let newVal = max(0, min(1, dragStartValue + Double(delta)))
+                        switch activeKnob {
+                        case 0: localCurrent = newVal
+                        case 1: localViscosity = newVal
+                        case 2: localDensity = newVal
+                        default: break
+                        }
+                        pushConfigToEngine()
+                    }
+                    .onEnded { _ in
+                        switch activeKnob {
+                        case 0: commitConfig { $0.current = localCurrent }
+                        case 1: commitConfig { $0.viscosity = localViscosity }
+                        case 2: commitConfig { $0.density = localDensity }
+                        default: break
+                        }
+                        activeKnob = nil
+                    }
+            )
+        }
+        .frame(height: knobHeight)
+    }
+
+    /// CURR knob — streamline fan: horizontal arrows that fan out and intensify with value.
+    private func drawCurrentKnob(context: GraphicsContext, rect: CGRect, value: Double, time: Double, active: Bool) {
+        let fontSize: CGFloat = max(9, 11 * cs)
+        let cellW: CGFloat = fontSize * 0.62
+        let rowH: CGFloat = fontSize * 1.35
+        let centerX = rect.midX
+        let artCenterY = rect.minY + rect.height * 0.38
+
+        let op: CGFloat = active ? 1.0 : 0.55
+        let color = accentColor.opacity(op)
+
+        // Visible rows: 1 at low, 3 at mid, 5 at high
+        let visibleRows: Int
+        if value < 0.25 { visibleRows = 1 }
+        else if value < 0.55 { visibleRows = 3 }
+        else { visibleRows = 5 }
+
+        // Center row body length proportional to value, plus arrowheads
+        let maxBodyLen = max(1, Int(value * 5.0) + 1)
+        let headCount = value > 0.65 ? 2 : 1
+
+        // Scroll animation phase
+        let scrollSpeed = 0.5 + value * 3.0
+        let scrollPhase = fmod(time * scrollSpeed, 20.0)
+
+        let bodyChar = value > 0.6 ? "━" : "─"
+
+        for i in 0..<visibleRows {
+            let rowOffset = i - visibleRows / 2
+            let y = artCenterY + CGFloat(rowOffset) * rowH
+
+            // Taper: outer rows shorter
+            let taper = abs(rowOffset)
+            let bodyLen = max(1, maxBodyLen - taper)
+            let totalChars = bodyLen + headCount
+
+            let startX = centerX - CGFloat(totalChars) * cellW / 2 + cellW / 2
+
+            for col in 0..<totalChars {
+                let x = startX + CGFloat(col) * cellW
+                let isHead = col >= bodyLen
+
+                // Scroll: wave of brightness moving rightward
+                let animPhase = fmod(scrollPhase + Double(col) * 0.6 + Double(i) * 0.4, 3.0)
+                let animMod = 0.65 + 0.35 * sin(animPhase * .pi)
+
+                if isHead {
+                    drawCharBold(context, "→", at: CGPoint(x: x, y: y), size: fontSize,
+                                 color: color.opacity(animMod))
+                } else {
+                    drawChar(context, bodyChar, at: CGPoint(x: x, y: y), size: fontSize,
+                             color: color.opacity(animMod * 0.85))
+                }
+            }
+        }
+
+        // Label + value below art
+        let labelFontSize = fontSize * 0.8
+        let labelCellW = labelFontSize * 0.62
+        let labelY = rect.maxY - 22 * cs
+        drawString(context, "CURR", centerX: centerX, y: labelY, cellW: labelCellW, fontSize: labelFontSize,
+                   color: CanopyColors.chromeText.opacity(active ? 0.8 : 0.5), bold: true)
+        let valueY = labelY + labelFontSize * 1.3
+        drawString(context, "\(Int(value * 100))%", centerX: centerX, y: valueY, cellW: labelCellW,
+                   fontSize: labelFontSize * 0.9,
+                   color: CanopyColors.chromeText.opacity(active ? 0.7 : 0.4))
+    }
+
+    /// VISC knob — honey vessel: a beaker shape with fill level and drip.
+    private func drawViscosityKnob(context: GraphicsContext, rect: CGRect, value: Double, time: Double, active: Bool) {
+        let fontSize: CGFloat = max(9, 11 * cs)
+        let cellW: CGFloat = fontSize * 0.62
+        let rowH: CGFloat = fontSize * 1.2
+        let centerX = rect.midX
+        let artTopY = rect.minY + 4 * cs
+
+        let op: CGFloat = active ? 1.0 : 0.55
+        let vesselColor = accentColor.opacity(op * 0.5)
+        let fillColor = accentColor.opacity(op)
+
+        // Vessel: 5 chars wide, 4 inner rows
+        let vesselW = 5
+        let innerRows = 4
+        let halfW = CGFloat(vesselW) * cellW / 2
+        let leftX = centerX - halfW + cellW / 2
+
+        // Top edge: ╭───╮
+        let topY = artTopY
+        drawChar(context, "╭", at: CGPoint(x: leftX, y: topY), size: fontSize, color: vesselColor)
+        for i in 1..<(vesselW - 1) {
+            drawChar(context, "─", at: CGPoint(x: leftX + CGFloat(i) * cellW, y: topY), size: fontSize, color: vesselColor)
+        }
+        drawChar(context, "╮", at: CGPoint(x: leftX + CGFloat(vesselW - 1) * cellW, y: topY), size: fontSize, color: vesselColor)
+
+        // Fill level (bottom-up)
+        let fillRows = max(0, Int(value * Double(innerRows) + 0.5))
+
+        // Fill character density scales with value
+        let fillChar: String
+        if value < 0.25 { fillChar = "░" }
+        else if value < 0.5 { fillChar = "▒" }
+        else if value < 0.75 { fillChar = "▓" }
+        else { fillChar = "█" }
+
+        for row in 0..<innerRows {
+            let y = topY + CGFloat(row + 1) * rowH
+            let isFilled = row >= (innerRows - fillRows)
+
+            // Walls
+            drawChar(context, "│", at: CGPoint(x: leftX, y: y), size: fontSize, color: vesselColor)
+            drawChar(context, "│", at: CGPoint(x: leftX + CGFloat(vesselW - 1) * cellW, y: y), size: fontSize, color: vesselColor)
+
+            // Interior fill
+            if isFilled {
+                for i in 1..<(vesselW - 1) {
+                    drawChar(context, fillChar, at: CGPoint(x: leftX + CGFloat(i) * cellW, y: y), size: fontSize, color: fillColor)
+                }
+            }
+        }
+
+        // Bottom edge: ╰─·─╯
+        let bottomY = topY + CGFloat(innerRows + 1) * rowH
+        drawChar(context, "╰", at: CGPoint(x: leftX, y: bottomY), size: fontSize, color: vesselColor)
+        drawChar(context, "╯", at: CGPoint(x: leftX + CGFloat(vesselW - 1) * cellW, y: bottomY), size: fontSize, color: vesselColor)
+        let midCol = vesselW / 2
+        for i in 1..<(vesselW - 1) {
+            if i == midCol {
+                let dripTopChar = value > 0.5 ? fillChar : "·"
+                drawChar(context, dripTopChar, at: CGPoint(x: leftX + CGFloat(i) * cellW, y: bottomY), size: fontSize, color: fillColor.opacity(0.8))
+            } else {
+                drawChar(context, "─", at: CGPoint(x: leftX + CGFloat(i) * cellW, y: bottomY), size: fontSize, color: vesselColor)
+            }
+        }
+
+        // Drip below vessel (animated bob)
+        if value > 0.1 {
+            let dripY = bottomY + rowH
+            let bob = CGFloat(sin(time * 1.5)) * 2 * cs
+            let dripChar: String
+            if value < 0.3 { dripChar = "·" }
+            else if value < 0.6 { dripChar = "•" }
+            else if value < 0.8 { dripChar = "▓" }
+            else { dripChar = "█" }
+            drawChar(context, dripChar, at: CGPoint(x: centerX, y: dripY + bob), size: fontSize,
+                     color: fillColor.opacity(0.6))
+        }
+
+        // Label + value
+        let labelFontSize = fontSize * 0.8
+        let labelCellW = labelFontSize * 0.62
+        let labelY = rect.maxY - 22 * cs
+        drawString(context, "VISC", centerX: centerX, y: labelY, cellW: labelCellW, fontSize: labelFontSize,
+                   color: CanopyColors.chromeText.opacity(active ? 0.8 : 0.5), bold: true)
+        let valueY = labelY + labelFontSize * 1.3
+        drawString(context, "\(Int(value * 100))%", centerX: centerX, y: valueY, cellW: labelCellW,
+                   fontSize: labelFontSize * 0.9,
+                   color: CanopyColors.chromeText.opacity(active ? 0.7 : 0.4))
+    }
+
+    /// DENS knob — particle cloud: dot matrix that fills from sparse to packed.
+    private func drawDensityKnob(context: GraphicsContext, rect: CGRect, value: Double, time: Double, active: Bool) {
+        let fontSize: CGFloat = max(9, 11 * cs)
+        let cellW: CGFloat = fontSize * 0.65
+        let rowH: CGFloat = fontSize * 1.3
+        let centerX = rect.midX
+        let artCenterY = rect.minY + rect.height * 0.38
+
+        let op: CGFloat = active ? 1.0 : 0.55
+        let color = accentColor.opacity(op)
+
+        // 5×5 character grid
+        let gridSize = 5
+        let gridStartX = centerX - CGFloat(gridSize) * cellW / 2 + cellW / 2
+        let gridStartY = artCenterY - CGFloat(gridSize) * rowH / 2 + rowH / 2
+
+        // Shimmer tick (changes ~8 times/sec, kept small)
+        let shimmerTick = Int(fmod(time * 8, 1000))
+
+        for row in 0..<gridSize {
+            for col in 0..<gridSize {
+                let x = gridStartX + CGFloat(col) * cellW
+                let y = gridStartY + CGFloat(row) * rowH
+
+                // Chebyshev distance from center — center fills first
+                let dx = abs(col - gridSize / 2)
+                let dy = abs(row - gridSize / 2)
+                let dist = max(dx, dy)
+
+                let threshold = Double(dist) * 0.25 + 0.08
+                if value < threshold { continue }
+
+                // Char intensity based on how far past threshold
+                let intensity = min(1.0, (value - threshold) / 0.3)
+                let ch: String
+                if intensity < 0.25 { ch = "·" }
+                else if intensity < 0.5 { ch = "•" }
+                else if intensity < 0.75 { ch = "●" }
+                else { ch = "█" }
+
+                // Shimmer: occasional char flicker
+                let cellHash = (row * 7 + col + shimmerTick) % 11
+                let shimmer = cellHash == 0 && value > 0.25
+                let finalCh: String
+                if shimmer {
+                    if intensity < 0.5 { finalCh = intensity < 0.25 ? "•" : "·" }
+                    else { finalCh = intensity < 0.75 ? "●" : "▓" }
+                } else {
+                    finalCh = ch
+                }
+
+                drawChar(context, finalCh, at: CGPoint(x: x, y: y), size: fontSize,
+                         color: color.opacity(0.55 + intensity * 0.45))
+            }
+        }
+
+        // Label + value
+        let labelFontSize = fontSize * 0.8
+        let labelCellW = labelFontSize * 0.62
+        let labelY = rect.maxY - 22 * cs
+        drawString(context, "DENS", centerX: centerX, y: labelY, cellW: labelCellW, fontSize: labelFontSize,
+                   color: CanopyColors.chromeText.opacity(active ? 0.8 : 0.5), bold: true)
+        let valueY = labelY + labelFontSize * 1.3
+        drawString(context, "\(Int(value * 100))%", centerX: centerX, y: valueY, cellW: labelCellW,
+                   fontSize: labelFontSize * 0.9,
+                   color: CanopyColors.chromeText.opacity(active ? 0.7 : 0.4))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {
             // Header
@@ -359,20 +649,7 @@ struct FlowPanel: View {
                     VStack(alignment: .leading, spacing: 8 * cs) {
                         sectionLabel("FLUID")
 
-                        paramSlider(label: "CURR", value: $localCurrent, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.current = localCurrent }
-                        } onDrag: { pushConfigToEngine() }
-
-                        paramSlider(label: "VISC", value: $localViscosity, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.viscosity = localViscosity }
-                        } onDrag: { pushConfigToEngine() }
-
-                        paramSlider(label: "DENS", value: $localDensity, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.density = localDensity }
-                        } onDrag: { pushConfigToEngine() }
+                        fluidKnobs
                     }
                     .frame(maxWidth: .infinity)
 
