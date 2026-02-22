@@ -101,8 +101,10 @@ enum AudioCommand {
     case setSwarmImprint(positions: [Float]?, amplitudes: [Float]?) // 64 each, or nil to clear
 
     // FUSE engine: coupled oscillator synthesis
-    case setFuse(character: Double, tune: Double, couple: Double,
-                 filter: Double, feedback: Double, warmth: Double, volume: Double)
+    case setFuse(character: Double, tune: Double, matrix: Double,
+                 filter: Double, feedback: Double, filterFB: Double,
+                 attack: Double, decay: Double,
+                 warmth: Double, volume: Double)
 
     // FX chain swap (per-node effect chain replacement)
     case setFXChain(EffectChain)

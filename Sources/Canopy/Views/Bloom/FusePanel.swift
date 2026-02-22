@@ -12,9 +12,14 @@ struct FusePanel: View {
     // Coupled oscillator parameters
     @State private var localCharacter: Double = 0.1
     @State private var localTune: Double = 0.0
-    @State private var localCouple: Double = 0.0
+    @State private var localMatrix: Double = 0.0
     @State private var localFilter: Double = 0.7
     @State private var localFeedback: Double = 0.0
+    @State private var localFilterFB: Double = 0.0
+
+    // Envelope
+    @State private var localAttack: Double = 0.1
+    @State private var localDecay: Double = 0.5
 
     // Output
     @State private var localWarmth: Double = 0.3
@@ -84,9 +89,9 @@ struct FusePanel: View {
                             commitConfig { $0.tune = localTune }
                         } onDrag: { pushConfigToEngine() }
 
-                        paramSlider(label: "COUP", value: $localCouple, range: 0...1,
-                                    format: { "\(Int($0 * 100))%" }) {
-                            commitConfig { $0.couple = localCouple }
+                        paramSlider(label: "MTRX", value: $localMatrix, range: 0...1,
+                                    format: { matrixDisplayText($0) }) {
+                            commitConfig { $0.matrix = localMatrix }
                         } onDrag: { pushConfigToEngine() }
 
                         paramSlider(label: "FILT", value: $localFilter, range: 0...1,
@@ -97,6 +102,11 @@ struct FusePanel: View {
                         paramSlider(label: "FDBK", value: $localFeedback, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
                             commitConfig { $0.feedback = localFeedback }
+                        } onDrag: { pushConfigToEngine() }
+
+                        paramSlider(label: "FLFB", value: $localFilterFB, range: 0...1,
+                                    format: { "\(Int($0 * 100))%" }) {
+                            commitConfig { $0.filterFB = localFilterFB }
                         } onDrag: { pushConfigToEngine() }
                     }
                     .frame(maxWidth: .infinity)
@@ -135,9 +145,12 @@ struct FusePanel: View {
         guard let config = fuseConfig else { return }
         localCharacter = config.character
         localTune = config.tune
-        localCouple = config.couple
+        localMatrix = config.matrix
         localFilter = config.filter
         localFeedback = config.feedback
+        localFilterFB = config.filterFB
+        localAttack = config.attack
+        localDecay = config.decay
         localWarmth = config.warmth
         localVolume = config.volume
         localPan = config.pan
@@ -151,6 +164,16 @@ struct FusePanel: View {
     private var outputSection: some View {
         VStack(alignment: .leading, spacing: 5 * cs) {
             sectionLabel("OUTPUT")
+
+            paramSlider(label: "ATK", value: $localAttack, range: 0...1,
+                        format: { attackDisplayText($0) }) {
+                commitConfig { $0.attack = localAttack }
+            } onDrag: { pushConfigToEngine() }
+
+            paramSlider(label: "DCY", value: $localDecay, range: 0...1,
+                        format: { decayDisplayText($0) }) {
+                commitConfig { $0.decay = localDecay }
+            } onDrag: { pushConfigToEngine() }
 
             paramSlider(label: "WARM", value: $localWarmth, range: 0...1,
                         format: { "\(Int($0 * 100))%" }) {
@@ -274,18 +297,38 @@ struct FusePanel: View {
     // MARK: - Display Helpers
 
     private func tuneDisplayText(_ v: Double) -> String {
-        if v < 0.1 {
-            let cents = v / 0.1 * 7.0
-            return String(format: "±%.0fc", cents)
-        } else if v < 0.25 {
-            return "INT"
-        } else if v < 0.5 {
-            return "HAR"
-        } else if v < 0.75 {
-            return "ENH"
+        let t2 = v * v
+        let ratioB = pow(7.3, t2)
+        let ratioC = pow(11.7, t2)
+        if ratioB < 1.01 {
+            // Near-unison: show cents detune
+            let cents = 1200.0 * log2(ratioB)
+            return String(format: "%.0fc", cents)
         } else {
-            return "XTR"
+            return String(format: "1:%.1f:%.1f", ratioB, ratioC)
         }
+    }
+
+    private func matrixDisplayText(_ v: Double) -> String {
+        if v < 0.05 { return "NONE" }
+        if v < 0.2 { return "SYM" }
+        if v < 0.45 { return "FM" }
+        if v < 0.7 { return "ASYM" }
+        if v > 0.95 { return "FULL" }
+        return "\(Int(v * 100))%"
+    }
+
+    private func attackDisplayText(_ v: Double) -> String {
+        let ms = 1.0 * pow(500.0, v)
+        if ms < 10 { return String(format: "%.1fms", ms) }
+        if ms < 1000 { return "\(Int(ms))ms" }
+        return String(format: "%.1fs", ms / 1000.0)
+    }
+
+    private func decayDisplayText(_ v: Double) -> String {
+        let ms = 50.0 * pow(100.0, v)
+        if ms < 1000 { return "\(Int(ms))ms" }
+        return String(format: "%.1fs", ms / 1000.0)
     }
 
     private func filterDisplayText(_ v: Double) -> String {
@@ -320,9 +363,12 @@ struct FusePanel: View {
         let config = FuseConfig(
             character: localCharacter,
             tune: localTune,
-            couple: localCouple,
+            matrix: localMatrix,
             filter: localFilter,
             feedback: localFeedback,
+            filterFB: localFilterFB,
+            attack: localAttack,
+            decay: localDecay,
             warmth: localWarmth,
             volume: localVolume,
             pan: localPan

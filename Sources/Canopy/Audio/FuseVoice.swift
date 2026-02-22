@@ -2,10 +2,22 @@ import Foundation
 
 /// Per-voice DSP for the FUSE engine: three coupled nonlinear oscillators.
 ///
-/// Three analog-modeled oscillators form a mutual influence network where
-/// coupling strength, frequency relationships, and feedback create a continuous
-/// space that unifies subtractive, FM, hard sync, ring mod, cross-modulation,
-/// and waveshaping synthesis.
+/// Signal flow (per sample):
+///   1. Compute tune ratios (smooth power curve)
+///   2. Compute matrix weights (6 coupling weights from MATRIX param)
+///   3. Compute coupling depth (matrix² × 800 Hz, pitch-independent)
+///   4. Compute modulated frequencies using CLEAN previous sine outputs
+///   5. Clamp frequencies
+///   6. Advance phases
+///   7. Generate raw sines
+///   8. Store clean outputs for next-sample coupling
+///   9. Waveshape the sines for timbre (ADAA saturation + sinusoidal fold)
+///  10. Mix waveshaped outputs
+///  11. SVF filter
+///  12. Filter envelope decay
+///  13. Feedback path (DC block → tanh → scale)
+///  14. Apply AD envelope, output linearly (no per-voice tanh)
+///  15. WARM processing
 ///
 /// CRITICAL: All state is inline (no arrays, no heap). Audio-thread safe.
 struct FuseVoice {
@@ -15,9 +27,20 @@ struct FuseVoice {
     var oscPhaseB: Double = 0
     var oscPhaseC: Double = 0
 
-    var oscOutputA: Double = 0   // previous sample for coupling
+    // Clean sine outputs for coupling (pre-waveshape)
+    var oscCleanA: Double = 0
+    var oscCleanB: Double = 0
+    var oscCleanC: Double = 0
+
+    // Waveshaped outputs for mix
+    var oscOutputA: Double = 0
     var oscOutputB: Double = 0
     var oscOutputC: Double = 0
+
+    // ADAA previous input state (one per oscillator)
+    var prevInputA: Double = 0
+    var prevInputB: Double = 0
+    var prevInputC: Double = 0
 
     // MARK: - SVF Filter (network participant)
 
@@ -36,14 +59,31 @@ struct FuseVoice {
     var characterParam: Double = 0.1
     var tuneTarget: Double = 0.0
     var tuneParam: Double = 0.0
-    var coupleTarget: Double = 0.0
-    var coupleParam: Double = 0.0
+    var matrixTarget: Double = 0.0
+    var matrixParam: Double = 0.0
     var filterTarget: Double = 0.7
     var filterParam: Double = 0.7
     var feedbackTarget: Double = 0.0
     var feedbackParam: Double = 0.0
+    var filterFBTarget: Double = 0.0
+    var filterFBParam: Double = 0.0
+    var attackTarget: Double = 0.1
+    var attackParam: Double = 0.1
+    var decayTarget: Double = 0.5
+    var decayParam: Double = 0.5
     var warmthTarget: Double = 0.3
     var warmthParam: Double = 0.3
+
+    // MARK: - Matrix Weights (smoothed, updated per control block)
+
+    var wAB: Double = 0, wAC: Double = 0
+    var wBA: Double = 0, wBC: Double = 0
+    var wCA: Double = 0, wCB: Double = 0
+    // Targets for one-pole smoothing
+    var wABt: Double = 0, wACt: Double = 0
+    var wBAt: Double = 0, wBCt: Double = 0
+    var wCAt: Double = 0, wCBt: Double = 0
+    var matrixBlockCounter: Int = 0
 
     // MARK: - Note State
 
@@ -52,12 +92,15 @@ struct FuseVoice {
     var isActive: Bool = false
     var envelopeLevel: Float = 0
 
-    // Envelope (attack/sustain/release/steal-fade)
-    var envPhase: Int = 0       // 0=idle, 1=attack, 2=sustain, 3=release, 4=steal-fade
+    // AD Envelope: 0=idle, 1=attack, 2=decay, 3=fast-release, 4=steal-fade
+    var envPhase: Int = 0
     var envValue: Double = 0
+    var attackCoeff: Double = 0
+    var decayCoeff: Double = 0
 
     // Filter envelope (velocity-scaled brightness transient)
     private var filterEnvValue: Double = 0
+    private var filterDecayCoeff: Double = 0
 
     // Steal-fade
     var pendingPitch: Int = -1
@@ -101,10 +144,17 @@ struct FuseVoice {
         self.cachedSampleRate = sampleRate
         self.pendingPitch = -1
 
-        // Don't reset oscillator phases — allows smooth transitions
-        // But DO reset filter envelope for brightness transient
-        self.filterEnvValue = velocity
+        // Compute envelope coefficients
+        recomputeEnvelopeCoeffs(sampleRate: sampleRate)
 
+        // Filter envelope: velocity-scaled decay
+        self.filterEnvValue = velocity
+        let ampDecaySec = 0.05 * pow(100.0, decayParam)
+        let velocityRatio = 0.2 + 0.3 * (1.0 - velocity)
+        let filterDecaySec = ampDecaySec * velocityRatio
+        self.filterDecayCoeff = exp(-1.0 / (filterDecaySec * sampleRate))
+
+        // Don't reset oscillator phases — allows smooth transitions
         // Reset feedback state for clean start
         self.feedbackSample = 0
         self.dcPrevIn = 0
@@ -112,8 +162,17 @@ struct FuseVoice {
     }
 
     mutating func release(sampleRate: Double) {
-        if envPhase != 0 {
+        switch envPhase {
+        case 1:
+            // Note-off during attack → fast 5ms release
             envPhase = 3
+            let fastReleaseSec = 0.005
+            stealFadeRate = 1.0 / max(1, fastReleaseSec * sampleRate)
+        case 2:
+            // Note-off during decay → already fading, no change
+            break
+        default:
+            break
         }
     }
 
@@ -122,9 +181,8 @@ struct FuseVoice {
         envPhase = 0
         envValue = 0
         envelopeLevel = 0
-        oscOutputA = 0
-        oscOutputB = 0
-        oscOutputC = 0
+        oscCleanA = 0; oscCleanB = 0; oscCleanC = 0
+        oscOutputA = 0; oscOutputB = 0; oscOutputC = 0
         svfLow = 0
         svfBand = 0
         feedbackSample = 0
@@ -137,7 +195,7 @@ struct FuseVoice {
 
         advanceEnvelope()
         guard envValue > 0.0001 else {
-            if envPhase == 3 || envPhase == 0 {
+            if envPhase == 0 || envPhase == 2 {
                 isActive = false
                 envelopeLevel = 0
             }
@@ -150,10 +208,30 @@ struct FuseVoice {
         let tuneSmooth = 0.0005
         characterParam += (characterTarget - characterParam) * paramSmooth
         tuneParam += (tuneTarget - tuneParam) * tuneSmooth
-        coupleParam += (coupleTarget - coupleParam) * paramSmooth
+        matrixParam += (matrixTarget - matrixParam) * paramSmooth
         filterParam += (filterTarget - filterParam) * paramSmooth
         feedbackParam += (feedbackTarget - feedbackParam) * paramSmooth
+        filterFBParam += (filterFBTarget - filterFBParam) * paramSmooth
+        attackParam += (attackTarget - attackParam) * paramSmooth
+        decayParam += (decayTarget - decayParam) * paramSmooth
         warmthParam += (warmthTarget - warmthParam) * paramSmooth
+
+        // Smooth matrix weights
+        let matrixSmooth = 0.001
+        wAB += (wABt - wAB) * matrixSmooth
+        wAC += (wACt - wAC) * matrixSmooth
+        wBA += (wBAt - wBA) * matrixSmooth
+        wBC += (wBCt - wBC) * matrixSmooth
+        wCA += (wCAt - wCA) * matrixSmooth
+        wCB += (wCBt - wCB) * matrixSmooth
+
+        // Update matrix weights every 64 samples
+        matrixBlockCounter += 1
+        if matrixBlockCounter >= 64 {
+            matrixBlockCounter = 0
+            computeMatrixTargets(matrix: matrixParam)
+            recomputeEnvelopeCoeffs(sampleRate: sampleRate)
+        }
 
         // WARM pitch drift
         let driftCents = WarmProcessor.computePitchOffset(&warmState, warm: Float(warmthParam), sampleRate: Float(sampleRate))
@@ -161,40 +239,38 @@ struct FuseVoice {
 
         let baseFreq = frequency * driftMul
 
-        // Step 1: Compute tune ratios
-        let (ratioA, ratioB, ratioC) = tuneRatios(tune: tuneParam)
+        // Step 1: Compute tune ratios (smooth power curves)
+        let t2 = tuneParam * tuneParam
+        let ratioB = pow(7.3, t2)
+        let ratioC = pow(11.7, t2)
 
-        // Step 2: Coupling depth (cubic for fine low-end control)
-        let coupleDepth = coupleParam * coupleParam * coupleParam * baseFreq * 4.0
+        // Step 2: Coupling depth (pitch-independent, quadratic)
+        let coupleDepth = matrixParam * matrixParam * 800.0
 
-        // Step 3: Feedback injection scale
-        let fbInject = coupleParam * 0.5
+        // Step 3: Filter feedback injection
+        let filterFeedback = svfBand * filterFBParam * filterFBParam
 
-        // Step 4: Compute modulated frequencies
-        // Coupling matrix weights:
-        //   A←B: 1.0, A←C: 0.7, A←Filter: 0.3
-        //   B←A: 1.0, B←C: 1.0, B←Filter: 0.3
-        //   C←A: 0.7, C←B: 1.0, C←Filter: 0.3
+        // Step 4: Feedback injection scale
+        let fbInject = matrixParam * 0.5
 
-        let filterFeedback = svfBand // bandpass feeds back into coupling
-
-        var freqA = baseFreq * ratioA
-            + coupleDepth * (oscOutputB * 1.0 + oscOutputC * 0.7 + filterFeedback * 0.3)
-            + feedbackSample * fbInject * baseFreq
+        // Step 5: Compute modulated frequencies using CLEAN previous sines
+        var freqA = baseFreq
+            + coupleDepth * (oscCleanB * wAB + oscCleanC * wAC + filterFeedback)
+            + feedbackSample * fbInject * 800.0
         var freqB = baseFreq * ratioB
-            + coupleDepth * (oscOutputA * 1.0 + oscOutputC * 1.0 + filterFeedback * 0.3)
-            + feedbackSample * fbInject * baseFreq
+            + coupleDepth * (oscCleanA * wBA + oscCleanC * wBC + filterFeedback)
+            + feedbackSample * fbInject * 800.0
         var freqC = baseFreq * ratioC
-            + coupleDepth * (oscOutputA * 0.7 + oscOutputB * 1.0 + filterFeedback * 0.3)
-            + feedbackSample * fbInject * baseFreq
+            + coupleDepth * (oscCleanA * wCA + oscCleanB * wCB + filterFeedback)
+            + feedbackSample * fbInject * 800.0
 
-        // Step 5: Clamp frequencies
+        // Step 6: Clamp frequencies
         let maxFreq = 0.48 * sampleRate
         freqA = max(0.1, min(maxFreq, freqA))
         freqB = max(0.1, min(maxFreq, freqB))
         freqC = max(0.1, min(maxFreq, freqC))
 
-        // Step 6: Advance phases
+        // Step 7: Advance phases
         oscPhaseA += freqA / sampleRate
         oscPhaseA -= Double(Int(oscPhaseA))
         oscPhaseB += freqB / sampleRate
@@ -202,37 +278,42 @@ struct FuseVoice {
         oscPhaseC += freqC / sampleRate
         oscPhaseC -= Double(Int(oscPhaseC))
 
-        // Step 7: Waveshape
+        // Step 8: Generate raw sines
         let rawA = sin(2.0 * .pi * oscPhaseA)
         let rawB = sin(2.0 * .pi * oscPhaseB)
         let rawC = sin(2.0 * .pi * oscPhaseC)
 
-        oscOutputA = waveshape(rawA, character: characterParam)
-        oscOutputB = waveshape(rawB, character: characterParam)
-        oscOutputC = waveshape(rawC, character: characterParam)
+        // Step 9: Store clean outputs for next-sample coupling
+        oscCleanA = rawA
+        oscCleanB = rawB
+        oscCleanC = rawC
 
-        // Step 8: Sum oscillators
+        // Step 10: Waveshape the sines for timbre
+        oscOutputA = waveshape(rawA, character: characterParam, prevX: &prevInputA)
+        oscOutputB = waveshape(rawB, character: characterParam, prevX: &prevInputB)
+        oscOutputC = waveshape(rawC, character: characterParam, prevX: &prevInputC)
+
+        // Step 11: Mix waveshaped outputs
         var mix = (oscOutputA + oscOutputB + oscOutputC) / 3.0
 
-        // Step 9: SVF filter (Chamberlin)
+        // Step 12: SVF filter (Chamberlin)
         let filterCutoff = filterCutoffFromParam()
-        let filterEnvCutoff = filterCutoff * (1.0 + filterEnvValue * 2.0) // brightness transient
+        let filterEnvCutoff = filterCutoff * (1.0 + filterEnvValue * 2.0)
         let clampedCutoff = min(filterEnvCutoff, 0.48 * sampleRate)
         let f = 2.0 * sin(.pi * clampedCutoff / sampleRate)
-        let q = max(0.05, 1.0 - filterParam * 0.95)
+        // Q tied to feedback param — feedback adds resonance
+        let q = max(0.15, 1.0 - feedbackParam * 0.85)
 
         svfLow += f * svfBand
         let high = mix - svfLow - q * svfBand
         svfBand += f * high
 
-        // Mix LP with a bit of input based on filter position
         mix = svfLow
 
-        // Step 10: Filter envelope decay
-        filterEnvValue *= 0.9993
+        // Step 13: Filter envelope decay
+        filterEnvValue *= filterDecayCoeff
 
-        // Step 11: Feedback path
-        // output → DC block → tanh → scale
+        // Step 14: Feedback path (DC block → tanh → scale)
         let dcIn = mix
         let dcOut = dcIn - dcPrevIn + 0.995 * dcPrevOut
         dcPrevIn = dcIn
@@ -241,9 +322,9 @@ struct FuseVoice {
         let fbScaled = feedbackParam * feedbackParam * 0.98
         feedbackSample = tanh(dcOut) * fbScaled
 
-        // Step 12: Apply amplitude envelope and output limiting
+        // Step 15: Apply AD envelope, output linearly (no per-voice tanh)
         let envOut = mix * envValue * velocity
-        var output = Float(tanh(envOut * 1.5))
+        var output = Float(envOut)
 
         // WARM processing
         output = WarmProcessor.processSample(&warmState, sample: output,
@@ -252,75 +333,114 @@ struct FuseVoice {
         return output
     }
 
-    // MARK: - Waveshaping
+    // MARK: - ADAA Waveshaping
 
-    /// Continuous waveshaping: sine → asymmetric saturation → triangle wavefolding.
+    /// Continuous waveshaping: sine → ADAA saturation → sinusoidal fold.
     @inline(__always)
-    private func waveshape(_ x: Double, character: Double) -> Double {
+    private func waveshape(_ x: Double, character: Double, prevX: inout Double) -> Double {
         if character < 0.01 {
-            // Pure sine
+            prevX = x
             return x
-        } else if character < 0.5 {
-            // Blend sine → asymmetric saturation
-            let s = character * 2.0  // 0–1 within this range
-            let sat = x * (1.0 + s) / (1.0 + s * abs(x))
+        }
+
+        if character < 0.5 {
+            // Blend sine → ADAA asymmetric saturation
+            let s = character * 2.0
+            let driven = x * (1.0 + s * 2.0)
+
+            // First-order ADAA
+            let diff = driven - prevX
+            let result: Double
+            if abs(diff) < 1e-10 {
+                result = saturate(driven)
+            } else {
+                result = (saturateAntideriv(driven) - saturateAntideriv(prevX)) / diff
+            }
+            prevX = driven
+
             let blend = character / 0.5
-            return x * (1.0 - blend) + sat * blend
+            return x * (1.0 - blend) + result * blend
         } else {
-            // Blend saturation → triangle wavefolding
-            let s = 1.0  // full saturation amount
-            let sat = x * (1.0 + s) / (1.0 + s * abs(x))
-            let foldBlend = (character - 0.5) / 0.5
-
-            // 2-pass fold at ±1
-            var folded = x * (1.0 + foldBlend * 2.0)
-            // First fold
-            if folded > 1.0 { folded = 2.0 - folded }
-            else if folded < -1.0 { folded = -2.0 - folded }
-            // Second fold
-            if folded > 1.0 { folded = 2.0 - folded }
-            else if folded < -1.0 { folded = -2.0 - folded }
-
+            // Blend saturation → sinusoidal fold
+            let foldBlend = (character - 0.5) * 2.0
+            let sat = saturate(x * 2.0)
+            let gain = 1.0 + foldBlend * 3.0
+            let folded = sin(.pi * 0.5 * x * gain)
+            prevX = x
             return sat * (1.0 - foldBlend) + folded * foldBlend
         }
     }
 
-    // MARK: - Tune Ratios
-
-    /// Piecewise curve mapping tune parameter (0–1) to three oscillator frequency ratios.
+    /// Asymmetric saturation: positive x/(1+x), negative x/(1-0.8x).
     @inline(__always)
-    private func tuneRatios(tune: Double) -> (Double, Double, Double) {
-        if tune < 0.1 {
-            // Unison detune: ±7 cents max
-            let t = tune / 0.1
-            let detuneCents = t * 7.0
-            let ratioUp = pow(2.0, detuneCents / 1200.0)
-            let ratioDown = pow(2.0, -detuneCents / 1200.0)
-            return (1.0, ratioUp, ratioDown)
-        } else if tune < 0.25 {
-            // Close intervals: unison → fifth → octave
-            let t = (tune - 0.1) / 0.15
-            let ratioB = 1.0 + t * 0.5   // 1.0 → 1.5 (fifth)
-            let ratioC = 1.0 + t * 1.0   // 1.0 → 2.0 (octave)
-            return (1.0, ratioB, ratioC)
-        } else if tune < 0.5 {
-            // Harmonic FM ratios: 1:1.5:2 → 1:2:3
-            let t = (tune - 0.25) / 0.25
-            let ratioB = 1.5 + t * 0.5   // 1.5 → 2.0
-            let ratioC = 2.0 + t * 1.0   // 2.0 → 3.0
-            return (1.0, ratioB, ratioC)
-        } else if tune < 0.75 {
-            // Enharmonic ratios: → 1:√7:π
-            let t = (tune - 0.5) / 0.25
-            let ratioB = 2.0 + t * (2.6457513 - 2.0)  // 2.0 → √7
-            let ratioC = 3.0 + t * (.pi - 3.0)         // 3.0 → π
-            return (1.0, ratioB, ratioC)
+    private func saturate(_ x: Double) -> Double {
+        if x >= 0 {
+            return x / (1.0 + x)
         } else {
-            // Extreme spread: → 1:7.3:11.7
-            let t = (tune - 0.75) / 0.25
-            let ratioB = 2.6457513 + t * (7.3 - 2.6457513)   // √7 → 7.3
-            let ratioC = .pi + t * (11.7 - .pi)                // π → 11.7
-            return (1.0, ratioB, ratioC)
+            return x / (1.0 - 0.8 * x)
+        }
+    }
+
+    /// Antiderivative of asymmetric saturation for ADAA.
+    /// Positive: F(x) = x - ln(1+x)
+    /// Negative: F(x) = -1.5625·ln(1-0.8x) - 1.25x
+    @inline(__always)
+    private func saturateAntideriv(_ x: Double) -> Double {
+        if x >= 0 {
+            return x - log(1.0 + x)
+        } else {
+            return -1.5625 * log(1.0 - 0.8 * x) - 1.25 * x
+        }
+    }
+
+    // MARK: - Matrix Coupling Topology
+
+    /// Compute 6 coupling weight targets from MATRIX parameter.
+    /// 5 waypoints with raised-cosine interpolation.
+    private mutating func computeMatrixTargets(matrix: Double) {
+        // Waypoints: [None, Symmetric, FM Chain, Asymmetric, Full]
+        //            A←B   A←C   B←A   B←C   C←A   C←B
+        // 0.00 None:  0     0     0     0     0     0
+        // 0.25 Sym:   0.5   0.5   0.5   0.5   0.5   0.5
+        // 0.50 FM:    1.0   0.0   0.0   1.0   0.0   0.0
+        // 0.75 Asym:  1.0   0.3   0.0   1.0   0.7   0.0
+        // 1.00 Full:  1.0   1.0   1.0   1.0   1.0   1.0
+
+        let seg = matrix * 4.0
+        let idx = min(3, Int(seg))
+        let t = seg - Double(idx)
+        let blend = 0.5 - 0.5 * cos(.pi * t)
+
+        // Waypoint values per weight [AB, AC, BA, BC, CA, CB]
+        switch idx {
+        case 0: // None → Symmetric
+            wABt = 0.5 * blend
+            wACt = 0.5 * blend
+            wBAt = 0.5 * blend
+            wBCt = 0.5 * blend
+            wCAt = 0.5 * blend
+            wCBt = 0.5 * blend
+        case 1: // Symmetric → FM Chain
+            wABt = 0.5 * (1 - blend) + 1.0 * blend
+            wACt = 0.5 * (1 - blend) + 0.0 * blend
+            wBAt = 0.5 * (1 - blend) + 0.0 * blend
+            wBCt = 0.5 * (1 - blend) + 1.0 * blend
+            wCAt = 0.5 * (1 - blend) + 0.0 * blend
+            wCBt = 0.5 * (1 - blend) + 0.0 * blend
+        case 2: // FM Chain → Asymmetric
+            wABt = 1.0 * (1 - blend) + 1.0 * blend
+            wACt = 0.0 * (1 - blend) + 0.3 * blend
+            wBAt = 0.0 * (1 - blend) + 0.0 * blend
+            wBCt = 1.0 * (1 - blend) + 1.0 * blend
+            wCAt = 0.0 * (1 - blend) + 0.7 * blend
+            wCBt = 0.0 * (1 - blend) + 0.0 * blend
+        default: // Asymmetric → Full
+            wABt = 1.0 * (1 - blend) + 1.0 * blend
+            wACt = 0.3 * (1 - blend) + 1.0 * blend
+            wBAt = 0.0 * (1 - blend) + 1.0 * blend
+            wBCt = 1.0 * (1 - blend) + 1.0 * blend
+            wCAt = 0.7 * (1 - blend) + 1.0 * blend
+            wCBt = 0.0 * (1 - blend) + 1.0 * blend
         }
     }
 
@@ -334,19 +454,31 @@ struct FuseVoice {
 
     // MARK: - Envelope
 
+    private mutating func recomputeEnvelopeCoeffs(sampleRate: Double) {
+        let attackSec = 0.001 * pow(500.0, attackParam)
+        let decaySec = 0.05 * pow(100.0, decayParam)
+        attackCoeff = 1.0 - exp(-1.0 / (attackSec * sampleRate))
+        decayCoeff = exp(-1.0 / (decaySec * sampleRate))
+    }
+
     private mutating func advanceEnvelope() {
         switch envPhase {
         case 1: // Attack (one-pole toward 1.0)
-            envValue += (1.0 - envValue) * 0.003
+            envValue += (1.0 - envValue) * attackCoeff
             if envValue >= 0.999 {
                 envValue = 1.0
-                envPhase = 2
+                envPhase = 2 // → decay (one-shot)
             }
-        case 2: // Sustain
-            break
-        case 3: // Release (multiplicative decay)
-            envValue *= 0.9997
+        case 2: // Decay (multiplicative, one-shot — ignores note-off)
+            envValue *= decayCoeff
             if envValue < 0.0001 {
+                envValue = 0
+                envPhase = 0
+                isActive = false
+            }
+        case 3: // Fast release (note-off during attack)
+            envValue -= stealFadeRate
+            if envValue <= 0.001 {
                 envValue = 0
                 envPhase = 0
                 isActive = false

@@ -1112,12 +1112,15 @@ final class NodeAudioUnit {
                 case .setLFOSlotCount(let count):
                     lfoBank.slotCount = count
 
-                case .setFuse(let character, let tune, let couple,
-                              let filterVal, let feedback, let warmth, let newVolume):
+                case .setFuse(let character, let tune, let matrix,
+                              let filterVal, let feedback, let filterFB,
+                              let attack, let decay,
+                              let warmth, let newVolume):
                     volume = newVolume
                     fuse.configureFuse(
-                        character: character, tune: tune, couple: couple,
-                        filter: filterVal, feedback: feedback, warmth: warmth
+                        character: character, tune: tune, matrix: matrix,
+                        filter: filterVal, feedback: feedback, filterFB: filterFB,
+                        attack: attack, decay: decay, warmth: warmth
                     )
 
                 case .setDrumVoice:
@@ -2294,9 +2297,10 @@ final class NodeAudioUnit {
     func configureFuse(_ config: FuseConfig) {
         commandBuffer.push(.setFuse(
             character: config.character, tune: config.tune,
-            couple: config.couple, filter: config.filter,
-            feedback: config.feedback, warmth: config.warmth,
-            volume: config.volume
+            matrix: config.matrix, filter: config.filter,
+            feedback: config.feedback, filterFB: config.filterFB,
+            attack: config.attack, decay: config.decay,
+            warmth: config.warmth, volume: config.volume
         ))
     }
 

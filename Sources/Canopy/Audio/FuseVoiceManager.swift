@@ -168,29 +168,34 @@ struct FuseVoiceManager {
     // MARK: - Bulk Configuration
 
     mutating func configureFuse(
-        character: Double, tune: Double, couple: Double,
-        filter: Double, feedback: Double, warmth: Double
+        character: Double, tune: Double, matrix: Double,
+        filter: Double, feedback: Double, filterFB: Double,
+        attack: Double, decay: Double, warmth: Double
     ) {
-        applyConfig(&voices.0, character: character, tune: tune, couple: couple, filter: filter, feedback: feedback, warmth: warmth)
-        applyConfig(&voices.1, character: character, tune: tune, couple: couple, filter: filter, feedback: feedback, warmth: warmth)
-        applyConfig(&voices.2, character: character, tune: tune, couple: couple, filter: filter, feedback: feedback, warmth: warmth)
-        applyConfig(&voices.3, character: character, tune: tune, couple: couple, filter: filter, feedback: feedback, warmth: warmth)
-        applyConfig(&voices.4, character: character, tune: tune, couple: couple, filter: filter, feedback: feedback, warmth: warmth)
-        applyConfig(&voices.5, character: character, tune: tune, couple: couple, filter: filter, feedback: feedback, warmth: warmth)
-        applyConfig(&voices.6, character: character, tune: tune, couple: couple, filter: filter, feedback: feedback, warmth: warmth)
-        applyConfig(&voices.7, character: character, tune: tune, couple: couple, filter: filter, feedback: feedback, warmth: warmth)
+        applyConfig(&voices.0, character: character, tune: tune, matrix: matrix, filter: filter, feedback: feedback, filterFB: filterFB, attack: attack, decay: decay, warmth: warmth)
+        applyConfig(&voices.1, character: character, tune: tune, matrix: matrix, filter: filter, feedback: feedback, filterFB: filterFB, attack: attack, decay: decay, warmth: warmth)
+        applyConfig(&voices.2, character: character, tune: tune, matrix: matrix, filter: filter, feedback: feedback, filterFB: filterFB, attack: attack, decay: decay, warmth: warmth)
+        applyConfig(&voices.3, character: character, tune: tune, matrix: matrix, filter: filter, feedback: feedback, filterFB: filterFB, attack: attack, decay: decay, warmth: warmth)
+        applyConfig(&voices.4, character: character, tune: tune, matrix: matrix, filter: filter, feedback: feedback, filterFB: filterFB, attack: attack, decay: decay, warmth: warmth)
+        applyConfig(&voices.5, character: character, tune: tune, matrix: matrix, filter: filter, feedback: feedback, filterFB: filterFB, attack: attack, decay: decay, warmth: warmth)
+        applyConfig(&voices.6, character: character, tune: tune, matrix: matrix, filter: filter, feedback: feedback, filterFB: filterFB, attack: attack, decay: decay, warmth: warmth)
+        applyConfig(&voices.7, character: character, tune: tune, matrix: matrix, filter: filter, feedback: feedback, filterFB: filterFB, attack: attack, decay: decay, warmth: warmth)
     }
 
     private func applyConfig(
         _ voice: inout FuseVoice,
-        character: Double, tune: Double, couple: Double,
-        filter: Double, feedback: Double, warmth: Double
+        character: Double, tune: Double, matrix: Double,
+        filter: Double, feedback: Double, filterFB: Double,
+        attack: Double, decay: Double, warmth: Double
     ) {
         voice.characterTarget = character
         voice.tuneTarget = tune
-        voice.coupleTarget = couple
+        voice.matrixTarget = matrix
         voice.filterTarget = filter
         voice.feedbackTarget = feedback
+        voice.filterFBTarget = filterFB
+        voice.attackTarget = attack
+        voice.decayTarget = decay
         voice.warmthTarget = warmth
     }
 
@@ -222,8 +227,24 @@ struct FuseVoiceManager {
         let warmLevel = Float(voices.0.warmthParam)
         mix = WarmProcessor.applyPowerSagMono(&warmNodeState, sample: mix, warm: warmLevel)
 
-        // Output limiting
-        return Float(tanh(Double(mix) * 0.8) * 3.0)
+        // Dynamic headroom limiting (single tanh)
+        let activeCount = countActiveVoices()
+        let headroom = 1.0 / max(1.0, Double(activeCount) * 0.5)
+        return Float(tanh(Double(mix) * headroom) * 2.0)
+    }
+
+    /// Count currently active voices for dynamic headroom.
+    private func countActiveVoices() -> Int {
+        var count = 0
+        if voices.0.isActive { count += 1 }
+        if voices.1.isActive { count += 1 }
+        if voices.2.isActive { count += 1 }
+        if voices.3.isActive { count += 1 }
+        if voices.4.isActive { count += 1 }
+        if voices.5.isActive { count += 1 }
+        if voices.6.isActive { count += 1 }
+        if voices.7.isActive { count += 1 }
+        return count
     }
 
     /// Kill all voices immediately.
