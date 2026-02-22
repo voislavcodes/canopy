@@ -14,6 +14,7 @@ struct SporePanel: View {
     @State private var localSnap: Double = 0.0
     @State private var localSize: Double = 0.4
     @State private var localChirp: Double = 0.0
+    @State private var localBias: Double = 0.0
     @State private var localEvolve: Double = 0.3
     @State private var localSync: Bool = false
 
@@ -162,6 +163,11 @@ struct SporePanel: View {
                             commitConfig { $0.chirp = localChirp }
                         } onDrag: { pushConfigToEngine() }
 
+                        bipolarSlider(label: "BIAS", value: $localBias,
+                                      format: { biasDisplayText($0) }) {
+                            commitConfig { $0.bias = localBias }
+                        } onDrag: { pushConfigToEngine() }
+
                         paramSlider(label: "EVLV", value: $localEvolve, range: 0...1,
                                     format: { "\(Int($0 * 100))%" }) {
                             commitConfig { $0.evolve = localEvolve }
@@ -290,6 +296,12 @@ struct SporePanel: View {
         return pct > 0 ? "+\(pct)%" : "\(pct)%"
     }
 
+    private func biasDisplayText(_ v: Double) -> String {
+        let pct = Int(v * 100)
+        if pct == 0 { return "0" }
+        return pct > 0 ? "+\(pct)%" : "\(pct)%"
+    }
+
     private func filterDisplayText(_ v: Double) -> String {
         if v >= 0.99 { return "BYP" }
         let hz = 200.0 * pow(80.0, v)
@@ -330,6 +342,7 @@ struct SporePanel: View {
         localSnap = config.snap
         localSize = config.size
         localChirp = config.chirp
+        localBias = config.bias
         localEvolve = config.evolve
         localSync = config.sync
         localFilter = config.filter
@@ -640,6 +653,7 @@ struct SporePanel: View {
             snap: localSnap,
             size: localSize,
             chirp: localChirp,
+            bias: localBias,
             evolve: localEvolve,
             sync: localSync,
             filter: localFilter,

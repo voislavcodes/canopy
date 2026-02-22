@@ -87,6 +87,9 @@ struct SporeVoice {
     var sizeTarget: Double = 0.4
     var chirpParam: Double = 0.0
     var chirpTarget: Double = 0.0
+    var biasParam: Double = 0.0
+    var biasTarget: Double = 0.0
+    var cachedBiasExponent: Double = 1.0
     var evolveParam: Double = 0.3
     var evolveTarget: Double = 0.3
     var snapParam: Double = 0.0
@@ -329,6 +332,7 @@ struct SporeVoice {
         snapParam += (snapTarget - snapParam) * paramSmooth
         sizeParam += (sizeTarget - sizeParam) * paramSmooth
         chirpParam += (chirpTarget - chirpParam) * paramSmooth
+        biasParam += (biasTarget - biasParam) * paramSmooth
         evolveParam += (evolveTarget - evolveParam) * paramSmooth
         filterParam += (filterTarget - filterParam) * paramSmooth
         widthParam += (widthTarget - widthParam) * paramSmooth
@@ -341,6 +345,8 @@ struct SporeVoice {
         if controlCounter >= Self.controlBlockSize {
             controlCounter = 0
             advanceEvolution(sampleRate: sampleRate)
+            // Update bias exponent at control rate: pow(4, -bias)
+            cachedBiasExponent = pow(4.0, -biasParam)
             // WARM pitch drift (control rate)
             let driftCents = WarmProcessor.computePitchOffset(&warmState, warm: Float(warmthParam), sampleRate: Float(sampleRate))
             warmState.cachedDriftMul = powf(2.0, driftCents / 1200.0)
@@ -656,9 +662,11 @@ struct SporeVoice {
     /// FOCS > 0.7: harmonic series + tight scatter.
     /// FOCS 0.3–0.7: inharmonic blend (bell/metal/glass).
     /// FOCS < 0.3: free spectrum (pink-weighted 20Hz–16kHz).
+    /// BIAS warps draws via power-law: negative = dark/low, positive = bright/high.
     /// After drawing, apply SNAP pitch quantization toward scale degrees.
     private mutating func drawFrequency(f0: Double, focus: Double, sampleRate: Double) -> Double {
         let nyquist = sampleRate * 0.5 - 100
+        let biasExp = cachedBiasExponent
         var freq: Double
 
         if focus > 0.7 {
@@ -672,7 +680,7 @@ struct SporeVoice {
             }
             numHarmonics = max(1, numHarmonics)
 
-            let harmonic = drawWeightedHarmonic(numHarmonics: numHarmonics)
+            let harmonic = drawWeightedHarmonic(numHarmonics: numHarmonics, biasExp: biasExp)
             let harmonicFreq = f0 * Double(harmonic)
             let scatter = gaussianRandom() * f0 * 0.02
             let centroidOffset = centroidShift * f0 * 0.5
@@ -683,10 +691,20 @@ struct SporeVoice {
             let inharmonicBlend = 1.0 - ((focus - 0.3) / 0.4)  // 0 at focus=0.7, 1 at focus=0.3
 
             if xorshiftUnit() < inharmonicBlend {
-                // Draw from inharmonic ratios
-                let ratio = drawInharmonicRatio()
-                // Random octave shift: 0.5x, 1x, 2x, 4x
-                let octaveShift = pow(2.0, Double(Int(xorshiftUnit() * 4.0)) - 1.0)
+                // Draw from inharmonic ratios — warp index draw with bias
+                let u = xorshiftUnit()
+                let warpedU = pow(u, biasExp)
+                let index = Int(warpedU * 16.0) & 15
+                var ratio = 1.0
+                withUnsafePointer(to: Self.inharmonicRatios) { ptr in
+                    ptr.withMemoryRebound(to: Double.self, capacity: 16) { p in
+                        ratio = p[index]
+                    }
+                }
+                // Warp octave shift draw: 0.5x, 1x, 2x, 4x
+                let octU = xorshiftUnit()
+                let warpedOctU = pow(octU, biasExp)
+                let octaveShift = pow(2.0, Double(Int(warpedOctU * 4.0)) - 1.0)
                 let f = f0 * ratio * octaveShift
                 let scatter = gaussianRandom() * f0 * 0.03
                 freq = max(20, min(nyquist, f + scatter))
@@ -700,7 +718,7 @@ struct SporeVoice {
                     }
                 }
                 numHarmonics = max(1, numHarmonics)
-                let harmonic = drawWeightedHarmonic(numHarmonics: numHarmonics)
+                let harmonic = drawWeightedHarmonic(numHarmonics: numHarmonics, biasExp: biasExp)
                 let harmonicFreq = f0 * Double(harmonic)
                 let scatter = gaussianRandom() * f0 * 0.05
                 freq = max(20, min(nyquist, harmonicFreq + scatter))
@@ -708,10 +726,12 @@ struct SporeVoice {
 
         } else {
             // FREE SPECTRUM MODE: pink-weighted draw across 20Hz–16kHz
-            // Log-uniform = equal probability per octave
+            // Log-uniform = equal probability per octave, warped by bias
             let logLow = log2(20.0)
             let logHigh = log2(min(16000.0, nyquist))
-            let logFreq = logLow + xorshiftUnit() * (logHigh - logLow)
+            let u = xorshiftUnit()
+            let warpedU = pow(u, biasExp)
+            let logFreq = logLow + warpedU * (logHigh - logLow)
             freq = pow(2.0, logFreq)
 
             // Gentle attraction toward f0's region proportional to remaining focus
@@ -746,7 +766,9 @@ struct SporeVoice {
     }
 
     /// Draw a harmonic number using cumulative distribution sampling.
-    private mutating func drawWeightedHarmonic(numHarmonics: Int) -> Int {
+    /// The `biasExp` parameter warps the uniform draw before CDF sampling:
+    /// > 1.0 pushes toward low harmonics (dark), < 1.0 pushes toward high harmonics (bright).
+    private mutating func drawWeightedHarmonic(numHarmonics: Int, biasExp: Double) -> Int {
         // Build cumulative weights
         var totalWeight = 0.0
         withUnsafePointer(to: &harmonicWeights) { ptr in
@@ -759,7 +781,10 @@ struct SporeVoice {
 
         guard totalWeight > 0 else { return 1 }
 
-        let target = xorshiftUnit() * totalWeight
+        // Warp uniform draw with power-law bias
+        let u = xorshiftUnit()
+        let warpedU = pow(u, biasExp)
+        let target = warpedU * totalWeight
         var cumulative = 0.0
         var selected = 1
 

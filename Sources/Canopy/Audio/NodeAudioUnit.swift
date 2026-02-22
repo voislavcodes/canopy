@@ -2014,7 +2014,7 @@ final class NodeAudioUnit {
                     lfoBank.slotCount = count
 
                 case .setSpore(let density, let form, let focus, let snap, let size,
-                               let chirp, let evolve, let sync,
+                               let chirp, let bias, let evolve, let sync,
                                let filter, let filterMode, let width,
                                let attack, let decay,
                                let warmth, let newVolume,
@@ -2023,7 +2023,7 @@ final class NodeAudioUnit {
                     volume = newVolume
                     spore.configureSpore(
                         density: density, form: form, focus: focus, snap: snap, size: size,
-                        chirp: chirp, evolve: evolve, sync: sync,
+                        chirp: chirp, bias: bias, evolve: evolve, sync: sync,
                         filter: filter, filterMode: filterMode, width: width,
                         attack: attack, decay: decay,
                         warmth: warmth,
@@ -2366,7 +2366,7 @@ final class NodeAudioUnit {
         commandBuffer.push(.setSpore(
             density: config.density, form: config.form, focus: config.focus,
             snap: config.snap, size: config.size,
-            chirp: config.chirp, evolve: config.evolve, sync: config.sync,
+            chirp: config.chirp, bias: config.bias, evolve: config.evolve, sync: config.sync,
             filter: config.filter, filterMode: config.filterMode, width: config.width,
             attack: config.attack, decay: config.decay,
             warmth: config.warmth, volume: config.volume,

@@ -625,6 +625,7 @@ struct SporeConfig: Codable, Equatable {
     var snap: Double = 0.0          // 0–1: pitch quantization toward scale degrees
     var size: Double = 0.4          // 0–1: grain duration (1ms–2000ms exponential)
     var chirp: Double = 0.0         // -1 to +1: grain pitch sweep (negative=rises, positive=falls)
+    var bias: Double = 0.0          // -1 to +1: spectral tilt (negative=dark, positive=bright)
     var evolve: Double = 0.3        // 0–1: evolution rate on all dimensions
     var sync: Bool = false          // true = regular grain intervals, false = Poisson (async)
     var filter: Double = 1.0        // 0–1: per-voice SVF cutoff (200Hz–bypass)
@@ -654,6 +655,7 @@ struct SporeConfig: Codable, Equatable {
         snap: Double = 0.0,
         size: Double = 0.4,
         chirp: Double = 0.0,
+        bias: Double = 0.0,
         evolve: Double = 0.3,
         sync: Bool = false,
         filter: Double = 1.0,
@@ -678,6 +680,7 @@ struct SporeConfig: Codable, Equatable {
         self.snap = snap
         self.size = size
         self.chirp = chirp
+        self.bias = bias
         self.evolve = evolve
         self.sync = sync
         self.filter = filter
@@ -700,7 +703,7 @@ struct SporeConfig: Codable, Equatable {
     // MARK: - Backward-compatible decoding
 
     private enum CodingKeys: String, CodingKey {
-        case density, form, focus, snap, size, grain, chirp, evolve, sync
+        case density, form, focus, snap, size, grain, chirp, bias, evolve, sync
         case filter, filterMode, width, attack, decay, warmth, volume, pan
         case funcShape, funcRate, funcAmount, funcSync, funcDiv
         case imprint, spectralSource
@@ -719,6 +722,7 @@ struct SporeConfig: Codable, Equatable {
             size = try container.decodeIfPresent(Double.self, forKey: .grain) ?? 0.4
         }
         chirp = try container.decodeIfPresent(Double.self, forKey: .chirp) ?? 0.0
+        bias = try container.decodeIfPresent(Double.self, forKey: .bias) ?? 0.0
         evolve = try container.decode(Double.self, forKey: .evolve)
         sync = try container.decodeIfPresent(Bool.self, forKey: .sync) ?? false
         filter = try container.decodeIfPresent(Double.self, forKey: .filter) ?? 1.0
@@ -746,6 +750,7 @@ struct SporeConfig: Codable, Equatable {
         try container.encode(snap, forKey: .snap)
         try container.encode(size, forKey: .size)
         try container.encode(chirp, forKey: .chirp)
+        try container.encode(bias, forKey: .bias)
         try container.encode(evolve, forKey: .evolve)
         try container.encode(sync, forKey: .sync)
         try container.encode(filter, forKey: .filter)

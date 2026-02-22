@@ -80,7 +80,7 @@ enum AudioCommand {
 
     // SPORE engine: stochastic granular synthesis
     case setSpore(density: Double, form: Double, focus: Double, snap: Double, size: Double,
-                  chirp: Double, evolve: Double, sync: Bool,
+                  chirp: Double, bias: Double, evolve: Double, sync: Bool,
                   filter: Double, filterMode: Int, width: Double,
                   attack: Double, decay: Double,
                   warmth: Double, volume: Double,
