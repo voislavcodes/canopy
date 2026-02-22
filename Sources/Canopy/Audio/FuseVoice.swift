@@ -92,7 +92,7 @@ struct FuseVoice {
     var isActive: Bool = false
     var envelopeLevel: Float = 0
 
-    // AD Envelope: 0=idle, 1=attack, 2=decay, 3=fast-release, 4=steal-fade
+    // ASR Envelope: 0=idle, 1=attack, 2=sustain, 3=release, 4=fast-release, 5=steal-fade
     var envPhase: Int = 0
     var envValue: Double = 0
     var attackCoeff: Double = 0
@@ -129,7 +129,7 @@ struct FuseVoice {
             pendingVelocity = velocity
             cachedSampleRate = sampleRate
             stealFadeRate = 1.0 / max(1, 0.005 * sampleRate)
-            envPhase = 4
+            envPhase = 5
             return
         }
         beginNote(pitch: pitch, velocity: velocity, sampleRate: sampleRate)
@@ -171,12 +171,12 @@ struct FuseVoice {
         switch envPhase {
         case 1:
             // Note-off during attack → fast 5ms release
-            envPhase = 3
+            envPhase = 4
             let fastReleaseSec = 0.005
             stealFadeRate = 1.0 / max(1, fastReleaseSec * sampleRate)
         case 2:
-            // Note-off during decay → already fading, no change
-            break
+            // Note-off during sustain → release using decay parameter
+            envPhase = 3
         default:
             break
         }
@@ -481,23 +481,25 @@ struct FuseVoice {
             envValue += (1.0 - envValue) * attackCoeff
             if envValue >= 0.999 {
                 envValue = 1.0
-                envPhase = 2 // → decay (one-shot)
+                envPhase = 2 // → sustain (hold while note held)
             }
-        case 2: // Decay (multiplicative, one-shot — ignores note-off)
+        case 2: // Sustain (hold at peak, waiting for note-off)
+            break
+        case 3: // Release (multiplicative decay after note-off)
             envValue *= decayCoeff
             if envValue < 0.0001 {
                 envValue = 0
                 envPhase = 0
                 isActive = false
             }
-        case 3: // Fast release (note-off during attack)
+        case 4: // Fast release (note-off during attack)
             envValue -= stealFadeRate
             if envValue <= 0.001 {
                 envValue = 0
                 envPhase = 0
                 isActive = false
             }
-        case 4: // Steal-fade
+        case 5: // Steal-fade
             envValue -= stealFadeRate
             if envValue <= 0.001 {
                 envValue = 0

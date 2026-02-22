@@ -170,7 +170,7 @@ struct FusePanel: View {
                 commitConfig { $0.attack = localAttack }
             } onDrag: { pushConfigToEngine() }
 
-            paramSlider(label: "DCY", value: $localDecay, range: 0...1,
+            paramSlider(label: "REL", value: $localDecay, range: 0...1,
                         format: { decayDisplayText($0) }) {
                 commitConfig { $0.decay = localDecay }
             } onDrag: { pushConfigToEngine() }
