@@ -8,7 +8,7 @@ struct ForestPitchedPanel: View {
     var transportState: TransportState
     @Environment(\.canvasScale) var cs
 
-    private let panelWidth: CGFloat = 440
+    private let panelWidth: CGFloat = 380
 
     // MARK: - Local drag state
 
@@ -69,8 +69,6 @@ struct ForestPitchedPanel: View {
             if node?.sequence.accumulator != nil {
                 accumulatorDetails
             }
-
-            toolButtons
 
             if isArpActive {
                 arpDetailControls
@@ -455,9 +453,30 @@ struct ForestPitchedPanel: View {
             )
         }
         .frame(height: gridHeight)
-        .background(
-            RoundedRectangle(cornerRadius: 4 * cs)
-                .fill(Color.black.opacity(0.3))
+        .overlay(
+            // Freeze / Reset icons overlaid on MUT cell (row 1, col 0) upper-right
+            GeometryReader { geo in
+                let cW = geo.size.width / 3
+                let cH = geo.size.height / 2
+                VStack(spacing: 4 * cs) {
+                    Button(action: { freezeMutation() }) {
+                        Text("❄")
+                            .font(.system(size: 10 * cs, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.45))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Freeze mutations")
+
+                    Button(action: { resetMutation() }) {
+                        Text("↺")
+                            .font(.system(size: 11 * cs, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.45))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Reset mutations")
+                }
+                .position(x: cW - 8 * cs, y: cH + cH * 0.35)
+            }
         )
     }
 
@@ -589,49 +608,6 @@ struct ForestPitchedPanel: View {
         }
     }
 
-    // MARK: - Tool Buttons (Freeze / Reset)
-
-    private var toolButtons: some View {
-        HStack(spacing: 8 * cs) {
-            Button(action: { freezeMutation() }) {
-                HStack(spacing: 4 * cs) {
-                    Text("❄")
-                        .font(.system(size: 11 * cs, design: .monospaced))
-                    Text("Freeze")
-                        .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
-                }
-                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                .padding(.horizontal, 8 * cs)
-                .padding(.vertical, 4 * cs)
-                .background(
-                    RoundedRectangle(cornerRadius: 4 * cs)
-                        .fill(CanopyColors.chromeBackground.opacity(0.3))
-                )
-            }
-            .buttonStyle(.plain)
-            .help("Freeze mutations")
-
-            Button(action: { resetMutation() }) {
-                HStack(spacing: 4 * cs) {
-                    Text("↺")
-                        .font(.system(size: 11 * cs, design: .monospaced))
-                    Text("Reset")
-                        .font(.system(size: 9 * cs, weight: .medium, design: .monospaced))
-                }
-                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                .padding(.horizontal, 8 * cs)
-                .padding(.vertical, 4 * cs)
-                .background(
-                    RoundedRectangle(cornerRadius: 4 * cs)
-                        .fill(CanopyColors.chromeBackground.opacity(0.3))
-                )
-            }
-            .buttonStyle(.plain)
-            .help("Reset mutations")
-
-            Spacer()
-        }
-    }
 
     // MARK: - Draw Helpers
 
