@@ -5,6 +5,7 @@ struct CanopyCanvasView: View {
     @ObservedObject var projectState: ProjectState
     @ObservedObject var canvasState: CanvasState
     @ObservedObject var bloomState: BloomState
+    @ObservedObject var viewModeManager: ViewModeManager
     var transportState: TransportState
 
     @State private var scrollMonitor: Any?
@@ -139,7 +140,6 @@ struct CanopyCanvasView: View {
             .onChange(of: projectState.selectedNodeID) { _ in
                 showPresetPicker = false
                 editingNodeID = nil
-                bloomState.focusedPanel = nil
             }
         }
     }
@@ -248,135 +248,28 @@ struct CanopyCanvasView: View {
 
         let scale = canvasState.scale
 
-        let isDrumEngine: Bool = {
-            if case .drumKit = node.patch.soundType { return true }
-            return false
-        }()
-
-        let isWestCoastEngine: Bool = {
-            if case .westCoast = node.patch.soundType { return true }
-            return false
-        }()
-
-        let isFlowEngine: Bool = {
-            if case .flow = node.patch.soundType { return true }
-            return false
-        }()
-
-        let isTideEngine: Bool = {
-            if case .tide = node.patch.soundType { return true }
-            return false
-        }()
-
-        let isSwarmEngine: Bool = {
-            if case .swarm = node.patch.soundType { return true }
-            return false
-        }()
-
-        let isQuakeEngine: Bool = {
-            if case .quake = node.patch.soundType { return true }
-            return false
-        }()
-
-        let isSporeEngine: Bool = {
-            if case .spore = node.patch.soundType { return true }
-            return false
-        }()
-
-        let isFuseEngine: Bool = {
-            if case .fuse = node.patch.soundType { return true }
-            return false
-        }()
-
-        let isVoltEngine: Bool = {
-            if case .volt = node.patch.soundType { return true }
-            return false
-        }()
-
-        // Resolve effective module types (override or derive from SoundType)
-        let effectiveSeqType = node.sequencerType ?? (isSporeEngine ? .sporeSeq : (isDrumEngine || isQuakeEngine || isVoltEngine) ? .drum : .pitched)
-        let effectiveInputMode = node.inputMode ?? ((isDrumEngine || isQuakeEngine || isVoltEngine) ? .padGrid : .keyboard)
-
-        // Focus mode: show dimming overlay + single centered panel
-        if let focused = bloomState.focusedPanel {
-            bloomFocusOverlay(
-                focused: focused,
-                node: node,
-                viewSize: viewSize,
-                isDrumEngine: isDrumEngine,
-                isWestCoastEngine: isWestCoastEngine,
-                isFlowEngine: isFlowEngine,
-                isTideEngine: isTideEngine,
-                isSwarmEngine: isSwarmEngine,
-                isQuakeEngine: isQuakeEngine,
-                isSporeEngine: isSporeEngine,
-                isFuseEngine: isFuseEngine,
-                isVoltEngine: isVoltEngine,
-                effectiveSeqType: effectiveSeqType,
-                effectiveInputMode: effectiveInputMode
+        // Normal bloom layout
+        ZStack {
+            BloomConnectors(
+                nodeCenter: nodeScreen,
+                synthCenter: canvasToScreen(CGPoint(x: synthCanvas.x + 180, y: synthCanvas.y - 50), viewSize: viewSize),
+                seqCenter: canvasToScreen(CGPoint(x: seqCanvas.x - 120, y: seqCanvas.y - 50), viewSize: viewSize),
+                inputCenter: canvasToScreen(CGPoint(x: keyboardCanvas.x, y: keyboardCanvas.y - 20), viewSize: viewSize)
             )
-        } else {
-            // Normal bloom layout
-            ZStack {
-                BloomConnectors(
-                    nodeCenter: nodeScreen,
-                    synthCenter: canvasToScreen(CGPoint(x: synthCanvas.x + 180, y: synthCanvas.y - 50), viewSize: viewSize),
-                    seqCenter: canvasToScreen(CGPoint(x: seqCanvas.x - 120, y: seqCanvas.y - 50), viewSize: viewSize),
-                    inputCenter: canvasToScreen(CGPoint(x: keyboardCanvas.x, y: keyboardCanvas.y - 20), viewSize: viewSize)
-                )
 
-                // Left panel: voice/synth controls (always follows engine type)
-                DraggableBloomPanel(panel: .synth, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: synthScreen) {
-                    Group {
-                        if isQuakeEngine {
-                            QuakePanel(projectState: projectState)
-                        } else if isDrumEngine {
-                            DrumVoicePanel(projectState: projectState)
-                        } else if isWestCoastEngine {
-                            WestCoastPanel(projectState: projectState)
-                        } else if isFlowEngine {
-                            FlowPanel(projectState: projectState)
-                        } else if isTideEngine {
-                            TidePanel(projectState: projectState)
-                        } else if isSwarmEngine {
-                            SwarmPanel(projectState: projectState)
-                        } else if isSporeEngine {
-                            SporePanel(projectState: projectState)
-                        } else if isFuseEngine {
-                            FusePanel(projectState: projectState)
-                        } else if isVoltEngine {
-                            VoltPanel(projectState: projectState)
-                        } else {
-                            SynthControlsPanel(projectState: projectState)
-                        }
-                    }
-                }
+            // Left panel: voice/synth controls
+            DraggableBloomPanel(panel: .synth, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: synthScreen) {
+                ForestEngineView(projectState: projectState)
+            }
 
-                // Right panel: sequencer (swappable)
-                DraggableBloomPanel(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: seqScreen) {
-                    Group {
-                        if effectiveSeqType == .sporeSeq {
-                            SporeSeqPanel(projectState: projectState)
-                        } else if effectiveSeqType == .orbit {
-                            OrbitSequencerPanel(projectState: projectState, transportState: transportState)
-                        } else if effectiveSeqType == .drum {
-                            DrumSequencerPanel(projectState: projectState, transportState: transportState)
-                        } else {
-                            StepSequencerPanel(projectState: projectState, transportState: transportState)
-                        }
-                    }
-                }
+            // Right panel: sequencer
+            DraggableBloomPanel(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: seqScreen) {
+                ForestSequencerView(projectState: projectState, transportState: transportState)
+            }
 
-                // Bottom: input (swappable)
-                DraggableBloomPanel(panel: .input, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: keyboardScreen) {
-                    Group {
-                        if effectiveInputMode == .padGrid {
-                            DrumPadGridView(selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
-                        } else {
-                            KeyboardBarView(baseOctave: $projectState.keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
-                        }
-                    }
-                }
+            // Bottom: input
+            DraggableBloomPanel(panel: .input, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: keyboardScreen) {
+                ForestKeyboardView(projectState: projectState, transportState: transportState)
             }
         }
     }
@@ -401,93 +294,6 @@ struct CanopyCanvasView: View {
         } else {
             // Store empty to avoid re-computing every frame
             bloomState.panelOffsets[node.id] = .zero
-        }
-    }
-
-    // MARK: - Focus Mode Overlay
-
-    @ViewBuilder
-    private func bloomFocusOverlay(
-        focused: BloomPanel,
-        node: Node,
-        viewSize: CGSize,
-        isDrumEngine: Bool,
-        isWestCoastEngine: Bool,
-        isFlowEngine: Bool = false,
-        isTideEngine: Bool = false,
-        isSwarmEngine: Bool = false,
-        isQuakeEngine: Bool = false,
-        isSporeEngine: Bool = false,
-        isFuseEngine: Bool = false,
-        isVoltEngine: Bool = false,
-        effectiveSeqType: SequencerType,
-        effectiveInputMode: InputMode
-    ) -> some View {
-        ZStack {
-            // Opaque backdrop — hides the canvas completely
-            CanopyColors.canvasBackground
-                .ignoresSafeArea()
-                .onTapGesture {
-                    withAnimation(.spring(duration: 0.3)) {
-                        bloomState.unfocus()
-                    }
-                }
-
-            // Focused panel scaled to fill ~80% of canvas height
-            let focusScale = min(viewSize.height * 0.8 / 450, 2.5)
-            Group {
-                switch focused {
-                case .synth:
-                    if isQuakeEngine {
-                        QuakePanel(projectState: projectState)
-                    } else if isDrumEngine {
-                        DrumVoicePanel(projectState: projectState)
-                    } else if isWestCoastEngine {
-                        WestCoastPanel(projectState: projectState)
-                    } else if isFlowEngine {
-                        FlowPanel(projectState: projectState)
-                    } else if isTideEngine {
-                        TidePanel(projectState: projectState)
-                    } else if isSwarmEngine {
-                        SwarmPanel(projectState: projectState)
-                    } else if isSporeEngine {
-                        SporePanel(projectState: projectState)
-                    } else if isFuseEngine {
-                        FusePanel(projectState: projectState)
-                    } else if isVoltEngine {
-                        VoltPanel(projectState: projectState)
-                    } else {
-                        SynthControlsPanel(projectState: projectState)
-                    }
-                case .sequencer:
-                    if effectiveSeqType == .sporeSeq {
-                        SporeSeqPanel(projectState: projectState)
-                    } else if effectiveSeqType == .orbit {
-                        OrbitSequencerPanel(projectState: projectState, transportState: transportState)
-                    } else if effectiveSeqType == .drum {
-                        DrumSequencerPanel(projectState: projectState, transportState: transportState)
-                    } else {
-                        StepSequencerPanel(projectState: projectState, transportState: transportState)
-                    }
-                case .input:
-                    if effectiveInputMode == .padGrid {
-                        DrumPadGridView(selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
-                    } else {
-                        KeyboardBarView(baseOctave: $projectState.keyboardOctave, selectedNodeID: projectState.selectedNodeID, projectState: projectState, transportState: transportState)
-                    }
-                }
-            }
-            .overlay(alignment: .top) {
-                BloomDragHandle(panel: focused, bloomState: bloomState)
-            }
-            .environment(\.canvasScale, min(focusScale, 2.5))
-            .position(x: viewSize.width / 2, y: viewSize.height / 2)
-            .transition(.scale(scale: 0.9).combined(with: .opacity))
-        }
-        .onExitCommand {
-            withAnimation(.spring(duration: 0.3)) {
-                bloomState.unfocus()
-            }
         }
     }
 
@@ -598,47 +404,21 @@ struct CanopyCanvasView: View {
     }
 
     private func installKeyMonitor() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak bloomState, weak projectState] event in
-            guard let bloomState = bloomState else { return event }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak viewModeManager, weak projectState] event in
+            guard let viewModeManager = viewModeManager else { return event }
 
-            // Enter — enter focus mode (default to sequencer) when a node is selected
-            if event.keyCode == 36, bloomState.focusedPanel == nil {
-                guard projectState?.selectedNodeID != nil else { return event }
+            // Enter — enter focus mode when a node is selected (only from Forest)
+            if event.keyCode == 36, viewModeManager.isForest {
+                guard let nodeID = projectState?.selectedNodeID else { return event }
                 DispatchQueue.main.async {
                     withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                        bloomState.focusedPanel = .sequencer
+                        viewModeManager.enterFocus(nodeID: nodeID)
                     }
                 }
                 return nil
             }
 
-            guard bloomState.focusedPanel != nil else { return event }
-
-            switch event.keyCode {
-            case 53: // Esc — exit focus mode
-                DispatchQueue.main.async {
-                    withAnimation(.spring(duration: 0.3)) {
-                        bloomState.unfocus()
-                    }
-                }
-                return nil
-            case 123: // Left arrow — previous panel
-                DispatchQueue.main.async {
-                    withAnimation(.spring(duration: 0.3)) {
-                        bloomState.cycleFocusedPanel(direction: -1)
-                    }
-                }
-                return nil
-            case 124: // Right arrow — next panel
-                DispatchQueue.main.async {
-                    withAnimation(.spring(duration: 0.3)) {
-                        bloomState.cycleFocusedPanel(direction: 1)
-                    }
-                }
-                return nil
-            default:
-                return event
-            }
+            return event
         }
     }
 

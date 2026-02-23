@@ -5,7 +5,8 @@ import SwiftUI
 /// so it can use @GestureState for smooth, re-render-free offset updates.
 struct BloomDragHandle: View {
     let panel: BloomPanel
-    @ObservedObject var bloomState: BloomState
+    let nodeID: UUID
+    @EnvironmentObject var viewModeManager: ViewModeManager
 
     @State private var isHovering = false
 
@@ -13,18 +14,14 @@ struct BloomDragHandle: View {
         HStack(spacing: 0) {
             Spacer()
 
-            // Focus/expand button (X when focused)
+            // Expand button — enters Focus mode for this node
             Button {
                 withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                    if bloomState.focusedPanel == panel {
-                        bloomState.unfocus()
-                    } else {
-                        bloomState.focusedPanel = panel
-                    }
+                    viewModeManager.enterFocus(nodeID: nodeID)
                 }
             } label: {
-                Image(systemName: bloomState.focusedPanel == panel ? "xmark" : "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: bloomState.focusedPanel == panel ? 10 : 11, weight: bloomState.focusedPanel == panel ? .bold : .medium))
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(CanopyColors.chromeText.opacity(isHovering ? 0.8 : 0.4))
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
@@ -82,7 +79,7 @@ struct DraggableBloomPanel<Content: View>: View {
     var body: some View {
         content
             .overlay(alignment: .top) {
-                BloomDragHandle(panel: panel, bloomState: bloomState)
+                BloomDragHandle(panel: panel, nodeID: nodeID)
                     .gesture(panelDrag)
             }
             .environment(\.canvasScale, 1.0)

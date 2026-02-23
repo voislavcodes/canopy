@@ -29,26 +29,9 @@ class BloomState: ObservableObject {
     /// Per-node custom offsets from dragging panels.
     @Published var panelOffsets: [UUID: BloomPanelOffsets] = [:]
 
-    /// Which panel is in focus mode (nil = normal bloom layout).
-    @Published var focusedPanel: BloomPanel?
-
     /// Stored offset for a panel (no live drag component).
     func storedOffset(panel: BloomPanel, nodeID: UUID) -> CGSize {
         panelOffsets[nodeID]?.offset(for: panel) ?? .zero
-    }
-
-    /// Exit focus mode.
-    func unfocus() {
-        focusedPanel = nil
-    }
-
-    /// Cycle focused panel by direction (-1 = left, +1 = right). Wraps around.
-    func cycleFocusedPanel(direction: Int) {
-        guard let current = focusedPanel else { return }
-        let panels = BloomPanel.allCases
-        guard let idx = panels.firstIndex(of: current) else { return }
-        let next = (idx + direction + panels.count) % panels.count
-        focusedPanel = panels[next]
     }
 
     // MARK: - Smart Initial Positioning

@@ -5,6 +5,7 @@ struct MainContentView: View {
     var transportState: TransportState
     @StateObject private var canvasState = CanvasState()
     @StateObject private var bloomState = BloomState()
+    @StateObject private var viewModeManager = ViewModeManager()
 
     /// Tracks the previously selected node so we can send allNotesOff on deselect.
     @State private var previousSelectedNodeID: UUID?
@@ -13,16 +14,21 @@ struct MainContentView: View {
         VStack(spacing: 0) {
             ToolbarView(projectState: projectState, transportState: transportState)
 
-            // Canvas fills all remaining space — bloom UI (including keyboard) lives inside it
-            CanopyCanvasView(
-                projectState: projectState,
-                canvasState: canvasState,
-                bloomState: bloomState,
-                transportState: transportState
-            )
+            if viewModeManager.isForest {
+                CanopyCanvasView(
+                    projectState: projectState,
+                    canvasState: canvasState,
+                    bloomState: bloomState,
+                    viewModeManager: viewModeManager,
+                    transportState: transportState
+                )
+            } else {
+                FocusView(projectState: projectState, transportState: transportState)
+            }
 
             BottomLaneView(projectState: projectState)
         }
+        .environmentObject(viewModeManager)
         .background(CanopyColors.canvasBackground)
         .onAppear {
             syncTreeToEngine()
@@ -80,9 +86,6 @@ struct MainContentView: View {
     // MARK: - Node Selection Change
 
     private func handleNodeSelectionChange() {
-        // Exit focus mode when switching nodes
-        bloomState.focusedPanel = nil
-
         // Send allNotesOff only to the PREVIOUSLY selected node (keyboard cleanup)
         if let prevID = previousSelectedNodeID {
             AudioEngine.shared.allNotesOff(nodeID: prevID)
@@ -92,6 +95,16 @@ struct MainContentView: View {
             // Push this node's patch for keyboard playing
             pushPatchToEngine(node.patch, nodeID: node.id)
             transportState.focusedNodeID = node.id
+
+            // Update focus target if already in focus mode
+            if !viewModeManager.isForest {
+                viewModeManager.enterFocus(nodeID: node.id)
+            }
+        } else {
+            // Node deselected — exit focus mode
+            if !viewModeManager.isForest {
+                viewModeManager.exitFocus()
+            }
         }
 
         previousSelectedNodeID = projectState.selectedNodeID
