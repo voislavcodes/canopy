@@ -482,7 +482,6 @@ struct ForestPitchedPanel: View {
         }
 
         // Target key name for value display
-        let targetSemitone = Self.fifthSemitones[targetPos]
         let targetName = Self.fifthLabels[targetPos]
         let modeName = key.mode == .major ? "" : "m"
         drawCellLabel(context, rect: rect, label: "FIFTH", value: "\(targetName)\(modeName)", active: active)
@@ -841,7 +840,6 @@ struct ForestPitchedPanel: View {
 
         let octaves = node?.sequence.arpConfig?.octaveRange ?? 1
         let barH = fontSize * 1.0
-        let barW = fontSize * 2.5
         let totalH = barH * 4
         let startY = artCenterY - totalH / 2 + barH / 2
 
@@ -1122,7 +1120,7 @@ struct ForestPitchedPanel: View {
     }
 
     private func handlePlayTap(cell: Int) {
-        guard let nodeID = projectState.selectedNodeID else { return }
+        guard projectState.selectedNodeID != nil else { return }
         switch cell {
         case 0: // DIR — cycle through modes
             let dirs: [PlaybackDirection] = [.forward, .reverse, .pingPong, .random, .brownian]
