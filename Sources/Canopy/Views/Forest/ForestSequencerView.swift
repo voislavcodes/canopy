@@ -23,7 +23,7 @@ struct ForestSequencerView: View {
         case .drum:
             DrumSequencerPanel(projectState: projectState, transportState: transportState)
         case .pitched:
-            StepSequencerPanel(projectState: projectState, transportState: transportState)
+            ForestPitchedPanel(projectState: projectState, transportState: transportState)
         }
     }
 

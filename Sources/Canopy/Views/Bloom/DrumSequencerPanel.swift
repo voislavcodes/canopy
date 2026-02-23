@@ -507,7 +507,7 @@ struct DrumSequencerPanel: View {
     }
 }
 
-// MARK: - Playhead (file-private, same structure as StepSequencerPanel)
+// MARK: - Playhead
 
 private struct SequencerPlayhead: View {
     let nodeID: UUID

@@ -31,7 +31,7 @@ struct GridRenderContext {
 // MARK: - Grid Core
 
 /// Shared sequencer grid geometry, rendering, and hit-testing.
-/// Used by both StepSequencerPanel (Forest) and FocusSequencerView (Focus).
+/// Used by ForestPitchedPanel (circle pattern), FocusSequencerView (Focus grid), and DrumSequencerPanel.
 enum SequencerGridCore {
 
     // MARK: Geometry
@@ -169,7 +169,7 @@ enum SequencerGridCore {
         let cw = cellWidth(fontSize: rc.fontSize)
         let rh = cellHeight(fontSize: rc.fontSize)
         let charCols = gridCharCols(for: rc.displayColumns)
-        let extraRows = 1 + (rc.showVelocityRow ? 1 : 0)
+        let extraRows = 2 + (rc.showVelocityRow ? 1 : 0) // top border + bottom border + optional vel
         let totalRows = rc.pitches.count + extraRows
         return CGSize(width: CGFloat(charCols) * cw, height: CGFloat(totalRows) * rh)
     }
@@ -190,9 +190,27 @@ enum SequencerGridCore {
         let arpCyan = Color(red: 0.2, green: 0.7, blue: 0.8)
         let borderColor = CanopyColors.chromeText.opacity(0.15)
 
+        // === Top border row ===
+        let topY = rh / 2
+        for charCol in 0..<charCols {
+            let x = CGFloat(charCol) * cw + cw / 2
+            let stepIdx = reverseMap[charCol]
+            let ch: String
+            if charCol == 0 {
+                ch = "╔"
+            } else if charCol == charCols - 1 {
+                ch = "╗"
+            } else if stepIdx == nil {
+                ch = "╦"
+            } else {
+                ch = "═"
+            }
+            drawChar(context, ch, at: CGPoint(x: x, y: topY), size: rc.fontSize, color: borderColor)
+        }
+
         // === Pitch rows ===
         for (rowIdx, pitch) in rc.pitches.enumerated() {
-            let y = CGFloat(rowIdx) * rh + rh / 2
+            let y = CGFloat(rowIdx + 1) * rh + rh / 2
 
             for charCol in 0..<charCols {
                 let x = CGFloat(charCol) * cw + cw / 2
@@ -258,7 +276,7 @@ enum SequencerGridCore {
         }
 
         // === Bottom border row ===
-        let borderY = CGFloat(pitchRowCount) * rh + rh / 2
+        let borderY = CGFloat(pitchRowCount + 1) * rh + rh / 2
         for charCol in 0..<charCols {
             let x = CGFloat(charCol) * cw + cw / 2
             let stepIdx = reverseMap[charCol]
@@ -277,7 +295,7 @@ enum SequencerGridCore {
 
         // === Velocity row (optional) ===
         if rc.showVelocityRow {
-            let velY = CGFloat(pitchRowCount + 1) * rh + rh / 2
+            let velY = CGFloat(pitchRowCount + 2) * rh + rh / 2
             for step in 0..<rc.displayColumns {
                 let charCol = colMap[step]
                 let x = CGFloat(charCol) * cw + cw / 2
@@ -320,7 +338,7 @@ enum SequencerGridCore {
             let handleStep = visibleEnd - 1
             let handleCharCol = colMap[min(handleStep, rc.displayColumns - 1)]
             let hx = CGFloat(handleCharCol) * cw + cw / 2
-            let hy = CGFloat(rowIdx) * rh + rh / 2
+            let hy = CGFloat(rowIdx + 1) * rh + rh / 2
             drawCharBold(context, "┃", at: CGPoint(x: hx + cw * 0.45, y: hy), size: rc.fontSize, color: handleBaseColor.opacity(0.8))
         }
     }
@@ -329,7 +347,7 @@ enum SequencerGridCore {
 // MARK: - Sequencer Actions
 
 /// Shared action methods for sequencer model mutations.
-/// Used by both StepSequencerPanel (Forest) and FocusSequencerView (Focus).
+/// Used by ForestPitchedPanel (Forest) and FocusSequencerView (Focus).
 enum SequencerActions {
 
     /// Resolve the active musical key for a node.
