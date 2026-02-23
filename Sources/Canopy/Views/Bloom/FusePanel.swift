@@ -261,7 +261,7 @@ struct FusePanel: View {
 
         // Row 1: supply wires  │              │
         let supplySpacing = vccRailChars + 4 // total chars wide
-        let halfSpan = CGFloat(supplySpacing / 2) * cellW
+        _ = CGFloat(supplySpacing / 2) * cellW
         drawChar(context, "\u{2502}", at: CGPoint(x: capAx, y: rowY(1)), size: fontSize, color: wireColor.opacity(wireOp))
         drawChar(context, "\u{2502}", at: CGPoint(x: capBx, y: rowY(1)), size: fontSize, color: wireColor.opacity(wireOp))
 

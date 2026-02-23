@@ -18,17 +18,10 @@ struct ForestPitchedPanel: View {
     @State private var localAccLimit: Double = 12.0
     @State private var localArpGate: Double = 0.5
 
-    // Row 1 knob drag tracking (PROB / STEPS / MUT)
-    @State private var activeKnob1: Int? = nil
-    @State private var dragStartValue1: Double = 0
-
-    // Row 2 knob drag tracking (RNG / ACC)
-    @State private var activeKnob2: Int? = nil
-    @State private var dragStartValue2: Double = 0
-
-    // Euclidean circle interaction
-    @State private var circleDragMode: CircleDragMode? = nil
-    @State private var circleDragStart: Double = 0
+    // Unified grid drag tracking (cells 0-5: EUC, PROB, STEPS, MUT, RNG, ACC)
+    @State private var activeCell: Int? = nil
+    @State private var dragStartValue: Double = 0
+    @State private var cellDragMode: CircleDragMode? = nil  // only for cell 0 (EUC)
 
     private enum CircleDragMode { case pulses, rotation }
 
@@ -71,15 +64,7 @@ struct ForestPitchedPanel: View {
         VStack(alignment: .leading, spacing: 8 * cs) {
             headerRow
 
-            euclideanCircle
-                .frame(height: 160 * cs)
-                .background(
-                    RoundedRectangle(cornerRadius: 4 * cs)
-                        .fill(Color.black.opacity(0.3))
-                )
-
-            row1Knobs
-            row2Knobs
+            paramGrid
 
             if node?.sequence.accumulator != nil {
                 accumulatorDetails
@@ -325,165 +310,113 @@ struct ForestPitchedPanel: View {
         }
     }
 
-    // MARK: - Euclidean Circle Hero
+    // MARK: - Unified 3×2 Param Grid (EUC / PROB / STEPS / MUT / RNG / ACC)
 
-    private var euclideanCircle: some View {
-        let cols = columns
-        let pattern = currentPattern()
+    private var paramGrid: some View {
+        let gridHeight: CGFloat = 240 * cs
 
         return GeometryReader { geo in
+            let cellW = geo.size.width / 3
+            let cellH = geo.size.height / 2
+
             TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                let time = timeline.date.timeIntervalSinceReferenceDate
-
-                Canvas { context, size in
-                    let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                    let radius = min(size.width, size.height) * 0.36
-                    let dotFontSize: CGFloat = cols > 24 ? max(7, 8 * cs) : max(9, 11 * cs)
-
-                    // Playhead
-                    let nodeID = node?.id ?? UUID()
-                    let engine = AudioEngine.shared
-                    let isPlaying = engine.isPlaying(for: nodeID)
-                    let currentBeat = engine.currentBeat(for: nodeID)
-                    let seqLen = node?.sequence.lengthInBeats ?? 1
-                    let beatFrac = currentBeat / max(seqLen, 1)
-                    let playheadStep = isPlaying ? Int(beatFrac * Double(cols)) % cols : -1
-                    let pulse = 0.7 + 0.3 * sin(time * 6)
-
-                    // Gather hit indices for connecting lines
-                    var hitIndices: [Int] = []
-                    for i in 0..<min(cols, pattern.count) {
-                        if pattern[i] { hitIndices.append(i) }
-                    }
-
-                    // Draw connecting lines between adjacent hits
-                    if hitIndices.count > 1 {
-                        for i in 0..<hitIndices.count {
-                            let next = (i + 1) % hitIndices.count
-                            let p1 = circlePoint(center: center, radius: radius, step: hitIndices[i], total: cols)
-                            let p2 = circlePoint(center: center, radius: radius, step: hitIndices[next], total: cols)
-                            var path = Path()
-                            path.move(to: p1)
-                            path.addLine(to: p2)
-                            context.stroke(path, with: .color(euclideanGreen.opacity(0.15)), lineWidth: 1)
-                        }
-                    }
-
-                    // Draw dots
-                    for i in 0..<cols {
-                        let point = circlePoint(center: center, radius: radius, step: i, total: cols)
-                        let isHit = i < pattern.count && pattern[i]
-                        let isPlayhead = i == playheadStep
-
-                        let color: Color
-                        if isPlayhead {
-                            color = CanopyColors.glowColor.opacity(pulse)
-                        } else if isHit {
-                            color = euclideanGreen
-                        } else {
-                            color = CanopyColors.chromeText.opacity(0.2)
-                        }
-
-                        let char = isHit ? "●" : "○"
-                        let scale: CGFloat = isPlayhead ? 1.3 : 1.0
-                        drawChar(context, char, at: point, size: dotFontSize * scale, color: color)
-                    }
-
-                    // Center text: E:N / S
-                    let hasEuc = node?.sequence.euclidean != nil
-                    let centerFontSize: CGFloat = max(9, 11 * cs)
-                    let centerCellW = centerFontSize * 0.62
-                    let labelStr = hasEuc ? "E:\(currentPulses) / \(cols)" : "\(hitIndices.count) / \(cols)"
-                    drawString(context, labelStr, centerX: center.x, y: center.y,
-                               cellW: centerCellW, fontSize: centerFontSize,
-                               color: (hasEuc ? euclideanGreen : CanopyColors.chromeText).opacity(0.7))
-                }
-            }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 4)
-                .onChanged { drag in
-                    if circleDragMode == nil {
-                        circleDragMode = abs(drag.translation.width) > abs(drag.translation.height)
-                            ? .rotation : .pulses
-                        if node?.sequence.euclidean != nil {
-                            circleDragStart = circleDragMode == .rotation
-                                ? Double(currentRotation) : Double(currentPulses)
-                        } else {
-                            let active = currentPattern().filter { $0 }.count
-                            circleDragStart = circleDragMode == .rotation
-                                ? 0 : Double(active)
-                        }
-                    }
-                    let cols = columns
-                    switch circleDragMode {
-                    case .rotation:
-                        let delta = Int(round(drag.translation.width / (20 * cs)))
-                        let newR = max(0, min(cols - 1, Int(circleDragStart) + delta))
-                        applyEuclidean(pulses: currentPulses, rotation: newR)
-                    case .pulses:
-                        let delta = -Int(round(drag.translation.height / (20 * cs)))
-                        let newE = max(0, min(cols, Int(circleDragStart) + delta))
-                        applyEuclidean(pulses: newE, rotation: currentRotation)
-                    case .none: break
-                    }
-                }
-                .onEnded { _ in circleDragMode = nil }
-        )
-    }
-
-    // MARK: - Row 1 Knobs (PROB / STEPS / MUT)
-
-    private var row1Knobs: some View {
-        let knobHeight: CGFloat = 110 * cs
-
-        return GeometryReader { geo in
-            let knobW = geo.size.width / 3
-
-            TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
                 Canvas { context, size in
                     let time = timeline.date.timeIntervalSinceReferenceDate
-                    let kW = size.width / 3
+                    let cW = size.width / 3
+                    let cH = size.height / 2
 
-                    for i in 0..<3 {
-                        let rect = CGRect(x: CGFloat(i) * kW, y: 0, width: kW, height: size.height)
-                        let isActive = activeKnob1 == i
+                    for row in 0..<2 {
+                        for col in 0..<3 {
+                            let idx = row * 3 + col
+                            let rect = CGRect(x: CGFloat(col) * cW, y: CGFloat(row) * cH, width: cW, height: cH)
+                            let isActive = activeCell == idx
 
-                        switch i {
-                        case 0: drawProbKnob(context: context, rect: rect, value: localProbability, time: time, active: isActive)
-                        case 1: drawStepsKnob(context: context, rect: rect, value: columns, time: time, active: isActive)
-                        case 2: drawMutKnob(context: context, rect: rect, value: localMutationAmount, time: time, active: isActive)
-                        default: break
+                            switch idx {
+                            case 0: drawEuclideanKnob(context: context, rect: rect, time: time, active: isActive)
+                            case 1: drawProbKnob(context: context, rect: rect, value: localProbability, time: time, active: isActive)
+                            case 2: drawStepsKnob(context: context, rect: rect, value: columns, time: time, active: isActive)
+                            case 3: drawMutKnob(context: context, rect: rect, value: localMutationAmount, time: time, active: isActive)
+                            case 4: drawRngKnob(context: context, rect: rect, value: node?.sequence.mutation?.range ?? 1, time: time, active: isActive)
+                            case 5: drawAccKnob(context: context, rect: rect, time: time, active: isActive)
+                            default: break
+                            }
                         }
                     }
                 }
             }
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 4)
                     .onChanged { drag in
-                        if activeKnob1 == nil {
-                            let third = Int(drag.startLocation.x / knobW)
-                            activeKnob1 = min(2, max(0, third))
-                            switch activeKnob1 {
-                            case 0: dragStartValue1 = localProbability
-                            case 1: dragStartValue1 = Double(columns)
-                            case 2: dragStartValue1 = localMutationAmount
+                        if activeCell == nil {
+                            let col = min(2, max(0, Int(drag.startLocation.x / cellW)))
+                            let row = min(1, max(0, Int(drag.startLocation.y / cellH)))
+                            let idx = row * 3 + col
+                            activeCell = idx
+
+                            switch idx {
+                            case 0: // EUC: determine axis
+                                cellDragMode = abs(drag.translation.width) > abs(drag.translation.height)
+                                    ? .rotation : .pulses
+                                if node?.sequence.euclidean != nil {
+                                    dragStartValue = cellDragMode == .rotation
+                                        ? Double(currentRotation) : Double(currentPulses)
+                                } else {
+                                    let active = currentPattern().filter { $0 }.count
+                                    dragStartValue = cellDragMode == .rotation
+                                        ? 0 : Double(active)
+                                }
+                            case 1: dragStartValue = localProbability
+                            case 2: dragStartValue = Double(columns)
+                            case 3: dragStartValue = localMutationAmount
+                            case 4: dragStartValue = Double(node?.sequence.mutation?.range ?? 1)
+                            case 5:
+                                if node?.sequence.accumulator == nil {
+                                    toggleAccumulator()
+                                }
+                                dragStartValue = localAccAmount
                             default: break
                             }
                         }
-                        switch activeKnob1 {
-                        case 0:
+
+                        switch activeCell {
+                        case 0: // EUC
+                            // Re-determine axis if not yet set
+                            if cellDragMode == nil {
+                                cellDragMode = abs(drag.translation.width) > abs(drag.translation.height)
+                                    ? .rotation : .pulses
+                                if node?.sequence.euclidean != nil {
+                                    dragStartValue = cellDragMode == .rotation
+                                        ? Double(currentRotation) : Double(currentPulses)
+                                } else {
+                                    let active = currentPattern().filter { $0 }.count
+                                    dragStartValue = cellDragMode == .rotation
+                                        ? 0 : Double(active)
+                                }
+                            }
+                            let cols = columns
+                            switch cellDragMode {
+                            case .rotation:
+                                let delta = Int(round(drag.translation.width / (20 * cs)))
+                                let newR = max(0, min(cols - 1, Int(dragStartValue) + delta))
+                                applyEuclidean(pulses: currentPulses, rotation: newR)
+                            case .pulses:
+                                let delta = -Int(round(drag.translation.height / (20 * cs)))
+                                let newE = max(0, min(cols, Int(dragStartValue) + delta))
+                                applyEuclidean(pulses: newE, rotation: currentRotation)
+                            case .none: break
+                            }
+                        case 1: // PROB
                             let delta = -drag.translation.height / (150 * cs)
-                            localProbability = max(0, min(1, dragStartValue1 + Double(delta)))
+                            localProbability = max(0, min(1, dragStartValue + Double(delta)))
                             guard let nodeID = projectState.selectedNodeID else { return }
                             AudioEngine.shared.setGlobalProbability(localProbability, nodeID: nodeID)
-                        case 1:
+                        case 2: // STEPS
                             let stepDelta = -Int(round(drag.translation.height / (15 * cs)))
-                            let newSteps = max(1, min(32, Int(dragStartValue1) + stepDelta))
+                            let newSteps = max(1, min(32, Int(dragStartValue) + stepDelta))
                             if newSteps != columns { changeLength(to: newSteps) }
-                        case 2:
+                        case 3: // MUT
                             let delta = -drag.translation.height / (150 * cs)
-                            localMutationAmount = max(0, min(1, dragStartValue1 + Double(delta)))
+                            localMutationAmount = max(0, min(1, dragStartValue + Double(delta)))
                             guard let nodeID = projectState.selectedNodeID else { return }
                             let key = resolveKey()
                             AudioEngine.shared.setMutation(
@@ -493,84 +426,110 @@ struct ForestPitchedPanel: View {
                                 intervals: key.mode.intervals,
                                 nodeID: nodeID
                             )
-                        default: break
-                        }
-                    }
-                    .onEnded { _ in
-                        switch activeKnob1 {
-                        case 0: commitGlobalProbability()
-                        case 1: break // already committed via changeLength
-                        case 2: commitMutationAmount()
-                        default: break
-                        }
-                        activeKnob1 = nil
-                    }
-            )
-        }
-        .frame(height: knobHeight)
-    }
-
-    // MARK: - Row 2 Knobs (RNG / ACC)
-
-    private var row2Knobs: some View {
-        let knobHeight: CGFloat = 90 * cs
-
-        return GeometryReader { geo in
-            let halfW = geo.size.width / 2
-
-            TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
-                Canvas { context, size in
-                    let time = timeline.date.timeIntervalSinceReferenceDate
-                    let hW = size.width / 2
-
-                    let rngRect = CGRect(x: 0, y: 0, width: hW, height: size.height)
-                    let accRect = CGRect(x: hW, y: 0, width: hW, height: size.height)
-
-                    drawRngKnob(context: context, rect: rngRect, value: node?.sequence.mutation?.range ?? 1, time: time, active: activeKnob2 == 0)
-                    drawAccKnob(context: context, rect: accRect, time: time, active: activeKnob2 == 1)
-                }
-            }
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { drag in
-                        if activeKnob2 == nil {
-                            let half = Int(drag.startLocation.x / halfW)
-                            activeKnob2 = min(1, max(0, half))
-                            switch activeKnob2 {
-                            case 0: dragStartValue2 = Double(node?.sequence.mutation?.range ?? 1)
-                            case 1:
-                                if node?.sequence.accumulator == nil {
-                                    toggleAccumulator()
-                                }
-                                dragStartValue2 = localAccAmount
-                            default: break
-                            }
-                        }
-                        switch activeKnob2 {
-                        case 0:
+                        case 4: // RNG
                             let stepDelta = -Int(round(drag.translation.height / (25 * cs)))
-                            let newRange = max(1, min(7, Int(dragStartValue2) + stepDelta))
+                            let newRange = max(1, min(7, Int(dragStartValue) + stepDelta))
                             if newRange != (node?.sequence.mutation?.range ?? 1) {
                                 setMutationRange(newRange)
                             }
-                        case 1:
+                        case 5: // ACC
                             let stepDelta = -Int(round(drag.translation.height / (15 * cs)))
-                            let newAmt = max(-12, min(12, Int(dragStartValue2) + stepDelta))
+                            let newAmt = max(-12, min(12, Int(dragStartValue) + stepDelta))
                             localAccAmount = Double(newAmt)
                         default: break
                         }
                     }
                     .onEnded { _ in
-                        switch activeKnob2 {
-                        case 0: break // already committed via setMutationRange
-                        case 1: commitAccumulatorAmount()
+                        switch activeCell {
+                        case 0: break // already committed via applyEuclidean
+                        case 1: commitGlobalProbability()
+                        case 2: break // already committed via changeLength
+                        case 3: commitMutationAmount()
+                        case 4: break // already committed via setMutationRange
+                        case 5: commitAccumulatorAmount()
                         default: break
                         }
-                        activeKnob2 = nil
+                        activeCell = nil
+                        cellDragMode = nil
                     }
             )
         }
-        .frame(height: knobHeight)
+        .frame(height: gridHeight)
+        .background(
+            RoundedRectangle(cornerRadius: 4 * cs)
+                .fill(Color.black.opacity(0.3))
+        )
+    }
+
+    // MARK: - Euclidean Knob (cell-sized circle)
+
+    private func drawEuclideanKnob(context: GraphicsContext, rect: CGRect, time: Double, active: Bool) {
+        let cols = columns
+        let pattern = currentPattern()
+        let center = CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.38)
+        let radius = min(rect.width * 0.85, rect.height * 0.55) * 0.36
+        let dotFontSize: CGFloat = cols > 24 ? max(6, 7 * cs) : max(7, 9 * cs)
+
+        // Playhead
+        let nodeID = node?.id ?? UUID()
+        let engine = AudioEngine.shared
+        let isPlaying = engine.isPlaying(for: nodeID)
+        let currentBeat = engine.currentBeat(for: nodeID)
+        let seqLen = node?.sequence.lengthInBeats ?? 1
+        let beatFrac = currentBeat / max(seqLen, 1)
+        let playheadStep = isPlaying ? Int(beatFrac * Double(cols)) % cols : -1
+        let pulse = 0.7 + 0.3 * sin(time * 6)
+
+        // Gather hit indices for connecting lines
+        var hitIndices: [Int] = []
+        for i in 0..<min(cols, pattern.count) {
+            if pattern[i] { hitIndices.append(i) }
+        }
+
+        // Draw connecting lines between adjacent hits
+        if hitIndices.count > 1 {
+            for i in 0..<hitIndices.count {
+                let next = (i + 1) % hitIndices.count
+                let p1 = circlePoint(center: center, radius: radius, step: hitIndices[i], total: cols)
+                let p2 = circlePoint(center: center, radius: radius, step: hitIndices[next], total: cols)
+                var path = Path()
+                path.move(to: p1)
+                path.addLine(to: p2)
+                context.stroke(path, with: .color(euclideanGreen.opacity(0.15)), lineWidth: 1)
+            }
+        }
+
+        // Draw dots
+        for i in 0..<cols {
+            let point = circlePoint(center: center, radius: radius, step: i, total: cols)
+            let isHit = i < pattern.count && pattern[i]
+            let isPlayhead = i == playheadStep
+
+            let color: Color
+            if isPlayhead {
+                color = CanopyColors.glowColor.opacity(pulse)
+            } else if isHit {
+                color = euclideanGreen
+            } else {
+                color = CanopyColors.chromeText.opacity(0.2)
+            }
+
+            let char = isHit ? "●" : "○"
+            let scale: CGFloat = isPlayhead ? 1.3 : 1.0
+            drawChar(context, char, at: point, size: dotFontSize * scale, color: color)
+        }
+
+        // Label + value (matching other knobs)
+        let labelFontSize = max(9, 11 * cs) * 0.8
+        let labelCellW = labelFontSize * 0.62
+        let labelY = rect.maxY - 22 * cs
+        drawString(context, "EUC", centerX: rect.midX, y: labelY, cellW: labelCellW, fontSize: labelFontSize,
+                   color: CanopyColors.chromeText.opacity(active ? 0.8 : 0.5), bold: true)
+        let valueY = labelY + labelFontSize * 1.3
+        let valueStr = "\(currentPulses)/\(cols)"
+        drawString(context, valueStr, centerX: rect.midX, y: valueY, cellW: labelCellW,
+                   fontSize: labelFontSize * 0.9,
+                   color: CanopyColors.chromeText.opacity(active ? 0.7 : 0.4))
     }
 
     // MARK: - Accumulator Details

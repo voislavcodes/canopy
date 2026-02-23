@@ -13,7 +13,7 @@ struct FocusSequencerView: View {
     private let defaultRows = 8
 
     @State private var baseNote: Int = 55  // G3
-    @State private var displayMode: Int = 32
+    @State private var currentPage: Int = 0
     @State private var spanDragState: SpanDragState?
 
     @State private var microTimingEnabled = false
@@ -52,11 +52,17 @@ struct FocusSequencerView: View {
         return max(1, Int(round(beats / NoteSequence.stepDuration)))
     }
 
-    /// Display columns follow display mode (32 or 64).
-    private var displayColumns: Int { displayMode }
+    /// Always display 32 columns — pagination handles longer sequences.
+    private var displayColumns: Int { 32 }
 
-    /// Show sidebar at 32 display columns, full-width at 64.
-    private var useSidebar: Bool { displayMode <= 32 }
+    /// Pagination: offset into global steps for the current page.
+    private var pageOffset: Int { currentPage * 32 }
+
+    /// Number of pages needed (1 for ≤32 steps, 2 for 33-64).
+    private var pageCount: Int { columns <= 32 ? 1 : 2 }
+
+    /// How many columns on the current page are active (not dimmed).
+    private var activeColumnsOnPage: Int { max(0, min(32, columns - pageOffset)) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,6 +79,12 @@ struct FocusSequencerView: View {
         .background(CanopyColors.bloomPanelBackground.opacity(0.95))
         .onAppear { syncOnAppear() }
         .onChange(of: projectState.selectedNodeID) { _ in syncOnAppear() }
+        .onChange(of: columns) { newCols in
+            // Clamp page when columns shrink below current page range
+            if newCols <= 32, currentPage > 0 {
+                currentPage = 0
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .focusClearSelection)) { _ in
             _ = clearSelection()
         }
@@ -168,24 +180,29 @@ struct FocusSequencerView: View {
                 headerControls
             }
 
-            // Display mode toggle (32 / 64)
-            displayModeToggle
+            // Page indicator (only for sequences > 32 steps)
+            if pageCount > 1 {
+                pageIndicator
+            }
         }
     }
 
-    // MARK: - Display Mode Toggle (32 / 64)
+    // MARK: - Page Indicator
 
-    private var displayModeToggle: some View {
+    private var pageIndicator: some View {
         HStack(spacing: 3) {
-            ForEach([32, 64], id: \.self) { mode in
-                let isActive = displayMode == mode
+            ForEach(0..<pageCount, id: \.self) { page in
+                let isActive = currentPage == page
+                let rangeStart = page * 32 + 1
+                let rangeEnd = min((page + 1) * 32, columns)
                 Button(action: {
-                    displayMode = mode
+                    currentPage = page
                 }) {
-                    Text("\(mode)")
+                    Text("\(rangeStart)-\(rangeEnd)")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.4))
-                        .frame(width: 28, height: 20)
+                        .padding(.horizontal, 6)
+                        .frame(height: 20)
                         .background(
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(isActive ? CanopyColors.glowColor.opacity(0.15) : Color.clear)
@@ -210,8 +227,8 @@ struct FocusSequencerView: View {
         )
         let labelWidth: CGFloat = 32
         let stripWidth: CGFloat = 14
-        let sidebarWidth: CGFloat = useSidebar ? max(180, width * 0.28) : 0
-        let gridAreaWidth = width - sidebarWidth - (useSidebar ? 1 : 0)
+        let sidebarWidth: CGFloat = max(180, width * 0.28)
+        let gridAreaWidth = width - sidebarWidth - 1
         let gridWidth = gridAreaWidth - labelWidth - stripWidth - 32
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
         let fontSize = max(6, min(24, gridWidth / (CGFloat(charCols) * 0.78)))
@@ -232,7 +249,7 @@ struct FocusSequencerView: View {
                         focusGridCanvas(sequence: node.sequence, nodeID: node.id, pitches: pitches, fontSize: fontSize)
                     }
                     .padding(.leading, 6)
-                    .padding(.trailing, useSidebar ? 6 : 20)
+                    .padding(.trailing, 6)
 
                     velocityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize)
                         .padding(.leading, laneInsetX)
@@ -252,15 +269,13 @@ struct FocusSequencerView: View {
                 Spacer(minLength: 12)
             }
 
-            // Sidebar (32-column mode only)
-            if useSidebar {
-                Rectangle()
-                    .fill(CanopyColors.bloomPanelBorder.opacity(0.2))
-                    .frame(width: 1)
+            // Sidebar — always visible
+            Rectangle()
+                .fill(CanopyColors.bloomPanelBorder.opacity(0.2))
+                .frame(width: 1)
 
-                sidebarView
-                    .frame(width: sidebarWidth)
-            }
+            sidebarView
+                .frame(width: sidebarWidth)
         }
     }
 
@@ -556,36 +571,83 @@ struct FocusSequencerView: View {
         .frame(height: gridHeight)
     }
 
-    // MARK: - Grid Canvas (shared core)
+    // MARK: - Grid Canvas (shared core, paginated)
 
     private func focusGridCanvas(sequence: NoteSequence, nodeID: UUID, pitches: [Int], fontSize: CGFloat) -> some View {
-        let cols = columns
+        let globalCols = columns
+        let pOffset = pageOffset
+        let activeCols = activeColumnsOnPage
         let cw = SequencerGridCore.cellWidth(fontSize: fontSize)
         let rh = SequencerGridCore.cellHeight(fontSize: fontSize)
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
         let colMap = SequencerGridCore.stepToCharCol(for: displayColumns)
         let reverseMap = SequencerGridCore.charColToStep(displayColumns: displayColumns)
-        let lookup = SequencerGridCore.buildNoteLookup(notes: sequence.notes)
-        let continuations = SequencerGridCore.buildSpanContinuationSet(notes: sequence.notes, spanDragState: spanDragState)
-        let stepVelocities = SequencerGridCore.buildStepVelocities(notes: sequence.notes)
-        let microOffsets = sequence.microTimingOffsets
         let isMicroTimingOn = microTimingEnabled
+        let microOffsets = sequence.microTimingOffsets
+        let sd = NoteSequence.stepDuration
+
+        // Build page-local lookup: filter notes to current page, key by local step
+        var pageLookup = [Int: NoteEvent]()
+        var pageNotes = [NoteEvent]()
+        for event in sequence.notes {
+            let globalStep = Int(round(event.startBeat / sd))
+            let localStep = globalStep - pOffset
+            guard localStep >= 0, localStep < 32 else { continue }
+            let key = event.pitch &* 1000 &+ localStep
+            pageLookup[key] = event
+            var localEvent = event
+            localEvent.startBeat = Double(localStep) * sd
+            pageNotes.append(localEvent)
+        }
+
+        // Build page-local continuations
+        let pageLocalSpan: SpanDragState?
+        if let drag = spanDragState {
+            let localStart = drag.startStep - pOffset
+            let localEnd = drag.currentEndStep - pOffset
+            if localStart >= 0, localStart < 32 {
+                pageLocalSpan = SpanDragState(pitch: drag.pitch, startStep: localStart, currentEndStep: max(localStart + 1, min(32, localEnd)))
+            } else {
+                pageLocalSpan = nil
+            }
+        } else {
+            pageLocalSpan = nil
+        }
+        let continuations = SequencerGridCore.buildSpanContinuationSet(notes: pageNotes, spanDragState: pageLocalSpan)
+
+        // Also include continuations from notes that START before this page but span into it
+        var extraContinuations = continuations
+        for event in sequence.notes {
+            let globalStart = Int(round(event.startBeat / sd))
+            let spanSteps = max(1, Int(round(event.duration / sd)))
+            let globalEnd = globalStart + spanSteps
+            if globalStart < pOffset, globalEnd > pOffset {
+                // This note spans into our page
+                let localEnd = min(32, globalEnd - pOffset)
+                for localStep in 0..<localEnd {
+                    let key = event.pitch &* 1000 &+ localStep
+                    extraContinuations.insert(key)
+                }
+            }
+        }
+
+        let stepVelocities = SequencerGridCore.buildStepVelocities(notes: pageNotes)
 
         let rc = GridRenderContext(
             pitches: pitches,
-            activeColumns: cols,
+            activeColumns: activeCols,
             displayColumns: displayColumns,
             fontSize: fontSize,
             isArpActive: isArpActive,
             hasEuclidean: sequence.euclidean != nil,
             arpPitches: isArpActive ? Set(sequence.notes.map { $0.pitch }) : [],
-            lookup: lookup,
-            continuations: continuations,
+            lookup: pageLookup,
+            continuations: extraContinuations,
             stepVelocities: stepVelocities,
             playheadStep: -1,
             pulse: 0,
-            spanDragState: spanDragState,
-            notes: sequence.notes,
+            spanDragState: pageLocalSpan,
+            notes: pageNotes,
             showVelocityRow: true
         )
         let canvasSize = SequencerGridCore.canvasSize(for: rc)
@@ -596,23 +658,32 @@ struct FocusSequencerView: View {
             let isPlaying = engine.isPlaying(for: nodeID)
             let currentBeat = engine.currentBeat(for: nodeID)
             let beatFraction = currentBeat / max(sequence.lengthInBeats, 1)
-            let playheadStep = isPlaying ? Int(beatFraction * Double(cols)) % cols : -1
+            let globalPlayheadStep = isPlaying ? Int(beatFraction * Double(globalCols)) % globalCols : -1
+
+            // Auto-follow: switch page when playhead crosses boundary
+            let playheadPage = globalPlayheadStep >= 0 ? globalPlayheadStep / 32 : currentPage
+            let _autoFollow: Void = isPlaying && playheadPage != currentPage && playheadPage < pageCount
+                ? DispatchQueue.main.async { currentPage = playheadPage }
+                : ()
+
+            let localPlayheadStep = (globalPlayheadStep >= pOffset && globalPlayheadStep < pOffset + 32)
+                ? globalPlayheadStep - pOffset : -1
             let pulse: CGFloat = 0.7 + 0.3 * CGFloat(sin(time * 6))
 
             Canvas { context, size in
                 var frameRC = rc
-                frameRC.playheadStep = playheadStep
+                frameRC.playheadStep = localPlayheadStep
                 frameRC.pulse = pulse
                 SequencerGridCore.drawGrid(context, rc: frameRC)
 
                 // Selection highlight overlay
                 if !selectedNoteIDs.isEmpty {
-                    let sd = NoteSequence.stepDuration
                     for note in sequence.notes where selectedNoteIDs.contains(note.id) {
-                        let step = Int(round(note.startBeat / sd))
-                        guard step < cols else { continue }
+                        let globalStep = Int(round(note.startBeat / sd))
+                        let localStep = globalStep - pOffset
+                        guard localStep >= 0, localStep < activeCols else { continue }
                         guard let rowIdx = pitches.firstIndex(of: note.pitch) else { continue }
-                        let charCol = colMap[min(step, displayColumns - 1)]
+                        let charCol = colMap[min(localStep, displayColumns - 1)]
                         let x = CGFloat(charCol) * cw
                         let y = CGFloat(rowIdx + 1) * rh // +1 for top border row
                         let highlightRect = CGRect(x: x, y: y, width: cw, height: rh)
@@ -640,15 +711,16 @@ struct FocusSequencerView: View {
 
                 // Micro-timing overlay: draw chevrons on notes with non-zero offsets
                 if isMicroTimingOn, let offsets = microOffsets {
-                    let sd = NoteSequence.stepDuration
                     for note in sequence.notes {
-                        let step = Int(round(note.startBeat / sd))
-                        guard step < offsets.count, step < cols else { continue }
-                        let offset = offsets[step]
+                        let globalStep = Int(round(note.startBeat / sd))
+                        let localStep = globalStep - pOffset
+                        guard localStep >= 0, localStep < activeCols else { continue }
+                        guard globalStep < offsets.count else { continue }
+                        let offset = offsets[globalStep]
                         guard abs(offset) > 0.5 else { continue }
                         guard let rowIdx = pitches.firstIndex(of: note.pitch) else { continue }
 
-                        let charCol = colMap[min(step, displayColumns - 1)]
+                        let charCol = colMap[min(localStep, displayColumns - 1)]
                         let x = CGFloat(charCol) * cw + cw / 2
                         let y = CGFloat(rowIdx + 1) * rh + rh / 2 // +1 for top border row
 
@@ -681,8 +753,9 @@ struct FocusSequencerView: View {
                     let rowIdx = Int(location.y / rh) - 1 // offset for top border row
                     guard rowIdx >= 0, rowIdx < pitches.count,
                           charCol >= 0, charCol < charCols else { return }
-                    guard let step = reverseMap[charCol], step < cols else { return }
-                    resetMicroTimingOffset(step: step, nodeID: nodeID)
+                    guard let localStep = reverseMap[charCol], localStep < activeCols else { return }
+                    let globalStep = localStep + pOffset
+                    resetMicroTimingOffset(step: globalStep, nodeID: nodeID)
                 }
             }
             .gesture(
@@ -696,11 +769,12 @@ struct FocusSequencerView: View {
                         let startRowIdx = Int(value.startLocation.y / rh) - 1 // offset for top border row
                         guard startRowIdx >= 0, startRowIdx < pitches.count,
                               startCharCol >= 0, startCharCol < charCols else { return }
-                        guard let startStep = reverseMap[startCharCol], startStep < cols else { return }
+                        guard let localStartStep = reverseMap[startCharCol], localStartStep < activeCols else { return }
+                        let globalStartStep = localStartStep + pOffset
                         let pitch = pitches[startRowIdx]
 
-                        let noteKey = pitch &* 1000 &+ startStep
-                        let hasNote = lookup[noteKey] != nil
+                        let noteKey = pitch &* 1000 &+ localStartStep
+                        let hasNote = pageLookup[noteKey] != nil
 
                         guard isDrag else { return }
 
@@ -709,13 +783,13 @@ struct FocusSequencerView: View {
                                 let pixelOffset = value.translation.width
                                 let tickOffset = Double(pixelOffset / cw) * 48.0
                                 let clamped = max(-48, min(48, tickOffset))
-                                setMicroTimingOffset(step: startStep, offset: clamped, nodeID: nodeID)
+                                setMicroTimingOffset(step: globalStartStep, offset: clamped, nodeID: nodeID)
                             } else if dx > dy {
-                                // Drag on note: extend span
+                                // Drag on note: extend span (global coordinates for model)
                                 let currentCharCol = max(0, min(charCols - 1, Int(value.location.x / cw)))
-                                let targetStep = SequencerGridCore.nearestStep(forCharCol: currentCharCol, reverseMap: reverseMap, maxStep: cols)
-                                let newEnd = max(startStep + 1, min(cols, targetStep + 1))
-                                spanDragState = SpanDragState(pitch: pitch, startStep: startStep, currentEndStep: newEnd)
+                                let localTargetStep = SequencerGridCore.nearestStep(forCharCol: currentCharCol, reverseMap: reverseMap, maxStep: activeCols)
+                                let globalEnd = max(globalStartStep + 1, min(globalCols, localTargetStep + pOffset + 1))
+                                spanDragState = SpanDragState(pitch: pitch, startStep: globalStartStep, currentEndStep: globalEnd)
                             }
                         } else {
                             // Drag on empty space: draw selection rectangle
@@ -731,9 +805,10 @@ struct FocusSequencerView: View {
                             commitSpanDrag(pitch: drag.pitch, startStep: drag.startStep, newEndStep: drag.currentEndStep)
                             spanDragState = nil
                         } else if let rect = selectionRect {
-                            // Selection rectangle completed — find notes within
-                            resolveSelection(rect: rect, pitches: pitches, cw: cw, rh: rh,
-                                             colMap: colMap, cols: cols, notes: sequence.notes)
+                            // Selection rectangle completed — find notes within (page-local)
+                            resolveSelectionPaginated(rect: rect, pitches: pitches, cw: cw, rh: rh,
+                                                      colMap: colMap, pageOffset: pOffset, activeCols: activeCols,
+                                                      notes: sequence.notes)
                             selectionRect = nil
                         } else if !isMicroTimingOn {
                             guard abs(value.translation.width) < 5,
@@ -743,13 +818,14 @@ struct FocusSequencerView: View {
                             let rowIdx = Int(loc.y / rh) - 1 // offset for top border row
                             guard rowIdx >= 0, rowIdx < pitches.count,
                                   charCol >= 0, charCol < charCols else { return }
-                            guard let step = reverseMap[charCol], step < cols else { return }
+                            guard let localStep = reverseMap[charCol], localStep < activeCols else { return }
+                            let globalStep = localStep + pOffset
                             let pitch = pitches[rowIdx]
 
                             // Check if shift is held for selection toggle
                             let shiftHeld = NSEvent.modifierFlags.contains(.shift)
-                            let noteKey = pitch &* 1000 &+ step
-                            if shiftHeld, let noteEvent = lookup[noteKey] {
+                            let noteKey = pitch &* 1000 &+ localStep
+                            if shiftHeld, let noteEvent = pageLookup[noteKey] {
                                 // Shift+click: toggle selection
                                 if selectedNoteIDs.contains(noteEvent.id) {
                                     selectedNoteIDs.remove(noteEvent.id)
@@ -762,8 +838,8 @@ struct FocusSequencerView: View {
                                 selectedNoteIDs.removeAll()
                                 updateSelectionBinding()
                             } else {
-                                // Normal click: toggle note
-                                toggleNote(pitch: pitch, step: step)
+                                // Normal click: toggle note (global step)
+                                toggleNote(pitch: pitch, step: globalStep)
                             }
                         }
                     }
@@ -798,18 +874,19 @@ struct FocusSequencerView: View {
 
     // MARK: - Selection Helpers
 
-    /// Resolve which notes fall within a selection rectangle.
-    private func resolveSelection(rect: CGRect, pitches: [Int], cw: CGFloat, rh: CGFloat,
-                                  colMap: [Int], cols: Int, notes: [NoteEvent]) {
+    /// Resolve which notes fall within a selection rectangle (page-local coordinates).
+    private func resolveSelectionPaginated(rect: CGRect, pitches: [Int], cw: CGFloat, rh: CGFloat,
+                                           colMap: [Int], pageOffset: Int, activeCols: Int, notes: [NoteEvent]) {
         let sd = NoteSequence.stepDuration
         var newSelection = Set<UUID>()
 
         for note in notes {
-            let step = Int(round(note.startBeat / sd))
-            guard step < cols else { continue }
+            let globalStep = Int(round(note.startBeat / sd))
+            let localStep = globalStep - pageOffset
+            guard localStep >= 0, localStep < activeCols else { continue }
             guard let rowIdx = pitches.firstIndex(of: note.pitch) else { continue }
 
-            let charCol = colMap[min(step, displayColumns - 1)]
+            let charCol = colMap[min(localStep, displayColumns - 1)]
             let noteX = CGFloat(charCol) * cw + cw / 2
             let noteY = CGFloat(rowIdx + 1) * rh + rh / 2 // +1 for top border row
 
@@ -932,22 +1009,26 @@ struct FocusSequencerView: View {
     // MARK: - Velocity Lane
 
     private func velocityLane(sequence: NoteSequence, nodeID: UUID, fontSize: CGFloat) -> some View {
-        let cols = columns
+        let pOffset = pageOffset
+        let activeCols = activeColumnsOnPage
         let cw = SequencerGridCore.cellWidth(fontSize: fontSize)
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
         let colMap = SequencerGridCore.stepToCharCol(for: displayColumns)
         let reverseMap = SequencerGridCore.charColToStep(displayColumns: displayColumns)
         let laneHeight: CGFloat = 44
         let canvasWidth = CGFloat(charCols) * cw
+        let sd = NoteSequence.stepDuration
 
-        // Build per-step velocity map (average when chords exist)
+        // Build per-step velocity map using page-local step indices
         var stepVelSum = [Int: (total: Double, count: Int)]()
         for event in sequence.notes {
-            let step = Int(round(event.startBeat / NoteSequence.stepDuration))
-            if let existing = stepVelSum[step] {
-                stepVelSum[step] = (existing.total + event.velocity, existing.count + 1)
+            let globalStep = Int(round(event.startBeat / sd))
+            let localStep = globalStep - pOffset
+            guard localStep >= 0, localStep < 32 else { continue }
+            if let existing = stepVelSum[localStep] {
+                stepVelSum[localStep] = (existing.total + event.velocity, existing.count + 1)
             } else {
-                stepVelSum[step] = (event.velocity, 1)
+                stepVelSum[localStep] = (event.velocity, 1)
             }
         }
 
@@ -965,12 +1046,12 @@ struct FocusSequencerView: View {
                     .padding(.trailing, 2)
 
                 Canvas { context, size in
-                    for step in 0..<displayColumns {
-                        guard step < cols else { continue }
-                        guard let velData = stepVelSum[step] else { continue }
+                    for localStep in 0..<displayColumns {
+                        guard localStep < activeCols else { continue }
+                        guard let velData = stepVelSum[localStep] else { continue }
                         let avgVel = velData.total / Double(velData.count)
 
-                        let charCol = colMap[step]
+                        let charCol = colMap[localStep]
                         let x = CGFloat(charCol) * cw + cw / 2
                         let barHeight = CGFloat(avgVel) * (laneHeight - 4)
                         let barY = laneHeight - barHeight
@@ -989,9 +1070,10 @@ struct FocusSequencerView: View {
                         .onChanged { value in
                             let charCol = Int(value.location.x / cw)
                             guard charCol >= 0, charCol < charCols else { return }
-                            guard let step = reverseMap[charCol], step < cols else { return }
+                            guard let localStep = reverseMap[charCol], localStep < activeCols else { return }
+                            let globalStep = localStep + pOffset
                             let velocity = max(0.05, min(1.0, 1.0 - (value.location.y / laneHeight)))
-                            setVelocityForStep(step: step, velocity: velocity, nodeID: nodeID)
+                            setVelocityForStep(step: globalStep, velocity: velocity, nodeID: nodeID)
                         }
                 )
             }
@@ -1015,7 +1097,8 @@ struct FocusSequencerView: View {
     // MARK: - Probability Lane
 
     private func probabilityLane(sequence: NoteSequence, nodeID: UUID, fontSize: CGFloat) -> some View {
-        let cols = columns
+        let pOffset = pageOffset
+        let activeCols = activeColumnsOnPage
         let cw = SequencerGridCore.cellWidth(fontSize: fontSize)
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
         let colMap = SequencerGridCore.stepToCharCol(for: displayColumns)
@@ -1037,17 +1120,18 @@ struct FocusSequencerView: View {
                     .padding(.trailing, 2)
 
                 Canvas { context, size in
-                    for step in 0..<displayColumns {
-                        guard step < cols else { continue }
+                    for localStep in 0..<displayColumns {
+                        guard localStep < activeCols else { continue }
+                        let globalStep = localStep + pOffset
 
                         let prob: Double
-                        if let arr = perStep, step < arr.count {
-                            prob = arr[step]
+                        if let arr = perStep, globalStep < arr.count {
+                            prob = arr[globalStep]
                         } else {
                             prob = 1.0
                         }
 
-                        let charCol = colMap[step]
+                        let charCol = colMap[localStep]
                         let x = CGFloat(charCol) * cw + cw / 2
                         let barHeight = CGFloat(prob) * (laneHeight - 4)
                         let barY = laneHeight - barHeight
@@ -1066,9 +1150,10 @@ struct FocusSequencerView: View {
                         .onChanged { value in
                             let charCol = Int(value.location.x / cw)
                             guard charCol >= 0, charCol < charCols else { return }
-                            guard let step = reverseMap[charCol], step < cols else { return }
+                            guard let localStep = reverseMap[charCol], localStep < activeCols else { return }
+                            let globalStep = localStep + pOffset
                             let prob = max(0.0, min(1.0, 1.0 - (value.location.y / laneHeight)))
-                            setPerStepProbability(step: step, probability: prob, nodeID: nodeID)
+                            setPerStepProbability(step: globalStep, probability: prob, nodeID: nodeID)
                         }
                 )
             }
@@ -1095,7 +1180,8 @@ struct FocusSequencerView: View {
     // MARK: - Micro-Timing Lane
 
     private func microTimingLane(sequence: NoteSequence, fontSize: CGFloat) -> some View {
-        let cols = columns
+        let pOffset = pageOffset
+        let activeCols = activeColumnsOnPage
         let cw = SequencerGridCore.cellWidth(fontSize: fontSize)
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
         let colMap = SequencerGridCore.stepToCharCol(for: displayColumns)
@@ -1123,16 +1209,17 @@ struct FocusSequencerView: View {
                     centerPath.addLine(to: CGPoint(x: size.width, y: centerY))
                     context.stroke(centerPath, with: .color(CanopyColors.chromeText.opacity(0.1)), lineWidth: 0.5)
 
-                    for step in 0..<displayColumns {
-                        guard step < cols else { continue }
+                    for localStep in 0..<displayColumns {
+                        guard localStep < activeCols else { continue }
+                        let globalStep = localStep + pOffset
                         let offset: Double
-                        if let arr = offsets, step < arr.count {
-                            offset = arr[step]
+                        if let arr = offsets, globalStep < arr.count {
+                            offset = arr[globalStep]
                         } else {
                             offset = 0
                         }
 
-                        let charCol = colMap[step]
+                        let charCol = colMap[localStep]
                         let x = CGFloat(charCol) * cw + cw / 2
                         // Map offset (-48...48) to vertical position
                         let dotY = centerY - CGFloat(offset / 48.0) * (laneHeight / 2 - 3)
@@ -1323,7 +1410,7 @@ struct FocusSequencerView: View {
         let mutRange = node?.sequence.mutation?.range ?? 1
 
         return HStack(spacing: 6) {
-            headerDragValue(label: "S", value: columns, range: 1...displayColumns) { changeLength(to: $0) }
+            headerDragValue(label: "S", value: columns, range: 1...64) { changeLength(to: $0) }
 
             headerDragValue(
                 label: "E", value: pulses, range: 0...columns
@@ -1380,7 +1467,7 @@ struct FocusSequencerView: View {
 
         return HStack(spacing: 6) {
             headerDragValue(label: "Oct", value: octave, range: 1...4) { setArpOctave($0) }
-            headerDragValue(label: "S", value: columns, range: 1...displayColumns) { changeLength(to: $0) }
+            headerDragValue(label: "S", value: columns, range: 1...64) { changeLength(to: $0) }
 
             Button(action: { randomFill() }) {
                 Image(systemName: "dice")
