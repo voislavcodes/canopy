@@ -118,44 +118,36 @@ struct BottomLaneView: View {
     // MARK: - Tab Switch
 
     private var tabSwitch: some View {
-        HStack(spacing: 4) {
-            tabButton("FX", tab: .fx)
-            tabButton("MOD", tab: .mod)
+        HStack(spacing: 12) {
+            tabLabel("FX", tab: .fx)
+            tabLabel("MOD", tab: .mod)
         }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 12)
+        .background(CanopyColors.bloomPanelBackground.opacity(0.85))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
+        )
     }
 
-    private func tabButton(_ label: String, tab: BottomLaneTab) -> some View {
+    private func tabLabel(_ label: String, tab: BottomLaneTab) -> some View {
         let isActive = activeTab == tab
-        return Button(action: {
-            withAnimation(.spring(duration: 0.2)) {
-                activeTab = tab
-                // Dismiss the other tab's popovers
-                if tab == .fx {
-                    projectState.selectedLFOID = nil
-                } else {
-                    selectedFXID = nil
-                    showingPicker = false
+        return Text(label)
+            .font(.system(size: 11, weight: isActive ? .bold : .regular, design: .monospaced))
+            .foregroundColor(isActive ? CanopyColors.chromeTextBright : CanopyColors.chromeText.opacity(0.5))
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    activeTab = tab
+                    if tab == .fx {
+                        projectState.selectedLFOID = nil
+                    } else {
+                        selectedFXID = nil
+                        showingPicker = false
+                    }
                 }
             }
-        }) {
-            Text(label)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(isActive ? CanopyColors.chromeTextBright : CanopyColors.chromeText)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(isActive ? CanopyColors.nodeFill.opacity(0.1) : Color.clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(
-                            isActive ? CanopyColors.nodeFill.opacity(0.4) : CanopyColors.chromeBorder,
-                            lineWidth: 1
-                        )
-                )
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Add Button
