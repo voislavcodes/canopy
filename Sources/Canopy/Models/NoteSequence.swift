@@ -190,6 +190,12 @@ struct NoteSequence: Codable, Equatable {
     var accumulator: AccumulatorConfig?
     /// Arpeggiator configuration. nil = normal step sequencer, non-nil = arp mode.
     var arpConfig: ArpConfig?
+    /// Per-step probability overrides (Focus mode). nil = all inherit global probability.
+    /// When set, each element is 0.0-1.0 and effective probability = globalProbability × perStepProbability[step].
+    var perStepProbability: [Double]?
+    /// Per-step micro-timing offsets in ticks (Focus mode). nil = all notes on-grid.
+    /// Range per step: -48 to +48 (half a step each direction).
+    var microTimingOffsets: [Double]?
 
     init(
         notes: [NoteEvent] = [],
@@ -200,7 +206,9 @@ struct NoteSequence: Codable, Equatable {
         playbackDirection: PlaybackDirection? = nil,
         mutation: MutationConfig? = nil,
         accumulator: AccumulatorConfig? = nil,
-        arpConfig: ArpConfig? = nil
+        arpConfig: ArpConfig? = nil,
+        perStepProbability: [Double]? = nil,
+        microTimingOffsets: [Double]? = nil
     ) {
         self.notes = notes
         self.lengthInBeats = lengthInBeats
@@ -211,6 +219,8 @@ struct NoteSequence: Codable, Equatable {
         self.mutation = mutation
         self.accumulator = accumulator
         self.arpConfig = arpConfig
+        self.perStepProbability = perStepProbability
+        self.microTimingOffsets = microTimingOffsets
     }
 
     // Backward-compatible decoding
@@ -225,5 +235,7 @@ struct NoteSequence: Codable, Equatable {
         mutation = try container.decodeIfPresent(MutationConfig.self, forKey: .mutation)
         accumulator = try container.decodeIfPresent(AccumulatorConfig.self, forKey: .accumulator)
         arpConfig = try container.decodeIfPresent(ArpConfig.self, forKey: .arpConfig)
+        perStepProbability = try container.decodeIfPresent([Double].self, forKey: .perStepProbability)
+        microTimingOffsets = try container.decodeIfPresent([Double].self, forKey: .microTimingOffsets)
     }
 }

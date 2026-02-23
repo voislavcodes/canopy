@@ -31,7 +31,7 @@ struct StepSequencerPanel: View {
     @State private var localAccAmount: Double = 1.0
     @State private var localAccLimit: Double = 12.0
     @State private var localArpGate: Double = 0.5
-    @State private var spanDragState: (pitch: Int, startStep: Int, currentEndStep: Int)?
+    @State private var spanDragState: SpanDragState?
 
     private var node: Node? {
         projectState.selectedNode
@@ -45,25 +45,11 @@ struct StepSequencerPanel: View {
         node?.sequence.arpConfig != nil
     }
 
-    /// The MIDI pitches to show as rows, highest first.
-    /// When scale-aware: only in-scale pitches starting from baseNote, take `rows` count.
-    /// When off: baseNote ..< baseNote + rows (current behavior).
     private var visiblePitches: [Int] {
-        if scaleAwareEnabled {
-            let key = resolveKey()
-            var pitches: [Int] = []
-            var p = baseNote
-            while pitches.count < rows && p <= 127 {
-                let pc = ((p % 12) - key.root.semitone + 12) % 12
-                if key.mode.intervals.contains(pc) {
-                    pitches.append(p)
-                }
-                p += 1
-            }
-            return pitches.reversed()
-        } else {
-            return ((0..<rows).map { baseNote + $0 }).reversed()
-        }
+        SequencerGridCore.visiblePitches(
+            baseNote: baseNote, rowCount: rows,
+            key: resolveKey(), scaleAware: scaleAwareEnabled
+        )
     }
 
     /// Active step count from the sequence length.
@@ -77,46 +63,20 @@ struct StepSequencerPanel: View {
 
     // MARK: - ASCII Grid Geometry
 
-    /// 32 content chars + 8 beat separators + 1 left edge = 41 char columns
-    private var gridCharCols: Int { 41 }
+    private var gridCharCols: Int { SequencerGridCore.gridCharCols(for: displayColumns) }
 
     /// Font size derived from panel width so the grid fills available space.
-    /// Available = panelWidth - padding(28) - labels(22) - touchStrip(~10) - spacings(8)
     private var gridFontSize: CGFloat {
         let available = (panelWidth - 68) * cs
         let size = available / (CGFloat(gridCharCols) * 0.78)
         return max(9, size)
     }
-    private var gridCellW: CGFloat { gridFontSize * 0.78 }
-    private var gridRowH: CGFloat { gridFontSize * 1.9 }
+    private var gridCellW: CGFloat { SequencerGridCore.cellWidth(fontSize: gridFontSize) }
+    private var gridRowH: CGFloat { SequencerGridCore.cellHeight(fontSize: gridFontSize) }
 
     /// Derive cellSize/cellSpacing from ASCII geometry for span overlay compatibility.
     private var cellSize: CGFloat { gridCellW }
     private var cellSpacing: CGFloat { 0 }
-
-    /// Pre-computed mapping: step index (0-31) → character column in the 41-col layout.
-    /// Layout: ║····║····║····║····║····║····║····║····║
-    /// Col 0 = left ║, then 4 steps, then ║, etc.
-    /// Separators at cols: 0, 5, 10, 15, 20, 25, 30, 35, 40
-    private var stepToCharCol: [Int] {
-        var map = [Int]()
-        for step in 0..<displayColumns {
-            let group = step / 4  // which beat group (0-7)
-            // Column = (group+1) separators seen so far + step index
-            map.append(group + 1 + step)
-        }
-        return map
-    }
-
-    /// Reverse mapping: character column → step index (nil for separator columns).
-    private var charColToStep: [Int?] {
-        var map = [Int?](repeating: nil, count: gridCharCols)
-        let fwd = stepToCharCol
-        for (step, col) in fwd.enumerated() {
-            if col < gridCharCols { map[col] = step }
-        }
-        return map
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {
@@ -321,9 +281,9 @@ struct StepSequencerPanel: View {
                 let y = CGFloat(row) * rh + rh / 2
                 let x = cw / 2
                 if row == thumbRow {
-                    drawCharSeq(context, "█", at: CGPoint(x: x, y: y), size: fontSize, color: CanopyColors.glowColor.opacity(0.6))
+                    SequencerGridCore.drawChar(context, "█", at: CGPoint(x: x, y: y), size: fontSize, color: CanopyColors.glowColor.opacity(0.6))
                 } else {
-                    drawCharSeq(context, "│", at: CGPoint(x: x, y: y), size: fontSize, color: CanopyColors.chromeText.opacity(0.15))
+                    SequencerGridCore.drawChar(context, "│", at: CGPoint(x: x, y: y), size: fontSize, color: CanopyColors.chromeText.opacity(0.15))
                 }
             }
         }
@@ -364,73 +324,38 @@ struct StepSequencerPanel: View {
         .frame(height: gridHeight)
     }
 
-    // MARK: - Grid
-
-    /// Build a lookup for O(1) note access: key = (pitch, step) → NoteEvent
-    private func noteEventLookup(for sequence: NoteSequence) -> [Int: NoteEvent] {
-        var dict = [Int: NoteEvent]()
-        dict.reserveCapacity(sequence.notes.count)
-        for event in sequence.notes {
-            let step = Int(round(event.startBeat / NoteSequence.stepDuration))
-            let key = event.pitch &* 1000 &+ step  // unique key for pitch/step pair
-            dict[key] = event
-        }
-        return dict
-    }
-
     // MARK: - ASCII Grid Canvas
 
-    /// Build a set of (pitch, step) pairs that are span continuations (not the start cell).
-    private func spanContinuationSet(for sequence: NoteSequence) -> Set<Int> {
-        let sd = NoteSequence.stepDuration
-        var set = Set<Int>()
-        for note in sequence.notes {
-            let startStep = Int(round(note.startBeat / sd))
-            let endStep: Int
-            if let drag = spanDragState, drag.pitch == note.pitch && drag.startStep == startStep {
-                endStep = drag.currentEndStep
-            } else {
-                endStep = max(startStep + 1, Int(round((note.startBeat + note.duration) / sd)))
-            }
-            // Mark continuation cells (skip the start cell)
-            for s in (startStep + 1)..<endStep {
-                set.insert(note.pitch &* 1000 &+ s)
-            }
-        }
-        return set
-    }
-
     private func asciiGridCanvas(sequence: NoteSequence, nodeID: UUID) -> some View {
-        let lookup = noteEventLookup(for: sequence)
-        let continuations = spanContinuationSet(for: sequence)
         let pitches = visiblePitches
         let cols = columns
-        let isArp = isArpActive
-        let hasEuclidean = sequence.euclidean != nil
-        let arpPitches: Set<Int> = isArp ? Set(sequence.notes.map { $0.pitch }) : []
         let fontSize = gridFontSize
         let cw = gridCellW
         let rh = gridRowH
         let charCols = gridCharCols
-        let colMap = stepToCharCol
-        let reverseMap = charColToStep
+        let reverseMap = SequencerGridCore.charColToStep(displayColumns: displayColumns)
+        let lookup = SequencerGridCore.buildNoteLookup(notes: sequence.notes)
+        let continuations = SequencerGridCore.buildSpanContinuationSet(notes: sequence.notes, spanDragState: spanDragState)
+        let stepVelocities = SequencerGridCore.buildStepVelocities(notes: sequence.notes)
 
-        // Pre-compute step velocities for velocity row
-        var stepVelocities = [Int: Double]()
-        for event in sequence.notes {
-            let step = Int(round(event.startBeat / NoteSequence.stepDuration))
-            if let existing = stepVelocities[step] {
-                if event.velocity > existing { stepVelocities[step] = event.velocity }
-            } else {
-                stepVelocities[step] = event.velocity
-            }
-        }
-
-        // Total rows: pitchRows + 1 bottom border + 1 velocity row
-        let pitchRowCount = pitches.count
-        let totalRows = pitchRowCount + 2
-        let canvasWidth = CGFloat(charCols) * cw
-        let canvasHeight = CGFloat(totalRows) * rh
+        let rc = GridRenderContext(
+            pitches: pitches,
+            activeColumns: cols,
+            displayColumns: displayColumns,
+            fontSize: fontSize,
+            isArpActive: isArpActive,
+            hasEuclidean: sequence.euclidean != nil,
+            arpPitches: isArpActive ? Set(sequence.notes.map { $0.pitch }) : [],
+            lookup: lookup,
+            continuations: continuations,
+            stepVelocities: stepVelocities,
+            playheadStep: -1,
+            pulse: 0,
+            spanDragState: spanDragState,
+            notes: sequence.notes,
+            showVelocityRow: true
+        )
+        let canvasSize = SequencerGridCore.canvasSize(for: rc)
 
         return TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
             let time = timeline.date.timeIntervalSinceReferenceDate
@@ -442,149 +367,12 @@ struct StepSequencerPanel: View {
             let pulse: CGFloat = 0.7 + 0.3 * CGFloat(sin(time * 6))
 
             Canvas { context, size in
-                let euclideanGreen = Color(red: 0.2, green: 0.7, blue: 0.4)
-                let arpCyan = Color(red: 0.2, green: 0.7, blue: 0.8)
-                let borderColor = CanopyColors.chromeText.opacity(0.15)
-
-                // === Pitch rows ===
-                for (rowIdx, pitch) in pitches.enumerated() {
-                    let y = CGFloat(rowIdx) * rh + rh / 2
-
-                    for charCol in 0..<charCols {
-                        let x = CGFloat(charCol) * cw + cw / 2
-
-                        // Determine if this is a separator column
-                        let stepIdx = charCol < charCols ? reverseMap[charCol] : nil
-
-                        if stepIdx == nil {
-                            // Separator column: ║
-                            let isPlayheadAdj = isPlaying && playheadStep >= 0 && {
-                                let phCol = colMap[playheadStep]
-                                return charCol == phCol - 1 || charCol == phCol + 1
-                            }()
-                            let sepColor = isPlayheadAdj
-                                ? CanopyColors.glowColor.opacity(0.3 * Double(pulse))
-                                : borderColor
-                            drawCharSeq(context, "║", at: CGPoint(x: x, y: y), size: fontSize, color: sepColor)
-                        } else if let step = stepIdx {
-                            let enabled = step < cols
-                            let isPlayhead = step == playheadStep
-                            let noteEvent = enabled ? lookup[pitch &* 1000 &+ step] : nil
-                            let isActive = noteEvent != nil
-                            let isContinuation = continuations.contains(pitch &* 1000 &+ step)
-                            let velocity = noteEvent?.velocity ?? 0.8
-                            let probability = noteEvent?.probability ?? 1.0
-                            let ratchetCount = noteEvent?.ratchetCount ?? 1
-                            let dimFactor: Double = enabled ? 1.0 : 0.25
-
-                            // Determine character and color
-                            let char: String
-                            let color: Color
-
-                            if isContinuation {
-                                char = "─"
-                                let baseCol: Color = isArp ? arpCyan : (hasEuclidean ? euclideanGreen : CanopyColors.gridCellActive)
-                                color = isPlayhead
-                                    ? CanopyColors.glowColor.opacity(Double(pulse))
-                                    : baseCol.opacity(0.4 * dimFactor)
-                            } else if isActive {
-                                // Velocity-mapped fill character
-                                if ratchetCount > 1 {
-                                    char = "╪"
-                                } else if velocity < 0.3 {
-                                    char = "░"
-                                } else if velocity < 0.6 {
-                                    char = "▒"
-                                } else if velocity < 0.85 {
-                                    char = "▓"
-                                } else {
-                                    char = "█"
-                                }
-                                let baseCol: Color = isArp ? arpCyan : (hasEuclidean ? euclideanGreen : CanopyColors.gridCellActive)
-                                color = isPlayhead
-                                    ? CanopyColors.glowColor.opacity(Double(pulse))
-                                    : baseCol.opacity((probability * 0.8 + 0.2) * dimFactor)
-                            } else {
-                                char = "·"
-                                let arpDim = arpPitches.contains(pitch) ? 0.08 : 0.0
-                                color = isPlayhead
-                                    ? CanopyColors.glowColor.opacity(0.4 * Double(pulse))
-                                    : CanopyColors.chromeText.opacity((enabled ? 0.15 : 0.06) + arpDim)
-                            }
-
-                            drawCharSeq(context, char, at: CGPoint(x: x, y: y), size: fontSize, color: color)
-                        }
-                    }
-                }
-
-                // === Bottom border row ===
-                let borderY = CGFloat(pitchRowCount) * rh + rh / 2
-                for charCol in 0..<charCols {
-                    let x = CGFloat(charCol) * cw + cw / 2
-                    let stepIdx = charCol < charCols ? reverseMap[charCol] : nil
-                    let ch: String
-                    if charCol == 0 {
-                        ch = "╚"
-                    } else if charCol == charCols - 1 {
-                        ch = "╝"
-                    } else if stepIdx == nil {
-                        // Separator position
-                        ch = "╩"
-                    } else {
-                        ch = "═"
-                    }
-                    drawCharSeq(context, ch, at: CGPoint(x: x, y: borderY), size: fontSize, color: borderColor)
-                }
-
-                // === Velocity row ===
-                let velY = CGFloat(pitchRowCount + 1) * rh + rh / 2
-                for step in 0..<displayColumns {
-                    let charCol = colMap[step]
-                    let x = CGFloat(charCol) * cw + cw / 2
-                    let enabled = step < cols
-                    let vel = enabled ? (stepVelocities[step] ?? 0) : 0.0
-                    let dimFactor: Double = enabled ? 1.0 : 0.25
-
-                    let ch: String
-                    if vel <= 0 { ch = " " }
-                    else if vel < 0.15 { ch = "▁" }
-                    else if vel < 0.30 { ch = "▂" }
-                    else if vel < 0.45 { ch = "▃" }
-                    else if vel < 0.60 { ch = "▄" }
-                    else if vel < 0.75 { ch = "▅" }
-                    else if vel < 0.90 { ch = "▆" }
-                    else { ch = "▇" }
-
-                    let velColor = CanopyColors.glowColor.opacity((vel > 0 ? 0.5 : 0.1) * dimFactor)
-                    drawCharSeq(context, ch, at: CGPoint(x: x, y: velY), size: fontSize, color: velColor)
-                }
-
-                // === Drag handles on sustained notes (┃ at end of multi-step spans) ===
-                let sd = NoteSequence.stepDuration
-                let handleBaseColor: Color = isArp
-                    ? Color(red: 0.2, green: 0.7, blue: 0.8)
-                    : CanopyColors.gridCellActive
-                for note in sequence.notes {
-                    let startStep = Int(round(note.startBeat / sd))
-                    let endStep: Int
-                    if let drag = spanDragState, drag.pitch == note.pitch && drag.startStep == startStep {
-                        endStep = drag.currentEndStep
-                    } else {
-                        endStep = max(startStep + 1, Int(round((note.startBeat + note.duration) / sd)))
-                    }
-                    // Only show handle for multi-step spans
-                    guard endStep - startStep > 1 else { continue }
-                    guard let rowIdx = pitches.firstIndex(of: note.pitch) else { continue }
-                    let visibleEnd = min(endStep, cols)
-                    guard visibleEnd > startStep else { continue }
-                    let handleStep = visibleEnd - 1
-                    let handleCharCol = colMap[min(handleStep, displayColumns - 1)]
-                    let hx = CGFloat(handleCharCol) * cw + cw / 2
-                    let hy = CGFloat(rowIdx) * rh + rh / 2
-                    drawCharSeqBold(context, "┃", at: CGPoint(x: hx + cw * 0.45, y: hy), size: fontSize, color: handleBaseColor.opacity(0.8))
-                }
+                var frameRC = rc
+                frameRC.playheadStep = playheadStep
+                frameRC.pulse = pulse
+                SequencerGridCore.drawGrid(context, rc: frameRC)
             }
-            .frame(width: canvasWidth, height: canvasHeight)
+            .frame(width: canvasSize.width, height: canvasSize.height)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -608,9 +396,9 @@ struct StepSequencerPanel: View {
 
                         // Compute target end step from absolute mouse X position
                         let currentCharCol = max(0, min(charCols - 1, Int(value.location.x / cw)))
-                        let targetStep = nearestStep(forCharCol: currentCharCol, reverseMap: reverseMap, maxStep: cols)
+                        let targetStep = SequencerGridCore.nearestStep(forCharCol: currentCharCol, reverseMap: reverseMap, maxStep: cols)
                         let newEnd = max(startStep + 1, min(cols, targetStep + 1))
-                        spanDragState = (pitch: pitch, startStep: startStep, currentEndStep: newEnd)
+                        spanDragState = SpanDragState(pitch: pitch, startStep: startStep, currentEndStep: newEnd)
                     }
                     .onEnded { value in
                         if let drag = spanDragState {
@@ -632,35 +420,6 @@ struct StepSequencerPanel: View {
                     }
             )
         }
-    }
-
-    /// Find the nearest valid step for a given character column (skipping separators).
-    private func nearestStep(forCharCol charCol: Int, reverseMap: [Int?], maxStep: Int) -> Int {
-        if let step = reverseMap[charCol] { return min(step, maxStep - 1) }
-        // Separator column — find nearest step by searching left then right
-        for offset in 1..<reverseMap.count {
-            let left = charCol - offset
-            if left >= 0, let step = reverseMap[left] { return min(step, maxStep - 1) }
-            let right = charCol + offset
-            if right < reverseMap.count, let step = reverseMap[right] { return min(step, maxStep - 1) }
-        }
-        return 0
-    }
-
-    // MARK: - ASCII Drawing Primitives
-
-    private func drawCharSeq(_ context: GraphicsContext, _ char: String, at point: CGPoint, size fontSize: CGFloat, color: Color) {
-        context.draw(
-            Text(char).font(.system(size: fontSize, weight: .regular, design: .monospaced)).foregroundColor(color),
-            at: point, anchor: .center
-        )
-    }
-
-    private func drawCharSeqBold(_ context: GraphicsContext, _ char: String, at point: CGPoint, size fontSize: CGFloat, color: Color) {
-        context.draw(
-            Text(char).font(.system(size: fontSize, weight: .bold, design: .monospaced)).foregroundColor(color),
-            at: point, anchor: .center
-        )
     }
 
     // MARK: - Custom Controls
@@ -1075,333 +834,121 @@ struct StepSequencerPanel: View {
         }
     }
 
-    // MARK: - Arp Actions
+    // MARK: - Action Wrappers (delegate to SequencerActions)
 
-    private func setArpMode(_ mode: ArpMode) {
+    private func toggleNote(pitch: Int, step: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.arpConfig?.mode = mode
-        }
-        projectState.rebuildArpPool(for: nodeID)
+        SequencerActions.toggleNote(projectState: projectState, nodeID: nodeID, pitch: pitch, step: step)
     }
 
-    private func setArpRate(_ rate: ArpRate) {
+    private func commitSpanDrag(pitch: Int, startStep: Int, newEndStep: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.arpConfig?.rate = rate
-        }
-        projectState.rebuildArpPool(for: nodeID)
+        SequencerActions.commitSpanDrag(projectState: projectState, nodeID: nodeID, pitch: pitch, startStep: startStep, newEndStep: newEndStep)
     }
-
-    private func setArpOctave(_ octave: Int) {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.arpConfig?.octaveRange = octave
-        }
-        projectState.rebuildArpPool(for: nodeID)
-    }
-
-    private func commitArpGate() {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.arpConfig?.gateLength = localArpGate
-        }
-        projectState.rebuildArpPool(for: nodeID)
-    }
-
-    private func toggleArp() {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            if node.sequence.arpConfig != nil {
-                node.sequence.arpConfig = nil
-            } else {
-                node.sequence.arpConfig = ArpConfig()
-                // Auto-extend existing short-duration notes to span to end of sequence
-                let len = node.sequence.lengthInBeats
-                for i in 0..<node.sequence.notes.count {
-                    let note = node.sequence.notes[i]
-                    let remaining = len - note.startBeat
-                    if note.duration < remaining {
-                        node.sequence.notes[i].duration = remaining
-                    }
-                }
-            }
-        }
-        if let node = projectState.findNode(id: nodeID) {
-            if node.sequence.arpConfig != nil {
-                projectState.rebuildArpPool(for: nodeID)
-            } else {
-                projectState.disableArp(for: nodeID)
-            }
-        }
-        syncSeqFromModel()
-        reloadSequence()
-    }
-
-    // MARK: - Commit Helpers (write to ProjectState once on drag end)
 
     private func commitGlobalProbability() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.globalProbability = localProbability
-        }
-        AudioEngine.shared.setGlobalProbability(localProbability, nodeID: nodeID)
+        SequencerActions.commitGlobalProbability(localProbability, projectState: projectState, nodeID: nodeID)
     }
 
     private func commitMutationAmount() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            if node.sequence.mutation == nil {
-                node.sequence.mutation = MutationConfig(amount: localMutationAmount, range: 1)
-            } else {
-                node.sequence.mutation?.amount = localMutationAmount
-            }
-        }
-        let key = resolveKey()
-        AudioEngine.shared.setMutation(
-            amount: localMutationAmount,
-            range: node?.sequence.mutation?.range ?? 1,
-            rootSemitone: key.root.semitone,
-            intervals: key.mode.intervals,
-            nodeID: nodeID
-        )
+        SequencerActions.commitMutationAmount(localMutationAmount, projectState: projectState, nodeID: nodeID)
     }
 
     private func commitAccumulatorAmount() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.accumulator?.amount = localAccAmount
-        }
-        reloadSequence()
+        SequencerActions.commitAccumulatorAmount(localAccAmount, projectState: projectState, nodeID: nodeID)
     }
 
     private func commitAccumulatorLimit() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.accumulator?.limit = localAccLimit
-        }
-        reloadSequence()
+        SequencerActions.commitAccumulatorLimit(localAccLimit, projectState: projectState, nodeID: nodeID)
     }
-
-    // MARK: - Length Change
 
     private func changeLength(to newStepCount: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let sd = NoteSequence.stepDuration
-        let newLengthBeats = Double(newStepCount) * sd
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.notes.removeAll { $0.startBeat >= newLengthBeats }
-            // Clamp durations that extend past the new length
-            for i in 0..<node.sequence.notes.count {
-                let note = node.sequence.notes[i]
-                let endBeat = note.startBeat + note.duration
-                if endBeat > newLengthBeats {
-                    node.sequence.notes[i].duration = newLengthBeats - note.startBeat
-                }
-            }
-            node.sequence.lengthInBeats = newLengthBeats
-        }
-        reloadSequence()
+        SequencerActions.changeLength(to: newStepCount, projectState: projectState, nodeID: nodeID)
     }
-
-    // MARK: - Direction
 
     private func setDirection(_ dir: PlaybackDirection) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.playbackDirection = dir == .forward ? nil : dir
-        }
-        reloadSequence()
+        SequencerActions.setDirection(dir, projectState: projectState, nodeID: nodeID)
     }
-
-    // MARK: - Euclidean
 
     private func applyEuclidean(pulses: Int, rotation: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let key = resolveKey()
-        let config = EuclideanConfig(pulses: pulses, rotation: rotation)
-        projectState.updateNode(id: nodeID) { node in
-            SequenceFillService.applyEuclidean(
-                sequence: &node.sequence,
-                config: config,
-                key: key,
-                pitchRange: node.sequence.pitchRange
-            )
-        }
-        reloadSequence()
+        SequencerActions.applyEuclidean(pulses: pulses, rotation: rotation, projectState: projectState, nodeID: nodeID)
     }
-
-    // MARK: - Random Fill
 
     private func randomFill() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let key = resolveKey()
-        projectState.updateNode(id: nodeID) { node in
-            if node.sequence.euclidean != nil {
-                // Re-randomize pitches on existing euclidean pattern
-                SequenceFillService.randomScaleFill(
-                    sequence: &node.sequence,
-                    key: key,
-                    pitchRange: node.sequence.pitchRange
-                )
-            } else {
-                // Fill empty steps
-                SequenceFillService.randomFill(
-                    sequence: &node.sequence,
-                    key: key,
-                    pitchRange: node.sequence.pitchRange,
-                    density: 0.5
-                )
-            }
-        }
-        reloadSequence()
+        SequencerActions.randomFill(projectState: projectState, nodeID: nodeID)
     }
-
-    // MARK: - Mutation (discrete controls — commit immediately)
 
     private func setMutationRange(_ range: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            if node.sequence.mutation == nil {
-                node.sequence.mutation = MutationConfig(amount: 0.1, range: range)
-            } else {
-                node.sequence.mutation?.range = range
-            }
-        }
-        reloadSequence()
+        SequencerActions.setMutationRange(range, projectState: projectState, nodeID: nodeID)
     }
 
     private func freezeMutation() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        AudioEngine.shared.freezeMutation(nodeID: nodeID)
+        SequencerActions.freezeMutation(nodeID: nodeID)
     }
 
     private func resetMutation() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        AudioEngine.shared.resetMutation(nodeID: nodeID)
+        SequencerActions.resetMutation(nodeID: nodeID)
     }
-
-    // MARK: - Accumulator (discrete controls — commit immediately)
 
     private func toggleAccumulator() {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            if node.sequence.accumulator != nil {
-                node.sequence.accumulator = nil
-            } else {
-                node.sequence.accumulator = AccumulatorConfig()
-            }
-        }
+        SequencerActions.toggleAccumulator(projectState: projectState, nodeID: nodeID)
         syncSeqFromModel()
-        reloadSequence()
     }
 
     private func setAccumulatorTarget(_ target: AccumulatorTarget) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.accumulator?.target = target
-        }
-        reloadSequence()
+        SequencerActions.setAccumulatorTarget(target, projectState: projectState, nodeID: nodeID)
     }
 
     private func setAccumulatorMode(_ mode: AccumulatorMode) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.accumulator?.mode = mode
-        }
-        reloadSequence()
+        SequencerActions.setAccumulatorMode(mode, projectState: projectState, nodeID: nodeID)
     }
 
-    /// Commit a span drag: update the NoteEvent duration to match the new end step.
-    private func commitSpanDrag(pitch: Int, startStep: Int, newEndStep: Int) {
+    private func setArpMode(_ mode: ArpMode) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let sd = NoteSequence.stepDuration
-
-        projectState.updateNode(id: nodeID) { node in
-            if let idx = node.sequence.notes.firstIndex(where: {
-                $0.pitch == pitch && Int(round($0.startBeat / sd)) == startStep
-            }) {
-                let newDuration = Double(newEndStep - startStep) * sd
-                node.sequence.notes[idx].duration = max(sd, newDuration)
-            }
-        }
-        reloadSequence()
+        SequencerActions.setArpMode(mode, projectState: projectState, nodeID: nodeID)
     }
 
-    // MARK: - Note Logic
-
-    private func toggleNote(pitch: Int, step: Int) {
+    private func setArpRate(_ rate: ArpRate) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let sd = NoteSequence.stepDuration
-        let stepBeat = Double(step) * sd
-
-        projectState.updateNode(id: nodeID) { node in
-            if let existingIndex = node.sequence.notes.firstIndex(where: {
-                $0.pitch == pitch && Int(round($0.startBeat / sd)) == step
-            }) {
-                node.sequence.notes.remove(at: existingIndex)
-            } else {
-                // In arp mode, extend duration to end of sequence
-                let dur = node.sequence.arpConfig != nil
-                    ? node.sequence.lengthInBeats - stepBeat
-                    : NoteSequence.stepDuration
-                let event = NoteEvent(
-                    pitch: pitch,
-                    velocity: 0.8,
-                    startBeat: stepBeat,
-                    duration: dur
-                )
-                node.sequence.notes.append(event)
-            }
-            // Clear euclidean config when manually editing
-            node.sequence.euclidean = nil
-        }
-
-        reloadSequence()
+        SequencerActions.setArpRate(rate, projectState: projectState, nodeID: nodeID)
     }
 
-    private func reloadSequence() {
-        guard let node = projectState.selectedNode,
-              let nodeID = projectState.selectedNodeID else { return }
-        let seq = node.sequence
-        let events = seq.notes.map { event in
-            SequencerEvent(
-                pitch: event.pitch,
-                velocity: event.velocity,
-                startBeat: event.startBeat,
-                endBeat: event.startBeat + event.duration,
-                probability: event.probability,
-                ratchetCount: event.ratchetCount
-            )
-        }
-        let key = resolveKey()
-        let mutation = seq.mutation
-        AudioEngine.shared.loadSequence(
-            events, lengthInBeats: seq.lengthInBeats, nodeID: nodeID,
-            direction: seq.playbackDirection ?? .forward,
-            mutationAmount: mutation?.amount ?? 0,
-            mutationRange: mutation?.range ?? 0,
-            scaleRootSemitone: key.root.semitone,
-            scaleIntervals: key.mode.intervals,
-            accumulatorConfig: seq.accumulator
-        )
+    private func setArpOctave(_ octave: Int) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        SequencerActions.setArpOctave(octave, projectState: projectState, nodeID: nodeID)
+    }
 
-        // Rebuild arp pool if arp is active
-        if seq.arpConfig != nil {
-            projectState.rebuildArpPool(for: nodeID)
-        }
+    private func commitArpGate() {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        SequencerActions.commitArpGate(localArpGate, projectState: projectState, nodeID: nodeID)
+    }
+
+    private func toggleArp() {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        SequencerActions.toggleArp(projectState: projectState, nodeID: nodeID)
+        syncSeqFromModel()
     }
 
     // MARK: - Helpers
 
     private func resolveKey() -> MusicalKey {
-        guard let node = projectState.selectedNode else {
+        guard let nodeID = projectState.selectedNodeID else {
             return projectState.project.globalKey
         }
-        if let override = node.scaleOverride { return override }
-        if let tree = projectState.project.trees.first, let treeScale = tree.scale {
-            return treeScale
-        }
-        return projectState.project.globalKey
+        return SequencerActions.resolveKey(projectState: projectState, nodeID: nodeID)
     }
 }

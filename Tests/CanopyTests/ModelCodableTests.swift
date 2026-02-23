@@ -408,6 +408,81 @@ final class ModelCodableTests: XCTestCase {
         }
     }
 
+    // MARK: - Per-Step Probability & Micro-Timing
+
+    func testNoteSequenceWithPerStepProbabilityRoundTrip() throws {
+        let seq = NoteSequence(
+            notes: [NoteEvent(pitch: 60, startBeat: 0)],
+            lengthInBeats: 4,
+            perStepProbability: [1.0, 0.8, 0.5, 0.3, 1.0, 0.6, 0.9, 0.2,
+                                 1.0, 1.0, 0.4, 0.7, 0.1, 1.0, 0.5, 0.8]
+        )
+
+        let data = try JSONEncoder().encode(seq)
+        let decoded = try JSONDecoder().decode(NoteSequence.self, from: data)
+
+        XCTAssertEqual(seq, decoded)
+        XCTAssertNotNil(decoded.perStepProbability)
+        XCTAssertEqual(decoded.perStepProbability?.count, 16)
+        XCTAssertEqual(decoded.perStepProbability?[2], 0.5)
+    }
+
+    func testNoteSequenceWithMicroTimingOffsetsRoundTrip() throws {
+        let seq = NoteSequence(
+            notes: [NoteEvent(pitch: 60, startBeat: 0)],
+            lengthInBeats: 4,
+            microTimingOffsets: [0, -12, 8, 0, -24, 0, 16, 0,
+                                 0, 0, -8, 0, 48, 0, -48, 0]
+        )
+
+        let data = try JSONEncoder().encode(seq)
+        let decoded = try JSONDecoder().decode(NoteSequence.self, from: data)
+
+        XCTAssertEqual(seq, decoded)
+        XCTAssertNotNil(decoded.microTimingOffsets)
+        XCTAssertEqual(decoded.microTimingOffsets?.count, 16)
+        XCTAssertEqual(decoded.microTimingOffsets?[1], -12)
+        XCTAssertEqual(decoded.microTimingOffsets?[4], -24)
+    }
+
+    func testOldNoteSequenceDecodesWithNilPerStepFields() throws {
+        // Old JSON without perStepProbability or microTimingOffsets
+        let json = """
+        {
+            "notes": [],
+            "lengthInBeats": 8.0,
+            "globalProbability": 0.9
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(NoteSequence.self, from: data)
+
+        XCTAssertNil(decoded.perStepProbability, "Missing perStepProbability should decode as nil")
+        XCTAssertNil(decoded.microTimingOffsets, "Missing microTimingOffsets should decode as nil")
+        XCTAssertEqual(decoded.globalProbability, 0.9)
+    }
+
+    func testNoteSequenceWithBothPerStepFieldsRoundTrip() throws {
+        let seq = NoteSequence(
+            notes: [NoteEvent(pitch: 60, startBeat: 0), NoteEvent(pitch: 64, startBeat: 1.0)],
+            lengthInBeats: 4,
+            globalProbability: 0.8,
+            perStepProbability: [1.0, 0.5, 0.75, 1.0, 0.3, 1.0, 0.9, 0.6,
+                                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            microTimingOffsets: [0, 10, -5, 0, 20, 0, -30, 0,
+                                 0, 0, 0, 0, 0, 0, 0, 0]
+        )
+
+        let data = try JSONEncoder().encode(seq)
+        let decoded = try JSONDecoder().decode(NoteSequence.self, from: data)
+
+        XCTAssertEqual(seq, decoded)
+        XCTAssertEqual(decoded.globalProbability, 0.8)
+        XCTAssertEqual(decoded.perStepProbability?[1], 0.5)
+        XCTAssertEqual(decoded.microTimingOffsets?[1], 10)
+        XCTAssertEqual(decoded.microTimingOffsets?[6], -30)
+    }
+
     func testNewScaleModesEncodeDecode() throws {
         let modes: [ScaleMode] = [.harmonicMinor, .melodicMinor, .phrygian, .lydian,
                                    .locrian, .pentatonicMajor, .pentatonicMinor, .wholeTone]
