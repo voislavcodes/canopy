@@ -14,63 +14,65 @@ struct ToolbarView: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Project name
-            if isEditingName {
-                TextField("Project Name", text: $editedName, onCommit: {
-                    projectState.project.name = editedName
-                    projectState.markDirty()
-                    isEditingName = false
-                })
-                .textFieldStyle(.plain)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(CanopyColors.chromeTextBright)
-                .frame(width: 160)
-            } else {
-                Text(projectState.project.name)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(CanopyColors.chromeTextBright)
-                    .onTapGesture(count: 2) {
-                        editedName = projectState.project.name
-                        isEditingName = true
-                    }
-            }
-
-            // Scale section — Ableton-style inline
-            scaleSection
-
-            Spacer()
-
+        ZStack {
+            // Center: transport (play, stop, BPM) — truly centered in the bar
             TransportView(transportState: transportState)
 
-            Spacer()
+            // Left / right edges
+            HStack(spacing: 12) {
+                // Project name
+                if isEditingName {
+                    TextField("Project Name", text: $editedName, onCommit: {
+                        projectState.project.name = editedName
+                        projectState.markDirty()
+                        isEditingName = false
+                    })
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(CanopyColors.chromeTextBright)
+                    .frame(width: 160)
+                } else {
+                    Text(projectState.project.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(CanopyColors.chromeTextBright)
+                        .onTapGesture(count: 2) {
+                            editedName = projectState.project.name
+                            isEditingName = true
+                        }
+                }
 
-            // Computer keyboard MIDI input toggle + dirty indicator
-            Button(action: {
-                projectState.computerKeyboardEnabled.toggle()
-            }) {
-                let enabled = projectState.computerKeyboardEnabled
-                Image(systemName: "pianokeys")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(enabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
-                    .frame(width: 26, height: 22)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(enabled ? CanopyColors.glowColor.opacity(0.1) : Color.clear)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(enabled ? CanopyColors.glowColor.opacity(0.3) : CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
-                    )
-            }
-            .buttonStyle(.plain)
-            .help("Computer keyboard MIDI input (A-L = notes, ; / ' = octave)")
-            .overlay(alignment: .leading) {
-                Circle()
-                    .fill(CanopyColors.chromeText.opacity(projectState.isDirty ? 0.4 : 0))
-                    .frame(width: 6, height: 6)
-                    .offset(x: -9, y: 1)
-                    .allowsHitTesting(false)
+                // Scale section — Ableton-style inline
+                scaleSection
+
+                Spacer()
+
+                // Computer keyboard MIDI input toggle + dirty indicator
+                Button(action: {
+                    projectState.computerKeyboardEnabled.toggle()
+                }) {
+                    let enabled = projectState.computerKeyboardEnabled
+                    Image(systemName: "pianokeys")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(enabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
+                        .frame(width: 26, height: 22)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(enabled ? CanopyColors.glowColor.opacity(0.1) : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(enabled ? CanopyColors.glowColor.opacity(0.3) : CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help("Computer keyboard MIDI input (A-L = notes, ; / ' = octave)")
+                .overlay(alignment: .leading) {
+                    Circle()
+                        .fill(CanopyColors.chromeText.opacity(projectState.isDirty ? 0.4 : 0))
+                        .frame(width: 6, height: 6)
+                        .offset(x: -9, y: 1)
+                        .allowsHitTesting(false)
+                }
             }
         }
         .padding(.horizontal, 16)
