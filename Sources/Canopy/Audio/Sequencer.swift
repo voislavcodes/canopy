@@ -142,15 +142,6 @@ struct Sequencer {
     private var mutatedPitchesB: [Int]
     private var activeBufferIsA: Bool = true
 
-    // Accumulator
-    private var accumulatorValue: Double = 0
-    private var accumulatorTarget: AccumulatorTarget = .pitch
-    private var accumulatorAmount: Double = 0
-    private var accumulatorLimit: Double = 12
-    private var accumulatorMode: AccumulatorMode = .clamp
-    private var accumulatorEnabled: Bool = false
-    private var accumulatorDirection: Double = 1.0  // for pingPong
-
     // Cycle counter for loop wrap detection
     private var loopCount: Int = 0
 
@@ -211,8 +202,7 @@ struct Sequencer {
     mutating func load(events incoming: [SequencerEvent], lengthInBeats: Double,
                        direction: PlaybackDirection = .forward,
                        mutationAmount: Double = 0, mutationRange: Int = 0,
-                       scaleRootSemitone: Int = 0, scaleIntervals incomingIntervals: [Int] = [],
-                       accumulatorConfig: AccumulatorConfig? = nil) {
+                       scaleRootSemitone: Int = 0, scaleIntervals incomingIntervals: [Int] = []) {
         let count = min(incoming.count, Sequencer.maxEvents)
         self.eventCount = count
         self.lengthInBeats = max(lengthInBeats, 1)
@@ -324,19 +314,6 @@ struct Sequencer {
             scaleIntervals[i] = incomingIntervals[i]
         }
 
-        // Accumulator setup
-        self.accumulatorValue = 0
-        self.accumulatorDirection = 1.0
-        if let acc = accumulatorConfig {
-            self.accumulatorEnabled = true
-            self.accumulatorTarget = acc.target
-            self.accumulatorAmount = acc.amount
-            self.accumulatorLimit = acc.limit
-            self.accumulatorMode = acc.mode
-        } else {
-            self.accumulatorEnabled = false
-        }
-
         self.loopCount = 0
     }
 
@@ -346,8 +323,6 @@ struct Sequencer {
         self.currentBeat = 0
         self.isPlaying = true
         self.loopCount = 0
-        self.accumulatorValue = 0
-        self.accumulatorDirection = 1.0
         self.needsClockSync = true
         self._testSampleCounter = 0
         resetFlags()
@@ -525,13 +500,10 @@ struct Sequencer {
             activeRatchetCount = 0
         }
 
-        // Apply mutation and accumulator for each loop that passed
+        // Apply mutation for each loop that passed
         for _ in 0..<loopDelta {
             if mutationAmount > 0 && scaleIntervalsCount > 0 {
                 applyMutation()
-            }
-            if accumulatorEnabled {
-                advanceAccumulator()
             }
         }
 
@@ -592,11 +564,6 @@ struct Sequencer {
             // Apply mutation at loop wrap
             if mutationAmount > 0 && scaleIntervalsCount > 0 {
                 applyMutation()
-            }
-
-            // Advance accumulator at loop wrap
-            if accumulatorEnabled {
-                advanceAccumulator()
             }
 
             // Reset direction state for new cycle
@@ -1003,45 +970,18 @@ struct Sequencer {
         return max(0, min(127, midi + bestOffset))
     }
 
-    // MARK: - Accumulator
-
-    private mutating func advanceAccumulator() {
-        switch accumulatorMode {
-        case .clamp:
-            accumulatorValue += accumulatorAmount
-            accumulatorValue = max(-accumulatorLimit, min(accumulatorLimit, accumulatorValue))
-        case .wrap:
-            accumulatorValue += accumulatorAmount
-            if accumulatorLimit > 0 {
-                while accumulatorValue > accumulatorLimit { accumulatorValue -= accumulatorLimit * 2 }
-                while accumulatorValue < -accumulatorLimit { accumulatorValue += accumulatorLimit * 2 }
-            }
-        case .pingPong:
-            accumulatorValue += accumulatorAmount * accumulatorDirection
-            if accumulatorValue >= accumulatorLimit {
-                accumulatorValue = accumulatorLimit
-                accumulatorDirection = -1
-            } else if accumulatorValue <= -accumulatorLimit {
-                accumulatorValue = -accumulatorLimit
-                accumulatorDirection = 1
-            }
-        }
-    }
+    // MARK: - Pitch/Velocity Pass-Through
 
     private func applyAccumulatorToPitch(_ pitch: Int) -> Int {
-        guard accumulatorEnabled && accumulatorTarget == .pitch else { return pitch }
-        return max(0, min(127, pitch + Int(round(accumulatorValue))))
+        return pitch
     }
 
     private func applyAccumulatorToVelocity(_ velocity: Double) -> Double {
-        guard accumulatorEnabled && accumulatorTarget == .velocity else { return velocity }
-        return max(0.0, min(1.0, velocity + accumulatorValue / 127.0))
+        return velocity
     }
 
-    // Probability accumulator affects the roll threshold
     func accumulatorProbabilityOffset() -> Double {
-        guard accumulatorEnabled && accumulatorTarget == .probability else { return 0 }
-        return accumulatorValue / 100.0
+        return 0
     }
 
     // MARK: - Flag Reset

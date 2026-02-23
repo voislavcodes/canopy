@@ -153,14 +153,12 @@ final class AudioEngine {
     func loadSequence(_ events: [SequencerEvent], lengthInBeats: Double, nodeID: UUID,
                       direction: PlaybackDirection = .forward,
                       mutationAmount: Double = 0, mutationRange: Int = 0,
-                      scaleRootSemitone: Int = 0, scaleIntervals: [Int] = [],
-                      accumulatorConfig: AccumulatorConfig? = nil) {
+                      scaleRootSemitone: Int = 0, scaleIntervals: [Int] = []) {
         graph.unit(for: nodeID)?.loadSequence(
             events, lengthInBeats: lengthInBeats,
             direction: direction,
             mutationAmount: mutationAmount, mutationRange: mutationRange,
-            scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-            accumulatorConfig: accumulatorConfig)
+            scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
     }
 
     /// Set global probability on a specific node's sequencer.

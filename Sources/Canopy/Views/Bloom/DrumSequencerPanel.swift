@@ -13,8 +13,6 @@ struct DrumSequencerPanel: View {
     @State private var showAdvanced = false
     @State private var localProbability: Double = 1.0
     @State private var localMutationAmount: Double = 0.0
-    @State private var localAccAmount: Double = 1.0
-    @State private var localAccLimit: Double = 12.0
 
     private var node: Node? { projectState.selectedNode }
 
@@ -129,8 +127,6 @@ struct DrumSequencerPanel: View {
         guard let node else { return }
         localProbability = node.sequence.globalProbability
         localMutationAmount = node.sequence.mutation?.amount ?? 0
-        localAccAmount = node.sequence.accumulator?.amount ?? 1.0
-        localAccLimit = node.sequence.accumulator?.limit ?? 12.0
     }
 
     // MARK: - Voice Labels
@@ -501,8 +497,7 @@ struct DrumSequencerPanel: View {
             mutationAmount: seq.mutation?.amount ?? 0,
             mutationRange: seq.mutation?.range ?? 0,
             scaleRootSemitone: key.root.semitone,
-            scaleIntervals: key.mode.intervals,
-            accumulatorConfig: seq.accumulator
+            scaleIntervals: key.mode.intervals
         )
     }
 }

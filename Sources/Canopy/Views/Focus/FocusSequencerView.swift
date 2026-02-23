@@ -30,8 +30,6 @@ struct FocusSequencerView: View {
 
     @State private var localProbability: Double = 1.0
     @State private var localMutationAmount: Double = 0.0
-    @State private var localAccAmount: Double = 1.0
-    @State private var localAccLimit: Double = 12.0
     @State private var localArpGate: Double = 0.5
 
     private var node: Node? {
@@ -124,8 +122,6 @@ struct FocusSequencerView: View {
         guard let node else { return }
         localProbability = node.sequence.globalProbability
         localMutationAmount = node.sequence.mutation?.amount ?? 0
-        localAccAmount = node.sequence.accumulator?.amount ?? 1.0
-        localAccLimit = node.sequence.accumulator?.limit ?? 12.0
         localArpGate = node.sequence.arpConfig?.gateLength ?? 0.5
     }
 
@@ -282,10 +278,6 @@ struct FocusSequencerView: View {
     // MARK: - Sidebar
 
     private var sidebarView: some View {
-        let acc = node?.sequence.accumulator
-        let accEnabled = acc != nil
-        let accTarget = acc?.target ?? .pitch
-        let accMode = acc?.mode ?? .clamp
         let mutRange = node?.sequence.mutation?.range ?? 1
 
         return ScrollView(.vertical, showsIndicators: false) {
@@ -320,87 +312,6 @@ struct FocusSequencerView: View {
                                 sidebarPill("Reset", icon: "arrow.counterclockwise")
                             }
                             .buttonStyle(.plain)
-                        }
-                    }
-                }
-
-                // ACCUMULATOR section
-                sidebarSection("ACCUMULATOR") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 6) {
-                            Button(action: { toggleAccumulator() }) {
-                                Image(systemName: accEnabled ? "checkmark.square" : "square")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(accEnabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.5))
-                            }
-                            .buttonStyle(.plain)
-                            Text(accEnabled ? "On" : "Off")
-                                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                        }
-
-                        if accEnabled {
-                            // Target picker
-                            HStack(spacing: 3) {
-                                Text("Tgt")
-                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                                ForEach(AccumulatorTarget.allCases, id: \.self) { t in
-                                    let sel = accTarget == t
-                                    Button(action: { setAccumulatorTarget(t) }) {
-                                        Text(t.rawValue.prefix(3))
-                                            .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                            .foregroundColor(sel ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 2)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 2)
-                                                    .fill(sel ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
-                                            )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-
-                            // Amount and Limit
-                            HStack(spacing: 6) {
-                                Text("Amt")
-                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                                compactDragValue(value: Int(localAccAmount), range: -12...12) { val in
-                                    localAccAmount = Double(val)
-                                    commitAccumulatorAmount()
-                                }
-                                Text("Lim")
-                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                                compactDragValue(value: Int(localAccLimit), range: 1...48) { val in
-                                    localAccLimit = Double(val)
-                                    commitAccumulatorLimit()
-                                }
-                            }
-
-                            // Mode picker
-                            HStack(spacing: 3) {
-                                Text("Mod")
-                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                                ForEach(AccumulatorMode.allCases, id: \.self) { m in
-                                    let sel = accMode == m
-                                    Button(action: { setAccumulatorMode(m) }) {
-                                        Text(m.rawValue.prefix(3))
-                                            .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                            .foregroundColor(sel ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 2)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 2)
-                                                    .fill(sel ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
-                                            )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
                         }
                     }
                 }
@@ -662,7 +573,7 @@ struct FocusSequencerView: View {
 
             // Auto-follow: switch page when playhead crosses boundary
             let playheadPage = globalPlayheadStep >= 0 ? globalPlayheadStep / 32 : currentPage
-            let _autoFollow: Void = isPlaying && playheadPage != currentPage && playheadPage < pageCount
+            let _: Void = isPlaying && playheadPage != currentPage && playheadPage < pageCount
                 ? DispatchQueue.main.async { currentPage = playheadPage }
                 : ()
 
@@ -1507,16 +1418,6 @@ struct FocusSequencerView: View {
         SequencerActions.commitMutationAmount(localMutationAmount, projectState: projectState, nodeID: nodeID)
     }
 
-    private func commitAccumulatorAmount() {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.commitAccumulatorAmount(localAccAmount, projectState: projectState, nodeID: nodeID)
-    }
-
-    private func commitAccumulatorLimit() {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.commitAccumulatorLimit(localAccLimit, projectState: projectState, nodeID: nodeID)
-    }
-
     private func changeLength(to newStepCount: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
         SequencerActions.changeLength(to: newStepCount, projectState: projectState, nodeID: nodeID)
@@ -1550,22 +1451,6 @@ struct FocusSequencerView: View {
     private func resetMutation() {
         guard let nodeID = projectState.selectedNodeID else { return }
         SequencerActions.resetMutation(nodeID: nodeID)
-    }
-
-    private func toggleAccumulator() {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.toggleAccumulator(projectState: projectState, nodeID: nodeID)
-        syncSeqFromModel()
-    }
-
-    private func setAccumulatorTarget(_ target: AccumulatorTarget) {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.setAccumulatorTarget(target, projectState: projectState, nodeID: nodeID)
-    }
-
-    private func setAccumulatorMode(_ mode: AccumulatorMode) {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.setAccumulatorMode(mode, projectState: projectState, nodeID: nodeID)
     }
 
     private func setArpMode(_ mode: ArpMode) {

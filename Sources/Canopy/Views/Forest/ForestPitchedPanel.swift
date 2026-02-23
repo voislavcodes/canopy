@@ -14,11 +14,9 @@ struct ForestPitchedPanel: View {
 
     @State private var localProbability: Double = 1.0
     @State private var localMutationAmount: Double = 0.0
-    @State private var localAccAmount: Double = 1.0
-    @State private var localAccLimit: Double = 12.0
     @State private var localArpGate: Double = 0.5
 
-    // Unified grid drag tracking (cells 0-5: EUC, PROB, STEPS, MUT, RNG, ACC)
+    // Unified grid drag tracking (cells 0-4: EUC, PROB, STEPS, MUT, RNG)
     @State private var activeCell: Int? = nil
     @State private var dragStartValue: Double = 0
     @State private var cellDragMode: CircleDragMode? = nil  // only for cell 0 (EUC)
@@ -65,10 +63,6 @@ struct ForestPitchedPanel: View {
             headerRow
 
             paramGrid
-
-            if node?.sequence.accumulator != nil {
-                accumulatorDetails
-            }
 
             if isArpActive {
                 arpDetailControls
@@ -308,7 +302,7 @@ struct ForestPitchedPanel: View {
         }
     }
 
-    // MARK: - Unified 3×2 Param Grid (EUC / PROB / STEPS / MUT / RNG / ACC)
+    // MARK: - Unified 3×2 Param Grid (EUC / PROB / STEPS / MUT / RNG)
 
     private var paramGrid: some View {
         let gridHeight: CGFloat = 240 * cs
@@ -335,8 +329,7 @@ struct ForestPitchedPanel: View {
                             case 2: drawStepsKnob(context: context, rect: rect, value: columns, time: time, active: isActive)
                             case 3: drawMutKnob(context: context, rect: rect, value: localMutationAmount, time: time, active: isActive)
                             case 4: drawRngKnob(context: context, rect: rect, value: node?.sequence.mutation?.range ?? 1, time: time, active: isActive)
-                            case 5: drawAccKnob(context: context, rect: rect, time: time, active: isActive)
-                            default: break
+                            default: break // cell 5 intentionally left blank
                             }
                         }
                     }
@@ -367,11 +360,6 @@ struct ForestPitchedPanel: View {
                             case 2: dragStartValue = Double(columns)
                             case 3: dragStartValue = localMutationAmount
                             case 4: dragStartValue = Double(node?.sequence.mutation?.range ?? 1)
-                            case 5:
-                                if node?.sequence.accumulator == nil {
-                                    toggleAccumulator()
-                                }
-                                dragStartValue = localAccAmount
                             default: break
                             }
                         }
@@ -430,10 +418,6 @@ struct ForestPitchedPanel: View {
                             if newRange != (node?.sequence.mutation?.range ?? 1) {
                                 setMutationRange(newRange)
                             }
-                        case 5: // ACC
-                            let stepDelta = -Int(round(drag.translation.height / (15 * cs)))
-                            let newAmt = max(-12, min(12, Int(dragStartValue) + stepDelta))
-                            localAccAmount = Double(newAmt)
                         default: break
                         }
                     }
@@ -444,7 +428,6 @@ struct ForestPitchedPanel: View {
                         case 2: break // already committed via changeLength
                         case 3: commitMutationAmount()
                         case 4: break // already committed via setMutationRange
-                        case 5: commitAccumulatorAmount()
                         default: break
                         }
                         activeCell = nil
@@ -550,64 +533,6 @@ struct ForestPitchedPanel: View {
                    fontSize: labelFontSize * 0.9,
                    color: CanopyColors.chromeText.opacity(active ? 0.7 : 0.4))
     }
-
-    // MARK: - Accumulator Details
-
-    private var accumulatorDetails: some View {
-        let acc = node?.sequence.accumulator
-        let accTarget = acc?.target ?? .pitch
-        let accMode = acc?.mode ?? .clamp
-
-        return HStack(spacing: 4 * cs) {
-            Button(action: { toggleAccumulator() }) {
-                Image(systemName: "checkmark.square")
-                    .font(.system(size: 9 * cs))
-                    .foregroundColor(CanopyColors.glowColor.opacity(0.6))
-            }
-            .buttonStyle(.plain)
-
-            ForEach(AccumulatorTarget.allCases, id: \.self) { t in
-                let sel = accTarget == t
-                Button(action: { setAccumulatorTarget(t) }) {
-                    Text(t.rawValue)
-                        .font(.system(size: 8 * cs, design: .monospaced))
-                        .foregroundColor(sel ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
-                        .padding(.horizontal, 4 * cs)
-                        .padding(.vertical, 2 * cs)
-                        .background(
-                            RoundedRectangle(cornerRadius: 2 * cs)
-                                .fill(sel ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-
-            Spacer()
-
-            ForEach(AccumulatorMode.allCases, id: \.self) { m in
-                let sel = accMode == m
-                Button(action: { setAccumulatorMode(m) }) {
-                    Text(m.rawValue)
-                        .font(.system(size: 8 * cs, design: .monospaced))
-                        .foregroundColor(sel ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
-                        .padding(.horizontal, 4 * cs)
-                        .padding(.vertical, 2 * cs)
-                        .background(
-                            RoundedRectangle(cornerRadius: 2 * cs)
-                                .fill(sel ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-
-            dragValue(label: "Lim", value: Int(localAccLimit), range: 1...48,
-                      color: CanopyColors.chromeText.opacity(0.4)) { val in
-                localAccLimit = Double(val)
-                commitAccumulatorLimit()
-            }
-        }
-    }
-
 
     // MARK: - Draw Helpers
 
@@ -863,79 +788,12 @@ struct ForestPitchedPanel: View {
                    color: CanopyColors.chromeText.opacity(active ? 0.7 : 0.4))
     }
 
-    // MARK: - ACC Knob (accumulator arrows)
-
-    private func drawAccKnob(context: GraphicsContext, rect: CGRect, time: Double, active: Bool) {
-        let fontSize: CGFloat = max(9, 11 * cs)
-        let rowH: CGFloat = fontSize * 1.3
-        let centerX = rect.midX
-        let artCenterY = rect.minY + rect.height * 0.35
-
-        let op: CGFloat = active ? 1.0 : 0.55
-        let acc = node?.sequence.accumulator
-        let enabled = acc != nil
-
-        if !enabled {
-            drawChar(context, "○", at: CGPoint(x: centerX, y: artCenterY), size: fontSize,
-                     color: CanopyColors.chromeText.opacity(0.2))
-        } else {
-            let amount = acc?.amount ?? 1.0
-            let mode = acc?.mode ?? .clamp
-            let target = acc?.target ?? .pitch
-            let color = CanopyColors.glowColor.opacity(op)
-
-            let arrowCount = min(3, max(1, Int(abs(amount))))
-            let arrowChar = amount >= 0 ? "↑" : "↓"
-
-            for i in 0..<arrowCount {
-                let y = artCenterY - CGFloat(i) * rowH * 0.7
-                drawChar(context, arrowChar, at: CGPoint(x: centerX, y: y), size: fontSize, color: color)
-            }
-
-            // Mode icon
-            let modeY = artCenterY + rowH * 0.8
-            let modeChar: String
-            switch mode {
-            case .clamp: modeChar = "│"
-            case .wrap: modeChar = "↻"
-            case .pingPong: modeChar = "↔"
-            }
-            drawChar(context, modeChar, at: CGPoint(x: centerX, y: modeY), size: fontSize,
-                     color: CanopyColors.chromeText.opacity(0.4))
-
-            // Target label
-            let targetStr: String
-            switch target {
-            case .pitch: targetStr = "pit"
-            case .velocity: targetStr = "vel"
-            case .probability: targetStr = "prb"
-            }
-            let targetY = modeY + rowH * 0.6
-            let targetCellW = fontSize * 0.5
-            drawString(context, targetStr, centerX: centerX, y: targetY, cellW: targetCellW,
-                       fontSize: fontSize * 0.75, color: CanopyColors.chromeText.opacity(0.35))
-        }
-
-        let labelFontSize = fontSize * 0.8
-        let labelCellW = labelFontSize * 0.62
-        let labelY = rect.maxY - 22 * cs
-        drawString(context, "ACC", centerX: centerX, y: labelY, cellW: labelCellW, fontSize: labelFontSize,
-                   color: CanopyColors.chromeText.opacity(active ? 0.8 : 0.5), bold: true)
-        let valueStr = enabled ? String(format: "%+.0f", acc?.amount ?? 0) : "off"
-        let valueY = labelY + labelFontSize * 1.3
-        drawString(context, valueStr, centerX: centerX, y: valueY, cellW: labelCellW,
-                   fontSize: labelFontSize * 0.9,
-                   color: CanopyColors.chromeText.opacity(active ? 0.7 : 0.4))
-    }
-
     // MARK: - Sync
 
     private func syncSeqFromModel() {
         guard let node else { return }
         localProbability = node.sequence.globalProbability
         localMutationAmount = node.sequence.mutation?.amount ?? 0
-        localAccAmount = node.sequence.accumulator?.amount ?? 1.0
-        localAccLimit = node.sequence.accumulator?.limit ?? 12.0
         localArpGate = node.sequence.arpConfig?.gateLength ?? 0.5
     }
 
@@ -1017,16 +875,6 @@ struct ForestPitchedPanel: View {
         SequencerActions.commitMutationAmount(localMutationAmount, projectState: projectState, nodeID: nodeID)
     }
 
-    private func commitAccumulatorAmount() {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.commitAccumulatorAmount(localAccAmount, projectState: projectState, nodeID: nodeID)
-    }
-
-    private func commitAccumulatorLimit() {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.commitAccumulatorLimit(localAccLimit, projectState: projectState, nodeID: nodeID)
-    }
-
     private func changeLength(to newStepCount: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
         SequencerActions.changeLength(to: newStepCount, projectState: projectState, nodeID: nodeID)
@@ -1060,22 +908,6 @@ struct ForestPitchedPanel: View {
     private func resetMutation() {
         guard let nodeID = projectState.selectedNodeID else { return }
         SequencerActions.resetMutation(nodeID: nodeID)
-    }
-
-    private func toggleAccumulator() {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.toggleAccumulator(projectState: projectState, nodeID: nodeID)
-        syncSeqFromModel()
-    }
-
-    private func setAccumulatorTarget(_ target: AccumulatorTarget) {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.setAccumulatorTarget(target, projectState: projectState, nodeID: nodeID)
-    }
-
-    private func setAccumulatorMode(_ mode: AccumulatorMode) {
-        guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.setAccumulatorMode(mode, projectState: projectState, nodeID: nodeID)
     }
 
     private func setArpMode(_ mode: ArpMode) {

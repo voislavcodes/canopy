@@ -191,14 +191,12 @@ final class NodeAudioUnit {
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
-                                    let scaleRootSemitone, let scaleIntervals,
-                                    let accumulatorConfig):
+                                    let scaleRootSemitone, let scaleIntervals):
                     voices.allNotesOff()
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
-                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                             accumulatorConfig: accumulatorConfig)
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
 
                 case .sequencerSetGlobalProbability(let prob):
                     seq.globalProbability = prob
@@ -405,14 +403,12 @@ final class NodeAudioUnit {
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
-                                    let scaleRootSemitone, let scaleIntervals,
-                                    let accumulatorConfig):
+                                    let scaleRootSemitone, let scaleIntervals):
                     drumKit.allNotesOff()
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
-                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                             accumulatorConfig: accumulatorConfig)
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
 
                 case .sequencerSetGlobalProbability(let prob):
                     seq.globalProbability = prob
@@ -626,15 +622,13 @@ final class NodeAudioUnit {
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
-                                    let scaleRootSemitone, let scaleIntervals,
-                                    let accumulatorConfig):
+                                    let scaleRootSemitone, let scaleIntervals):
                     quake.allNotesOff()
                     orbitLengthInBeats = lengthInBeats
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
-                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                             accumulatorConfig: accumulatorConfig)
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
 
                 case .sequencerSetGlobalProbability(let prob):
                     seq.globalProbability = prob
@@ -851,14 +845,12 @@ final class NodeAudioUnit {
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
-                                    let scaleRootSemitone, let scaleIntervals,
-                                    let accumulatorConfig):
+                                    let scaleRootSemitone, let scaleIntervals):
                     westCoast.allNotesOff()
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
-                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                             accumulatorConfig: accumulatorConfig)
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
 
                 case .sequencerSetGlobalProbability(let prob):
                     seq.globalProbability = prob
@@ -1073,14 +1065,12 @@ final class NodeAudioUnit {
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
-                                    let scaleRootSemitone, let scaleIntervals,
-                                    let accumulatorConfig):
+                                    let scaleRootSemitone, let scaleIntervals):
                     flow.allNotesOff()
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
-                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                             accumulatorConfig: accumulatorConfig)
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
 
                 case .sequencerSetGlobalProbability(let prob):
                     seq.globalProbability = prob
@@ -1301,14 +1291,12 @@ final class NodeAudioUnit {
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
-                                    let scaleRootSemitone, let scaleIntervals,
-                                    let accumulatorConfig):
+                                    let scaleRootSemitone, let scaleIntervals):
                     swarm.allNotesOff()
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
-                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                             accumulatorConfig: accumulatorConfig)
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
 
                 case .sequencerSetGlobalProbability(let prob):
                     seq.globalProbability = prob
@@ -1526,14 +1514,12 @@ final class NodeAudioUnit {
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
-                                    let scaleRootSemitone, let scaleIntervals,
-                                    let accumulatorConfig):
+                                    let scaleRootSemitone, let scaleIntervals):
                     tide.allNotesOff()
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
-                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                             accumulatorConfig: accumulatorConfig)
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
 
                 case .sequencerSetGlobalProbability(let prob):
                     seq.globalProbability = prob
@@ -1762,15 +1748,13 @@ final class NodeAudioUnit {
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
-                                    let scaleRootSemitone, let scaleIntervals,
-                                    let accumulatorConfig):
+                                    let scaleRootSemitone, let scaleIntervals):
                     spore.allNotesOff()
                     spore.setScale(rootSemitone: scaleRootSemitone, intervals: scaleIntervals)
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
-                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                             accumulatorConfig: accumulatorConfig)
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
 
                 case .sequencerSetGlobalProbability(let prob):
                     seq.globalProbability = prob
@@ -2003,14 +1987,12 @@ final class NodeAudioUnit {
     func loadSequence(_ events: [SequencerEvent], lengthInBeats: Double,
                        direction: PlaybackDirection = .forward,
                        mutationAmount: Double = 0, mutationRange: Int = 0,
-                       scaleRootSemitone: Int = 0, scaleIntervals: [Int] = [],
-                       accumulatorConfig: AccumulatorConfig? = nil) {
+                       scaleRootSemitone: Int = 0, scaleIntervals: [Int] = []) {
         commandBuffer.push(.sequencerLoad(
             events: events, lengthInBeats: lengthInBeats,
             direction: direction,
             mutationAmount: mutationAmount, mutationRange: mutationRange,
-            scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-            accumulatorConfig: accumulatorConfig))
+            scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals))
     }
 
     func setGlobalProbability(_ probability: Double) {
@@ -2339,14 +2321,12 @@ final class NodeAudioUnit {
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
-                                    let scaleRootSemitone, let scaleIntervals,
-                                    let accumulatorConfig):
+                                    let scaleRootSemitone, let scaleIntervals):
                     fuse.allNotesOff()
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
-                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                             accumulatorConfig: accumulatorConfig)
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
 
                 case .sequencerSetGlobalProbability(let prob):
                     seq.globalProbability = prob
@@ -2526,14 +2506,12 @@ final class NodeAudioUnit {
 
                 case .sequencerLoad(let events, let lengthInBeats,
                                     let direction, let mutationAmount, let mutationRange,
-                                    let scaleRootSemitone, let scaleIntervals,
-                                    let accumulatorConfig):
+                                    let scaleRootSemitone, let scaleIntervals):
                     volt.allNotesOff()
                     seq.load(events: events, lengthInBeats: lengthInBeats,
                              direction: direction,
                              mutationAmount: mutationAmount, mutationRange: mutationRange,
-                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals,
-                             accumulatorConfig: accumulatorConfig)
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
 
                 case .sequencerSetGlobalProbability(let prob):
                     seq.globalProbability = prob

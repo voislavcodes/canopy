@@ -90,34 +90,6 @@ struct MutationConfig: Codable, Equatable {
     }
 }
 
-// MARK: - Accumulator Config
-
-enum AccumulatorTarget: String, Codable, Equatable, CaseIterable {
-    case pitch
-    case velocity
-    case probability
-}
-
-enum AccumulatorMode: String, Codable, Equatable, CaseIterable {
-    case clamp
-    case wrap
-    case pingPong
-}
-
-struct AccumulatorConfig: Codable, Equatable {
-    var target: AccumulatorTarget
-    var amount: Double
-    var limit: Double
-    var mode: AccumulatorMode
-
-    init(target: AccumulatorTarget = .pitch, amount: Double = 1.0, limit: Double = 12.0, mode: AccumulatorMode = .clamp) {
-        self.target = target
-        self.amount = amount
-        self.limit = limit
-        self.mode = mode
-    }
-}
-
 // MARK: - Arp Config
 
 enum ArpMode: String, Codable, Equatable, CaseIterable {
@@ -186,8 +158,6 @@ struct NoteSequence: Codable, Equatable {
     var playbackDirection: PlaybackDirection?
     /// Pitch mutation configuration. nil = no mutation.
     var mutation: MutationConfig?
-    /// Per-cycle accumulator. nil = no accumulation.
-    var accumulator: AccumulatorConfig?
     /// Arpeggiator configuration. nil = normal step sequencer, non-nil = arp mode.
     var arpConfig: ArpConfig?
     /// Per-step probability overrides (Focus mode). nil = all inherit global probability.
@@ -205,7 +175,6 @@ struct NoteSequence: Codable, Equatable {
         pitchRange: PitchRange? = nil,
         playbackDirection: PlaybackDirection? = nil,
         mutation: MutationConfig? = nil,
-        accumulator: AccumulatorConfig? = nil,
         arpConfig: ArpConfig? = nil,
         perStepProbability: [Double]? = nil,
         microTimingOffsets: [Double]? = nil
@@ -217,7 +186,6 @@ struct NoteSequence: Codable, Equatable {
         self.pitchRange = pitchRange
         self.playbackDirection = playbackDirection
         self.mutation = mutation
-        self.accumulator = accumulator
         self.arpConfig = arpConfig
         self.perStepProbability = perStepProbability
         self.microTimingOffsets = microTimingOffsets
@@ -233,7 +201,6 @@ struct NoteSequence: Codable, Equatable {
         pitchRange = try container.decodeIfPresent(PitchRange.self, forKey: .pitchRange)
         playbackDirection = try container.decodeIfPresent(PlaybackDirection.self, forKey: .playbackDirection)
         mutation = try container.decodeIfPresent(MutationConfig.self, forKey: .mutation)
-        accumulator = try container.decodeIfPresent(AccumulatorConfig.self, forKey: .accumulator)
         arpConfig = try container.decodeIfPresent(ArpConfig.self, forKey: .arpConfig)
         perStepProbability = try container.decodeIfPresent([Double].self, forKey: .perStepProbability)
         microTimingOffsets = try container.decodeIfPresent([Double].self, forKey: .microTimingOffsets)

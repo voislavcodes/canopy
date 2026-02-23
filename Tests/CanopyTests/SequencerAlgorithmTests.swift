@@ -55,16 +55,6 @@ final class SequencerAlgorithmTests: XCTestCase {
         XCTAssertEqual(event.ratchetCount, 3)
     }
 
-    // MARK: - Accumulator Config
-
-    func testAccumulatorConfigDefaults() {
-        let config = AccumulatorConfig()
-        XCTAssertEqual(config.target, .pitch)
-        XCTAssertEqual(config.amount, 1.0)
-        XCTAssertEqual(config.limit, 12.0)
-        XCTAssertEqual(config.mode, .clamp)
-    }
-
     // MARK: - Mutation Config
 
     func testMutationConfigDefaults() {
@@ -83,24 +73,6 @@ final class SequencerAlgorithmTests: XCTestCase {
         XCTAssertTrue(cases.contains(.pingPong))
         XCTAssertTrue(cases.contains(.random))
         XCTAssertTrue(cases.contains(.brownian))
-    }
-
-    // MARK: - Accumulator Modes
-
-    func testAllAccumulatorModes() {
-        let modes = AccumulatorMode.allCases
-        XCTAssertEqual(modes.count, 3)
-        XCTAssertTrue(modes.contains(.clamp))
-        XCTAssertTrue(modes.contains(.wrap))
-        XCTAssertTrue(modes.contains(.pingPong))
-    }
-
-    func testAllAccumulatorTargets() {
-        let targets = AccumulatorTarget.allCases
-        XCTAssertEqual(targets.count, 3)
-        XCTAssertTrue(targets.contains(.pitch))
-        XCTAssertTrue(targets.contains(.velocity))
-        XCTAssertTrue(targets.contains(.probability))
     }
 
     // MARK: - EuclideanConfig Codable
@@ -127,15 +99,6 @@ final class SequencerAlgorithmTests: XCTestCase {
         let config = MutationConfig(amount: 0.3, range: 4)
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(MutationConfig.self, from: data)
-        XCTAssertEqual(config, decoded)
-    }
-
-    // MARK: - AccumulatorConfig Codable
-
-    func testAccumulatorConfigRoundTrip() throws {
-        let config = AccumulatorConfig(target: .velocity, amount: 2.5, limit: 24.0, mode: .pingPong)
-        let data = try JSONEncoder().encode(config)
-        let decoded = try JSONDecoder().decode(AccumulatorConfig.self, from: data)
         XCTAssertEqual(config, decoded)
     }
 

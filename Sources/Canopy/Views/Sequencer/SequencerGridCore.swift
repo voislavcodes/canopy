@@ -427,8 +427,7 @@ enum SequencerActions {
             mutationAmount: mutation?.amount ?? 0,
             mutationRange: mutation?.range ?? 0,
             scaleRootSemitone: key.root.semitone,
-            scaleIntervals: key.mode.intervals,
-            accumulatorConfig: seq.accumulator
+            scaleIntervals: key.mode.intervals
         )
 
         if seq.arpConfig != nil {
@@ -462,22 +461,6 @@ enum SequencerActions {
             intervals: key.mode.intervals,
             nodeID: nodeID
         )
-    }
-
-    /// Commit accumulator amount.
-    static func commitAccumulatorAmount(_ amount: Double, projectState: ProjectState, nodeID: UUID) {
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.accumulator?.amount = amount
-        }
-        reloadSequence(projectState: projectState, nodeID: nodeID)
-    }
-
-    /// Commit accumulator limit.
-    static func commitAccumulatorLimit(_ limit: Double, projectState: ProjectState, nodeID: UUID) {
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.accumulator?.limit = limit
-        }
-        reloadSequence(projectState: projectState, nodeID: nodeID)
     }
 
     /// Change sequence length (step count).
@@ -563,34 +546,6 @@ enum SequencerActions {
     /// Reset mutations back to original pattern.
     static func resetMutation(nodeID: UUID) {
         AudioEngine.shared.resetMutation(nodeID: nodeID)
-    }
-
-    /// Toggle accumulator on/off. Caller should syncSeqFromModel after.
-    static func toggleAccumulator(projectState: ProjectState, nodeID: UUID) {
-        projectState.updateNode(id: nodeID) { node in
-            if node.sequence.accumulator != nil {
-                node.sequence.accumulator = nil
-            } else {
-                node.sequence.accumulator = AccumulatorConfig()
-            }
-        }
-        reloadSequence(projectState: projectState, nodeID: nodeID)
-    }
-
-    /// Set accumulator target.
-    static func setAccumulatorTarget(_ target: AccumulatorTarget, projectState: ProjectState, nodeID: UUID) {
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.accumulator?.target = target
-        }
-        reloadSequence(projectState: projectState, nodeID: nodeID)
-    }
-
-    /// Set accumulator mode.
-    static func setAccumulatorMode(_ mode: AccumulatorMode, projectState: ProjectState, nodeID: UUID) {
-        projectState.updateNode(id: nodeID) { node in
-            node.sequence.accumulator?.mode = mode
-        }
-        reloadSequence(projectState: projectState, nodeID: nodeID)
     }
 
     // MARK: Arp Actions

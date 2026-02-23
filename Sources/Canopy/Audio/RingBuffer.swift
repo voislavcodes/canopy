@@ -15,8 +15,7 @@ enum AudioCommand {
     case sequencerLoad(events: [SequencerEvent], lengthInBeats: Double,
                        direction: PlaybackDirection,
                        mutationAmount: Double, mutationRange: Int,
-                       scaleRootSemitone: Int, scaleIntervals: [Int],
-                       accumulatorConfig: AccumulatorConfig?)
+                       scaleRootSemitone: Int, scaleIntervals: [Int])
 
     // Real-time parameter updates (no full reload needed)
     case sequencerSetGlobalProbability(Double)

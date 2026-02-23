@@ -604,8 +604,7 @@ struct KeyboardBarView: View {
             mutationAmount: mutation?.amount ?? 0,
             mutationRange: mutation?.range ?? 0,
             scaleRootSemitone: key.root.semitone,
-            scaleIntervals: key.mode.intervals,
-            accumulatorConfig: seq.accumulator
+            scaleIntervals: key.mode.intervals
         )
     }
 }

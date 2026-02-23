@@ -88,8 +88,7 @@ final class ModelCodableTests: XCTestCase {
             euclidean: EuclideanConfig(pulses: 5, rotation: 1),
             pitchRange: PitchRange(low: 48, high: 84),
             playbackDirection: .pingPong,
-            mutation: MutationConfig(amount: 0.2, range: 3),
-            accumulator: AccumulatorConfig(target: .velocity, amount: 1.5, limit: 24, mode: .wrap)
+            mutation: MutationConfig(amount: 0.2, range: 3)
         )
 
         let data = try JSONEncoder().encode(seq)
@@ -100,7 +99,6 @@ final class ModelCodableTests: XCTestCase {
         XCTAssertEqual(decoded.euclidean?.pulses, 5)
         XCTAssertEqual(decoded.playbackDirection, .pingPong)
         XCTAssertEqual(decoded.mutation?.amount, 0.2)
-        XCTAssertEqual(decoded.accumulator?.mode, .wrap)
     }
 
     func testNodeWithScaleOverrideRoundTrip() throws {
@@ -161,7 +159,6 @@ final class ModelCodableTests: XCTestCase {
         XCTAssertNil(decoded.pitchRange)
         XCTAssertNil(decoded.playbackDirection)
         XCTAssertNil(decoded.mutation)
-        XCTAssertNil(decoded.accumulator)
     }
 
     func testOldNodeDecodesWithNilScaleOverride() throws {
