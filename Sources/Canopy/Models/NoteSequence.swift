@@ -47,10 +47,20 @@ struct NoteEvent: Codable, Equatable, Identifiable {
 struct EuclideanConfig: Codable, Equatable {
     var pulses: Int
     var rotation: Int
+    /// Wobble: push hits off perfect Euclidean positions (0.0–1.0).
+    var wobble: Double
 
-    init(pulses: Int = 4, rotation: Int = 0) {
+    init(pulses: Int = 4, rotation: Int = 0, wobble: Double = 0) {
         self.pulses = pulses
         self.rotation = rotation
+        self.wobble = wobble
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pulses = try container.decode(Int.self, forKey: .pulses)
+        rotation = try container.decode(Int.self, forKey: .rotation)
+        wobble = try container.decodeIfPresent(Double.self, forKey: .wobble) ?? 0
     }
 }
 
@@ -167,6 +177,32 @@ struct NoteSequence: Codable, Equatable {
     /// Range per step: -48 to +48 (half a step each direction).
     var microTimingOffsets: [Double]?
 
+    // MARK: - Forest Sequencer: GENERATE
+    /// Position on circle of fifths for scale-aware transposition (-6 to +6).
+    var fifthRotation: Int?
+
+    // MARK: - Forest Sequencer: TRANSFORM
+    /// Note extension amount for harmonically-aware bloom (0.0–1.0).
+    var bloomAmount: Double?
+    /// Melodic inversion on/off.
+    var invertEnabled: Bool?
+    /// Inversion pivot note (MIDI number). nil = scale root.
+    var invertPivot: Int?
+    /// Pattern density — deterministic thinning (0.0–1.0, nil = 1.0 = all notes).
+    var density: Double?
+    /// Retrograde — play pattern backward.
+    var mirrorEnabled: Bool?
+    /// Phase drift rate per cycle (0.0–1.0).
+    var driftRate: Double?
+    /// Humanize — random timing/velocity variation (0.0–1.0).
+    var humanize: Double?
+
+    // MARK: - Forest Sequencer: PLAY
+    /// Swing amount — push every other note late (0.0–0.75).
+    var swing: Double?
+    /// Gate length as percentage of step (0.05–1.0).
+    var gateLength: Double?
+
     init(
         notes: [NoteEvent] = [],
         lengthInBeats: Double = 4,
@@ -177,7 +213,17 @@ struct NoteSequence: Codable, Equatable {
         mutation: MutationConfig? = nil,
         arpConfig: ArpConfig? = nil,
         perStepProbability: [Double]? = nil,
-        microTimingOffsets: [Double]? = nil
+        microTimingOffsets: [Double]? = nil,
+        fifthRotation: Int? = nil,
+        bloomAmount: Double? = nil,
+        invertEnabled: Bool? = nil,
+        invertPivot: Int? = nil,
+        density: Double? = nil,
+        mirrorEnabled: Bool? = nil,
+        driftRate: Double? = nil,
+        humanize: Double? = nil,
+        swing: Double? = nil,
+        gateLength: Double? = nil
     ) {
         self.notes = notes
         self.lengthInBeats = lengthInBeats
@@ -189,6 +235,16 @@ struct NoteSequence: Codable, Equatable {
         self.arpConfig = arpConfig
         self.perStepProbability = perStepProbability
         self.microTimingOffsets = microTimingOffsets
+        self.fifthRotation = fifthRotation
+        self.bloomAmount = bloomAmount
+        self.invertEnabled = invertEnabled
+        self.invertPivot = invertPivot
+        self.density = density
+        self.mirrorEnabled = mirrorEnabled
+        self.driftRate = driftRate
+        self.humanize = humanize
+        self.swing = swing
+        self.gateLength = gateLength
     }
 
     // Backward-compatible decoding
@@ -204,5 +260,15 @@ struct NoteSequence: Codable, Equatable {
         arpConfig = try container.decodeIfPresent(ArpConfig.self, forKey: .arpConfig)
         perStepProbability = try container.decodeIfPresent([Double].self, forKey: .perStepProbability)
         microTimingOffsets = try container.decodeIfPresent([Double].self, forKey: .microTimingOffsets)
+        fifthRotation = try container.decodeIfPresent(Int.self, forKey: .fifthRotation)
+        bloomAmount = try container.decodeIfPresent(Double.self, forKey: .bloomAmount)
+        invertEnabled = try container.decodeIfPresent(Bool.self, forKey: .invertEnabled)
+        invertPivot = try container.decodeIfPresent(Int.self, forKey: .invertPivot)
+        density = try container.decodeIfPresent(Double.self, forKey: .density)
+        mirrorEnabled = try container.decodeIfPresent(Bool.self, forKey: .mirrorEnabled)
+        driftRate = try container.decodeIfPresent(Double.self, forKey: .driftRate)
+        humanize = try container.decodeIfPresent(Double.self, forKey: .humanize)
+        swing = try container.decodeIfPresent(Double.self, forKey: .swing)
+        gateLength = try container.decodeIfPresent(Double.self, forKey: .gateLength)
     }
 }

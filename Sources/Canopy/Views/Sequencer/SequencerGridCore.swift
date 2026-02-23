@@ -406,10 +406,15 @@ enum SequencerActions {
     }
 
     /// Reload the audio engine sequence for a node.
+    /// Applies pre-computed Forest transforms (FIFTH, INVERT, BLOOM, DENSITY, MIRROR, GATE, SWING)
+    /// before sending events to the audio engine.
     static func reloadSequence(projectState: ProjectState, nodeID: UUID) {
         guard let node = projectState.findNode(id: nodeID) else { return }
         let seq = node.sequence
-        let events = seq.notes.map { event in
+        let key = resolveKey(projectState: projectState, nodeID: nodeID)
+
+        // Start with raw note events
+        var events = seq.notes.map { event in
             SequencerEvent(
                 pitch: event.pitch,
                 velocity: event.velocity,
@@ -419,7 +424,49 @@ enum SequencerActions {
                 ratchetCount: event.ratchetCount
             )
         }
-        let key = resolveKey(projectState: projectState, nodeID: nodeID)
+
+        // --- GENERATE transforms ---
+
+        // FIFTH: scale-aware transposition
+        if let fifthRot = seq.fifthRotation, fifthRot != 0 {
+            events = applyFifthTranspose(events, rotation: fifthRot, key: key)
+        }
+
+        // --- TRANSFORM transforms ---
+
+        // INVERT: mirror pitches around pivot
+        if seq.invertEnabled ?? false {
+            let pivot = seq.invertPivot ?? (key.root.semitone + 60)
+            events = applyInvert(events, pivot: pivot, key: key)
+        }
+
+        // BLOOM: extend note durations
+        if let bloom = seq.bloomAmount, bloom > 0 {
+            events = applyBloom(events, amount: bloom, lengthInBeats: seq.lengthInBeats)
+        }
+
+        // DENSITY: deterministically remove notes
+        if let density = seq.density, density < 1.0 {
+            events = applyDensity(events, density: density)
+        }
+
+        // MIRROR: reverse note positions
+        if seq.mirrorEnabled ?? false {
+            events = applyMirror(events, lengthInBeats: seq.lengthInBeats)
+        }
+
+        // --- PLAY transforms ---
+
+        // GATE: scale note durations
+        if let gate = seq.gateLength, gate < 1.0 {
+            events = applyGate(events, gateLength: gate)
+        }
+
+        // SWING: offset odd steps
+        if let swing = seq.swing, swing > 0 {
+            events = applySwing(events, swing: swing)
+        }
+
         let mutation = seq.mutation
         AudioEngine.shared.loadSequence(
             events, lengthInBeats: seq.lengthInBeats, nodeID: nodeID,
@@ -607,5 +654,197 @@ enum SequencerActions {
             }
         }
         reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    // MARK: - Forest Sequencer Actions
+
+    /// Set circle-of-fifths rotation.
+    static func setFifthRotation(_ rotation: Int, projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.fifthRotation = rotation == 0 ? nil : rotation
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Set bloom (note extension) amount.
+    static func setBloomAmount(_ amount: Double, projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.bloomAmount = amount > 0 ? amount : nil
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Toggle melodic inversion.
+    static func toggleInvert(projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            let wasOn = node.sequence.invertEnabled ?? false
+            node.sequence.invertEnabled = wasOn ? nil : true
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Set inversion pivot note.
+    static func setInvertPivot(_ pivot: Int, projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.invertPivot = pivot
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Set pattern density.
+    static func setDensity(_ density: Double, projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.density = density < 1.0 ? density : nil
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Toggle retrograde (mirror).
+    static func toggleMirror(projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            let wasOn = node.sequence.mirrorEnabled ?? false
+            node.sequence.mirrorEnabled = wasOn ? nil : true
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Set phase drift rate.
+    static func setDriftRate(_ rate: Double, projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.driftRate = rate > 0 ? rate : nil
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Set humanize amount.
+    static func setHumanize(_ amount: Double, projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.humanize = amount > 0 ? amount : nil
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Set swing amount.
+    static func setSwing(_ amount: Double, projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.swing = amount > 0 ? amount : nil
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Set gate length.
+    static func setGateLength(_ length: Double, projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.gateLength = length < 1.0 ? length : nil
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    // MARK: - Transform Functions (applied at reload time)
+
+    private static let fifthSemitones = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5]
+
+    /// Transpose events by circle-of-fifths rotation (scale-aware).
+    private static func applyFifthTranspose(_ events: [SequencerEvent], rotation: Int, key: MusicalKey) -> [SequencerEvent] {
+        // Target root = source root + rotation * 7 semitones (mod 12)
+        let sourceRoot = key.root.semitone
+        let targetRoot = ((sourceRoot + rotation * 7) % 12 + 12) % 12
+        let semitoneShift = ((targetRoot - sourceRoot) % 12 + 12) % 12
+
+        return events.map { event in
+            // Map scale degree in source key to same degree in target key
+            let pc = ((event.pitch % 12) - sourceRoot + 12) % 12
+            let intervals = key.mode.intervals
+            if let degreeIdx = intervals.firstIndex(of: pc) {
+                // In scale — map to same degree in target key
+                let octave = event.pitch / 12
+                let newPitch = octave * 12 + targetRoot + intervals[degreeIdx]
+                let clampedPitch = max(0, min(127, newPitch))
+                return SequencerEvent(pitch: clampedPitch, velocity: event.velocity,
+                                      startBeat: event.startBeat, endBeat: event.endBeat,
+                                      probability: event.probability, ratchetCount: event.ratchetCount)
+            } else {
+                // Not in scale — chromatic shift
+                let newPitch = max(0, min(127, event.pitch + semitoneShift))
+                return SequencerEvent(pitch: newPitch, velocity: event.velocity,
+                                      startBeat: event.startBeat, endBeat: event.endBeat,
+                                      probability: event.probability, ratchetCount: event.ratchetCount)
+            }
+        }
+    }
+
+    /// Mirror pitches around a pivot note and snap to scale.
+    private static func applyInvert(_ events: [SequencerEvent], pivot: Int, key: MusicalKey) -> [SequencerEvent] {
+        return events.map { event in
+            let inverted = 2 * pivot - event.pitch
+            let snapped = key.quantize(max(0, min(127, inverted)))
+            return SequencerEvent(pitch: snapped, velocity: event.velocity,
+                                  startBeat: event.startBeat, endBeat: event.endBeat,
+                                  probability: event.probability, ratchetCount: event.ratchetCount)
+        }
+    }
+
+    /// Extend note durations based on bloom amount (0–1).
+    private static func applyBloom(_ events: [SequencerEvent], amount: Double, lengthInBeats: Double) -> [SequencerEvent] {
+        let sd = NoteSequence.stepDuration
+        let maxExtension = sd * 8  // up to 8 steps of extension
+        return events.map { event in
+            let baseDuration = event.endBeat - event.startBeat
+            let targetDuration = baseDuration + maxExtension * amount
+            let newEnd = min(event.startBeat + targetDuration, lengthInBeats)
+            return SequencerEvent(pitch: event.pitch, velocity: event.velocity,
+                                  startBeat: event.startBeat, endBeat: newEnd,
+                                  probability: event.probability, ratchetCount: event.ratchetCount)
+        }
+    }
+
+    /// Deterministically remove notes based on density (0–1).
+    private static func applyDensity(_ events: [SequencerEvent], density: Double) -> [SequencerEvent] {
+        return events.enumerated().compactMap { idx, event in
+            // Deterministic hash: same density always removes same notes
+            let hash = ((idx * 7 + 13) * 37) % 100
+            let threshold = (1.0 - density) * 100
+            return Double(hash) >= threshold ? event : nil
+        }
+    }
+
+    /// Reverse note positions (retrograde).
+    private static func applyMirror(_ events: [SequencerEvent], lengthInBeats: Double) -> [SequencerEvent] {
+        return events.map { event in
+            let duration = event.endBeat - event.startBeat
+            let newStart = lengthInBeats - event.startBeat - duration
+            let clampedStart = max(0, newStart)
+            return SequencerEvent(pitch: event.pitch, velocity: event.velocity,
+                                  startBeat: clampedStart, endBeat: clampedStart + duration,
+                                  probability: event.probability, ratchetCount: event.ratchetCount)
+        }
+    }
+
+    /// Scale note durations by gate length (0.05–1.0).
+    private static func applyGate(_ events: [SequencerEvent], gateLength: Double) -> [SequencerEvent] {
+        return events.map { event in
+            let duration = event.endBeat - event.startBeat
+            let newDuration = max(NoteSequence.stepDuration * 0.1, duration * gateLength)
+            return SequencerEvent(pitch: event.pitch, velocity: event.velocity,
+                                  startBeat: event.startBeat, endBeat: event.startBeat + newDuration,
+                                  probability: event.probability, ratchetCount: event.ratchetCount)
+        }
+    }
+
+    /// Push every other note late by swing amount (0–0.75).
+    private static func applySwing(_ events: [SequencerEvent], swing: Double) -> [SequencerEvent] {
+        let sd = NoteSequence.stepDuration
+        return events.map { event in
+            let step = Int(round(event.startBeat / sd))
+            if step % 2 == 1 {
+                // Odd step — push late
+                let offset = swing * sd
+                return SequencerEvent(pitch: event.pitch, velocity: event.velocity,
+                                      startBeat: event.startBeat + offset,
+                                      endBeat: event.endBeat + offset,
+                                      probability: event.probability, ratchetCount: event.ratchetCount)
+            }
+            return event
+        }
     }
 }
