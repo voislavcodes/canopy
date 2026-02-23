@@ -13,12 +13,9 @@ struct FocusSequencerView: View {
     private let defaultRows = 8
 
     @State private var baseNote: Int = 55  // G3
-    @State private var selectedStepCount: Int = 32
+    @State private var displayMode: Int = 32
     @State private var spanDragState: SpanDragState?
 
-    // Lane visibility toggles
-    @State private var showVelocityLane = true
-    @State private var showProbabilityLane = true
     @State private var microTimingEnabled = false
 
     // Multi-note selection (Phase E)
@@ -55,8 +52,11 @@ struct FocusSequencerView: View {
         return max(1, Int(round(beats / NoteSequence.stepDuration)))
     }
 
-    /// Always show 64 columns — inactive steps are dimmed.
-    private var displayColumns: Int { 64 }
+    /// Display columns follow display mode (32 or 64).
+    private var displayColumns: Int { displayMode }
+
+    /// Show sidebar at 32 display columns, full-width at 64.
+    private var useSidebar: Bool { displayMode <= 32 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -106,11 +106,6 @@ struct FocusSequencerView: View {
 
     private func syncOnAppear() {
         syncSeqFromModel()
-        // Snap selectedStepCount to node's current length
-        let beats = node?.sequence.lengthInBeats ?? 8.0
-        let steps = Int(round(beats / NoteSequence.stepDuration))
-        let validCounts = [4, 8, 16, 32, 64]
-        selectedStepCount = validCounts.min(by: { abs($0 - steps) < abs($1 - steps) }) ?? 32
     }
 
     private func syncSeqFromModel() {
@@ -173,22 +168,21 @@ struct FocusSequencerView: View {
                 headerControls
             }
 
-            // Step count selector
-            stepCountSelector
+            // Display mode toggle (32 / 64)
+            displayModeToggle
         }
     }
 
-    // MARK: - Step Count Selector
+    // MARK: - Display Mode Toggle (32 / 64)
 
-    private var stepCountSelector: some View {
+    private var displayModeToggle: some View {
         HStack(spacing: 3) {
-            ForEach([4, 8, 16, 32, 64], id: \.self) { count in
-                let isActive = selectedStepCount == count
+            ForEach([32, 64], id: \.self) { mode in
+                let isActive = displayMode == mode
                 Button(action: {
-                    selectedStepCount = count
-                    changeLength(to: count)
+                    displayMode = mode
                 }) {
-                    Text("\(count)")
+                    Text("\(mode)")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.4))
                         .frame(width: 28, height: 20)
@@ -206,48 +200,48 @@ struct FocusSequencerView: View {
         }
     }
 
-    // MARK: - Main Content (full width, no sidebar)
+    // MARK: - Main Content (adaptive two-column layout)
 
     private func mainContent(width: CGFloat, height: CGFloat) -> some View {
-        let pitchRows = 12 // fixed compact row count for bigger cells
+        let pitchRows = 12
         let pitches = SequencerGridCore.visiblePitches(
             baseNote: baseNote, rowCount: pitchRows,
             key: resolveKey(), scaleAware: scaleAwareEnabled
         )
         let labelWidth: CGFloat = 32
         let stripWidth: CGFloat = 14
-        let gridWidth = width - labelWidth - stripWidth - 16 // padding
+        let sidebarWidth: CGFloat = useSidebar ? max(180, width * 0.28) : 0
+        let gridAreaWidth = width - sidebarWidth - (useSidebar ? 1 : 0)
+        let gridWidth = gridAreaWidth - labelWidth - stripWidth - 32
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
         let fontSize = max(6, min(24, gridWidth / (CGFloat(charCols) * 0.78)))
-        let laneInsetX = stripWidth + labelWidth + 16 // match grid's left edge
+        let rh = SequencerGridCore.cellHeight(fontSize: fontSize)
+        let laneInsetX = stripWidth + labelWidth + 16
 
-        return ZStack(alignment: .bottomTrailing) {
+        return HStack(spacing: 0) {
+            // Grid column
             VStack(spacing: 0) {
                 Spacer(minLength: 12)
 
                 if let node {
                     HStack(alignment: .top, spacing: 4) {
                         focusTouchStrip(pitches: pitches, fontSize: fontSize)
+                            .padding(.top, rh)
                         focusNoteLabels(pitches: pitches, fontSize: fontSize)
+                            .padding(.top, rh)
                         focusGridCanvas(sequence: node.sequence, nodeID: node.id, pitches: pitches, fontSize: fontSize)
                     }
-                    .padding(.horizontal, 6)
+                    .padding(.leading, 6)
+                    .padding(.trailing, useSidebar ? 6 : 20)
 
-                    // Velocity lane
-                    if showVelocityLane {
-                        velocityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize)
-                            .padding(.leading, laneInsetX)
-                            .padding(.trailing, 6)
-                    }
+                    velocityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize)
+                        .padding(.leading, laneInsetX)
+                        .padding(.trailing, 6)
 
-                    // Probability lane
-                    if showProbabilityLane {
-                        probabilityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize)
-                            .padding(.leading, laneInsetX)
-                            .padding(.trailing, 6)
-                    }
+                    probabilityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize)
+                        .padding(.leading, laneInsetX)
+                        .padding(.trailing, 6)
 
-                    // Micro-timing lane (groove overview)
                     if microTimingEnabled {
                         microTimingLane(sequence: node.sequence, fontSize: fontSize)
                             .padding(.leading, laneInsetX)
@@ -258,51 +252,249 @@ struct FocusSequencerView: View {
                 Spacer(minLength: 12)
             }
 
-            // Bottom-right: compact advanced controls + lane toggles
-            VStack(alignment: .trailing, spacing: 6) {
-                compactAdvancedControls
-                laneToggleBar
-            }
-            .padding(10)
-        }
-    }
+            // Sidebar (32-column mode only)
+            if useSidebar {
+                Rectangle()
+                    .fill(CanopyColors.bloomPanelBorder.opacity(0.2))
+                    .frame(width: 1)
 
-    // MARK: - Lane Toggle Bar
-
-    private var laneToggleBar: some View {
-        HStack {
-            Spacer()
-            HStack(spacing: 6) {
-                laneToggleButton(label: "VEL", isActive: showVelocityLane) {
-                    showVelocityLane.toggle()
-                }
-                laneToggleButton(label: "PROB", isActive: showProbabilityLane) {
-                    showProbabilityLane.toggle()
-                }
-                laneToggleButton(label: "μT", isActive: microTimingEnabled) {
-                    microTimingEnabled.toggle()
-                }
+                sidebarView
+                    .frame(width: sidebarWidth)
             }
         }
     }
 
-    private func laneToggleButton(label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    // MARK: - Sidebar
+
+    private var sidebarView: some View {
+        let acc = node?.sequence.accumulator
+        let accEnabled = acc != nil
+        let accTarget = acc?.target ?? .pitch
+        let accMode = acc?.mode ?? .clamp
+        let mutRange = node?.sequence.mutation?.range ?? 1
+
+        return ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 12) {
+
+                // MUTATION section
+                sidebarSection("MUTATION") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Text("Amt")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                            compactSlider(value: $localMutationAmount, range: 0...1, width: 80, onCommit: {
+                                commitMutationAmount()
+                            }, onDrag: {})
+                            Text("\(Int(localMutationAmount * 100))%")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundColor(CanopyColors.chromeText.opacity(0.6))
+                        }
+                        HStack(spacing: 6) {
+                            Text("Rng")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                            compactDragValue(value: mutRange, range: 1...7) { setMutationRange($0) }
+                        }
+                        HStack(spacing: 6) {
+                            Button(action: { freezeMutation() }) {
+                                sidebarPill("Freeze", icon: "snowflake")
+                            }
+                            .buttonStyle(.plain)
+                            Button(action: { resetMutation() }) {
+                                sidebarPill("Reset", icon: "arrow.counterclockwise")
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                // ACCUMULATOR section
+                sidebarSection("ACCUMULATOR") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Button(action: { toggleAccumulator() }) {
+                                Image(systemName: accEnabled ? "checkmark.square" : "square")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(accEnabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
+                            Text(accEnabled ? "On" : "Off")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                        }
+
+                        if accEnabled {
+                            // Target picker
+                            HStack(spacing: 3) {
+                                Text("Tgt")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                                ForEach(AccumulatorTarget.allCases, id: \.self) { t in
+                                    let sel = accTarget == t
+                                    Button(action: { setAccumulatorTarget(t) }) {
+                                        Text(t.rawValue.prefix(3))
+                                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                            .foregroundColor(sel ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 2)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 2)
+                                                    .fill(sel ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+
+                            // Amount and Limit
+                            HStack(spacing: 6) {
+                                Text("Amt")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                                compactDragValue(value: Int(localAccAmount), range: -12...12) { val in
+                                    localAccAmount = Double(val)
+                                    commitAccumulatorAmount()
+                                }
+                                Text("Lim")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                                compactDragValue(value: Int(localAccLimit), range: 1...48) { val in
+                                    localAccLimit = Double(val)
+                                    commitAccumulatorLimit()
+                                }
+                            }
+
+                            // Mode picker
+                            HStack(spacing: 3) {
+                                Text("Mod")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                                ForEach(AccumulatorMode.allCases, id: \.self) { m in
+                                    let sel = accMode == m
+                                    Button(action: { setAccumulatorMode(m) }) {
+                                        Text(m.rawValue.prefix(3))
+                                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                            .foregroundColor(sel ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 2)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 2)
+                                                    .fill(sel ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ARP section (conditional)
+                if isArpActive {
+                    sidebarSection("ARP") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            let arpConfig = node?.sequence.arpConfig ?? ArpConfig()
+                            let rates: [(ArpRate, String)] = [
+                                (.eighth, "1/8"), (.sixteenth, "1/16"), (.thirtySecond, "1/32"),
+                            ]
+                            HStack(spacing: 3) {
+                                Text("Rate")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                                ForEach(rates, id: \.0) { rate, label in
+                                    let isActive = arpConfig.rate == rate
+                                    Button(action: { setArpRate(rate) }) {
+                                        Text(label)
+                                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                            .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 2)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 2)
+                                                    .fill(isActive ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            HStack(spacing: 6) {
+                                Text("Gate")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                                compactSlider(value: $localArpGate, range: 0.05...1.0, width: 80, onCommit: {
+                                    commitArpGate()
+                                }, onDrag: {
+                                    guard let nodeID = projectState.selectedNodeID else { return }
+                                    let arp = node?.sequence.arpConfig ?? ArpConfig()
+                                    let sampleRate = AudioEngine.shared.sampleRate
+                                    let bpm = projectState.project.bpm
+                                    let beatsPerSecond = bpm / 60.0
+                                    let secondsPerStep = arp.rate.beatsPerStep / beatsPerSecond
+                                    let samplesPerStep = max(1, Int(secondsPerStep * sampleRate))
+                                    AudioEngine.shared.setArpConfig(
+                                        active: true, samplesPerStep: samplesPerStep,
+                                        gateLength: localArpGate, mode: arp.mode, nodeID: nodeID
+                                    )
+                                })
+                            }
+                        }
+                    }
+                }
+
+                // DISPLAY section
+                sidebarSection("DISPLAY") {
+                    HStack(spacing: 6) {
+                        Button(action: { microTimingEnabled.toggle() }) {
+                            sidebarPill("\u{03BC}T", icon: nil, isActive: microTimingEnabled)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 12)
+        }
+    }
+
+    // MARK: - Sidebar Helpers
+
+    private func sidebarSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(CanopyColors.glowColor.opacity(0.7))
+
+            content()
+
+            Rectangle()
+                .fill(CanopyColors.bloomPanelBorder.opacity(0.2))
+                .frame(height: 1)
+        }
+    }
+
+    private func sidebarPill(_ label: String, icon: String?, isActive: Bool = false) -> some View {
+        HStack(spacing: 3) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 9))
+            }
             Text(label)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(isActive ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 3)
-                        .stroke(isActive ? CanopyColors.glowColor.opacity(0.4) : CanopyColors.bloomPanelBorder.opacity(0.2), lineWidth: 0.5)
-                )
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
         }
-        .buttonStyle(.plain)
+        .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.5))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isActive ? CanopyColors.glowColor.opacity(0.15) : CanopyColors.chromeBackground.opacity(0.3))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(isActive ? CanopyColors.glowColor.opacity(0.3) : CanopyColors.bloomPanelBorder.opacity(0.2), lineWidth: 0.5)
+        )
     }
 
     // MARK: - Touch Strip
@@ -422,7 +614,7 @@ struct FocusSequencerView: View {
                         guard let rowIdx = pitches.firstIndex(of: note.pitch) else { continue }
                         let charCol = colMap[min(step, displayColumns - 1)]
                         let x = CGFloat(charCol) * cw
-                        let y = CGFloat(rowIdx) * rh
+                        let y = CGFloat(rowIdx + 1) * rh // +1 for top border row
                         let highlightRect = CGRect(x: x, y: y, width: cw, height: rh)
                         context.stroke(
                             Path(highlightRect),
@@ -458,7 +650,7 @@ struct FocusSequencerView: View {
 
                         let charCol = colMap[min(step, displayColumns - 1)]
                         let x = CGFloat(charCol) * cw + cw / 2
-                        let y = CGFloat(rowIdx) * rh + rh / 2
+                        let y = CGFloat(rowIdx + 1) * rh + rh / 2 // +1 for top border row
 
                         // Visual shift proportional to offset (max ±cw/3)
                         let shiftX = CGFloat(offset / 48.0) * (cw * 0.33)
@@ -486,7 +678,7 @@ struct FocusSequencerView: View {
                 // Double-click: reset micro-timing offset if μT is on
                 if isMicroTimingOn {
                     let charCol = Int(location.x / cw)
-                    let rowIdx = Int(location.y / rh)
+                    let rowIdx = Int(location.y / rh) - 1 // offset for top border row
                     guard rowIdx >= 0, rowIdx < pitches.count,
                           charCol >= 0, charCol < charCols else { return }
                     guard let step = reverseMap[charCol], step < cols else { return }
@@ -501,7 +693,7 @@ struct FocusSequencerView: View {
                         let isDrag = max(dx, dy) > 5
 
                         let startCharCol = Int(value.startLocation.x / cw)
-                        let startRowIdx = Int(value.startLocation.y / rh)
+                        let startRowIdx = Int(value.startLocation.y / rh) - 1 // offset for top border row
                         guard startRowIdx >= 0, startRowIdx < pitches.count,
                               startCharCol >= 0, startCharCol < charCols else { return }
                         guard let startStep = reverseMap[startCharCol], startStep < cols else { return }
@@ -548,7 +740,7 @@ struct FocusSequencerView: View {
                                   abs(value.translation.height) < 5 else { return }
                             let loc = value.startLocation
                             let charCol = Int(loc.x / cw)
-                            let rowIdx = Int(loc.y / rh)
+                            let rowIdx = Int(loc.y / rh) - 1 // offset for top border row
                             guard rowIdx >= 0, rowIdx < pitches.count,
                                   charCol >= 0, charCol < charCols else { return }
                             guard let step = reverseMap[charCol], step < cols else { return }
@@ -619,7 +811,7 @@ struct FocusSequencerView: View {
 
             let charCol = colMap[min(step, displayColumns - 1)]
             let noteX = CGFloat(charCol) * cw + cw / 2
-            let noteY = CGFloat(rowIdx) * rh + rh / 2
+            let noteY = CGFloat(rowIdx + 1) * rh + rh / 2 // +1 for top border row
 
             if rect.contains(CGPoint(x: noteX, y: noteY)) {
                 newSelection.insert(note.id)
@@ -697,7 +889,6 @@ struct FocusSequencerView: View {
     /// Paste clipboard notes at the earliest step position.
     func pasteClipboard() {
         guard let nodeID = projectState.selectedNodeID, !clipboard.isEmpty else { return }
-        let sd = NoteSequence.stepDuration
         // Find the earliest startBeat in clipboard to use as offset origin
         let minBeat = clipboard.map(\.startBeat).min() ?? 0
         // Find insertion point: after the last selected note, or at beat 0
@@ -959,185 +1150,6 @@ struct FocusSequencerView: View {
         }
     }
 
-    // MARK: - Compact Advanced Controls (bottom-right overlay)
-
-    private var compactAdvancedControls: some View {
-        let mutation = node?.sequence.mutation
-        let mutRange = mutation?.range ?? 1
-        let acc = node?.sequence.accumulator
-        let accEnabled = acc != nil
-        let accTarget = acc?.target ?? .pitch
-        let accMode = acc?.mode ?? .clamp
-
-        return VStack(alignment: .trailing, spacing: 5) {
-            // PROB row
-            HStack(spacing: 4) {
-                Text("PROB")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                compactSlider(value: $localProbability, range: 0...1, width: 80, onCommit: {
-                    commitGlobalProbability()
-                }, onDrag: {
-                    guard let nodeID = projectState.selectedNodeID else { return }
-                    AudioEngine.shared.setGlobalProbability(localProbability, nodeID: nodeID)
-                })
-                Text("\(Int(localProbability * 100))%")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                    .frame(width: 28, alignment: .trailing)
-            }
-
-            // MUTATION row
-            HStack(spacing: 4) {
-                Text("MUT")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                compactSlider(value: $localMutationAmount, range: 0...1, width: 60, onCommit: {
-                    commitMutationAmount()
-                }, onDrag: {
-                    guard let nodeID = projectState.selectedNodeID else { return }
-                    let key = resolveKey()
-                    AudioEngine.shared.setMutation(
-                        amount: localMutationAmount,
-                        range: node?.sequence.mutation?.range ?? 1,
-                        rootSemitone: key.root.semitone,
-                        intervals: key.mode.intervals,
-                        nodeID: nodeID
-                    )
-                })
-                Text("\(Int(localMutationAmount * 100))%")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                    .frame(width: 28, alignment: .trailing)
-                compactDragValue(value: mutRange, range: 1...7) { setMutationRange($0) }
-                Button(action: { freezeMutation() }) {
-                    Image(systemName: "snowflake")
-                        .font(.system(size: 9))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                }
-                .buttonStyle(.plain)
-                Button(action: { resetMutation() }) {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 9))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                }
-                .buttonStyle(.plain)
-            }
-
-            // ACCUMULATOR row
-            HStack(spacing: 4) {
-                Text("ACC")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                Button(action: { toggleAccumulator() }) {
-                    Image(systemName: accEnabled ? "checkmark.square" : "square")
-                        .font(.system(size: 9))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                }
-                .buttonStyle(.plain)
-
-                if accEnabled {
-                    ForEach(AccumulatorTarget.allCases, id: \.self) { t in
-                        let sel = accTarget == t
-                        Button(action: { setAccumulatorTarget(t) }) {
-                            Text(t.rawValue.prefix(3))
-                                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                .foregroundColor(sel ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
-                                .padding(.horizontal, 3)
-                                .padding(.vertical, 1)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(sel ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    compactDragValue(value: Int(localAccAmount), range: -12...12) { val in
-                        localAccAmount = Double(val)
-                        commitAccumulatorAmount()
-                    }
-                    compactDragValue(value: Int(localAccLimit), range: 1...48) { val in
-                        localAccLimit = Double(val)
-                        commitAccumulatorLimit()
-                    }
-                    ForEach(AccumulatorMode.allCases, id: \.self) { m in
-                        let sel = accMode == m
-                        Button(action: { setAccumulatorMode(m) }) {
-                            Text(m.rawValue.prefix(3))
-                                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                .foregroundColor(sel ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
-                                .padding(.horizontal, 3)
-                                .padding(.vertical, 1)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(sel ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            // Arp controls when active
-            if isArpActive {
-                compactArpControls
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(CanopyColors.bloomPanelBackground.opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(CanopyColors.bloomPanelBorder.opacity(0.2), lineWidth: 0.5)
-        )
-    }
-
-    private var compactArpControls: some View {
-        let arpConfig = node?.sequence.arpConfig ?? ArpConfig()
-        let rates: [(ArpRate, String)] = [
-            (.eighth, "1/8"), (.sixteenth, "1/16"), (.thirtySecond, "1/32"),
-        ]
-
-        return HStack(spacing: 4) {
-            Text("ARP")
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundColor(CanopyColors.glowColor.opacity(0.6))
-            ForEach(rates, id: \.0) { rate, label in
-                let isActive = arpConfig.rate == rate
-                Button(action: { setArpRate(rate) }) {
-                    Text(label)
-                        .font(.system(size: 8, weight: .medium, design: .monospaced))
-                        .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
-                        .padding(.horizontal, 3)
-                        .padding(.vertical, 1)
-                        .background(
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(isActive ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            Text("G")
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-            compactSlider(value: $localArpGate, range: 0.05...1.0, width: 40, onCommit: {
-                commitArpGate()
-            }, onDrag: {
-                guard let nodeID = projectState.selectedNodeID else { return }
-                let arp = node?.sequence.arpConfig ?? ArpConfig()
-                let sampleRate = AudioEngine.shared.sampleRate
-                let bpm = projectState.project.bpm
-                let beatsPerSecond = bpm / 60.0
-                let secondsPerStep = arp.rate.beatsPerStep / beatsPerSecond
-                let samplesPerStep = max(1, Int(secondsPerStep * sampleRate))
-                AudioEngine.shared.setArpConfig(
-                    active: true, samplesPerStep: samplesPerStep,
-                    gateLength: localArpGate, mode: arp.mode, nodeID: nodeID
-                )
-            })
-        }
-    }
 
     // MARK: - Compact Controls
 
@@ -1308,9 +1320,10 @@ struct FocusSequencerView: View {
         let euclidean = node?.sequence.euclidean
         let pulses = euclidean?.pulses ?? 4
         let rotation = euclidean?.rotation ?? 0
+        let mutRange = node?.sequence.mutation?.range ?? 1
 
         return HStack(spacing: 6) {
-            headerDragValue(label: "S", value: columns, range: 1...64) { changeLength(to: $0) }
+            headerDragValue(label: "S", value: columns, range: 1...displayColumns) { changeLength(to: $0) }
 
             headerDragValue(
                 label: "E", value: pulses, range: 0...columns
@@ -1328,6 +1341,34 @@ struct FocusSequencerView: View {
             }
             .buttonStyle(.plain)
             .help("Random scale fill")
+
+            headerDragValue(label: "P", value: Int(localProbability * 100), range: 0...100) { newVal in
+                localProbability = Double(newVal) / 100.0
+                commitGlobalProbability()
+            }
+
+            headerDragValue(label: "M", value: Int(localMutationAmount * 100), range: 0...100) { newVal in
+                localMutationAmount = Double(newVal) / 100.0
+                commitMutationAmount()
+            }
+
+            headerDragValue(label: "±", value: mutRange, range: 1...7) { setMutationRange($0) }
+
+            Button(action: { freezeMutation() }) {
+                Image(systemName: "snowflake")
+                    .font(.system(size: 10))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.4))
+            }
+            .buttonStyle(.plain)
+            .help("Freeze mutations")
+
+            Button(action: { resetMutation() }) {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 10))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.4))
+            }
+            .buttonStyle(.plain)
+            .help("Reset mutations")
         }
     }
 
@@ -1339,7 +1380,7 @@ struct FocusSequencerView: View {
 
         return HStack(spacing: 6) {
             headerDragValue(label: "Oct", value: octave, range: 1...4) { setArpOctave($0) }
-            headerDragValue(label: "S", value: columns, range: 1...64) { changeLength(to: $0) }
+            headerDragValue(label: "S", value: columns, range: 1...displayColumns) { changeLength(to: $0) }
 
             Button(action: { randomFill() }) {
                 Image(systemName: "dice")
@@ -1349,6 +1390,11 @@ struct FocusSequencerView: View {
             }
             .buttonStyle(.plain)
             .help("Random scale fill")
+
+            headerDragValue(label: "P", value: Int(localProbability * 100), range: 0...100) { newVal in
+                localProbability = Double(newVal) / 100.0
+                commitGlobalProbability()
+            }
         }
     }
 
@@ -1386,7 +1432,6 @@ struct FocusSequencerView: View {
 
     private func changeLength(to newStepCount: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        selectedStepCount = newStepCount
         SequencerActions.changeLength(to: newStepCount, projectState: projectState, nodeID: nodeID)
     }
 
