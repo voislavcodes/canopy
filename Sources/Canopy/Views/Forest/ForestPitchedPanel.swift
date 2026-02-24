@@ -113,25 +113,23 @@ struct ForestPitchedPanel: View {
             Spacer()
 
             // Page tabs
-            ForEach(0..<3, id: \.self) { page in
-                let isActive = currentPage == page
-                Button(action: { currentPage = page }) {
+            HStack(spacing: 12 * cs) {
+                ForEach(0..<3, id: \.self) { page in
+                    let isActive = currentPage == page
                     Text(Self.pageNames[page])
-                        .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
-                        .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
-                        .padding(.horizontal, 5 * cs)
-                        .padding(.vertical, 3 * cs)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3 * cs)
-                                .fill(isActive ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 3 * cs)
-                                .stroke(isActive ? CanopyColors.glowColor.opacity(0.3) : CanopyColors.bloomPanelBorder.opacity(0.15), lineWidth: 0.5)
-                        )
+                        .font(.system(size: 11 * cs, weight: isActive ? .bold : .regular, design: .monospaced))
+                        .foregroundColor(isActive ? CanopyColors.chromeTextBright : CanopyColors.chromeText.opacity(0.5))
+                        .onTapGesture { currentPage = page }
                 }
-                .buttonStyle(.plain)
             }
+            .padding(.vertical, 4 * cs)
+            .padding(.horizontal, 10 * cs)
+            .background(CanopyColors.bloomPanelBackground.opacity(0.85))
+            .clipShape(RoundedRectangle(cornerRadius: 6 * cs))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6 * cs)
+                    .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
+            )
 
             Button(action: { randomFill() }) {
                 Image(systemName: "dice")
