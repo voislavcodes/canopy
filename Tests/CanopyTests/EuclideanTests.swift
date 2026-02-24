@@ -113,4 +113,50 @@ final class EuclideanTests: XCTestCase {
         let pattern = EuclideanRhythm.generate(steps: 4, pulses: -3)
         XCTAssertEqual(pattern, Array(repeating: false, count: 4))
     }
+
+    // MARK: - Wobble
+
+    func testWobbleZeroMatchesBase() {
+        for steps in [8, 12, 16] {
+            for pulses in [3, 5, 7] where pulses <= steps {
+                let base = EuclideanRhythm.generate(steps: steps, pulses: pulses, rotation: 0)
+                let wobbled = EuclideanRhythm.generate(steps: steps, pulses: pulses, rotation: 0, wobble: 0)
+                XCTAssertEqual(base, wobbled,
+                               "Wobble=0 should match base for E(\(pulses),\(steps))")
+            }
+        }
+    }
+
+    func testWobblePreservesPulseCount() {
+        for steps in 1...16 {
+            for pulses in 0...steps {
+                for wobble in [0.1, 0.25, 0.5, 0.75, 1.0] {
+                    let pattern = EuclideanRhythm.generate(steps: steps, pulses: pulses, wobble: wobble)
+                    let count = pattern.filter { $0 }.count
+                    XCTAssertEqual(count, pulses,
+                                   "E(\(pulses),\(steps)) wobble=\(wobble) should have \(pulses) pulses, got \(count)")
+                    XCTAssertEqual(pattern.count, steps)
+                }
+            }
+        }
+    }
+
+    func testWobbleDeterministic() {
+        let a = EuclideanRhythm.generate(steps: 16, pulses: 5, rotation: 2, wobble: 0.6)
+        let b = EuclideanRhythm.generate(steps: 16, pulses: 5, rotation: 2, wobble: 0.6)
+        XCTAssertEqual(a, b, "Same inputs must produce identical pattern")
+    }
+
+    func testWobbleMaxEdgeCases() {
+        // All (steps, pulses) combos with wobble=1.0 must preserve pulse count and step count
+        for steps in 1...16 {
+            for pulses in 0...steps {
+                let pattern = EuclideanRhythm.generate(steps: steps, pulses: pulses, wobble: 1.0)
+                let count = pattern.filter { $0 }.count
+                XCTAssertEqual(count, pulses,
+                               "E(\(pulses),\(steps)) wobble=1.0 should have \(pulses) pulses, got \(count)")
+                XCTAssertEqual(pattern.count, steps)
+            }
+        }
+    }
 }

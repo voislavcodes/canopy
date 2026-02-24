@@ -537,9 +537,9 @@ enum SequencerActions {
     }
 
     /// Apply euclidean pattern.
-    static func applyEuclidean(pulses: Int, rotation: Int, projectState: ProjectState, nodeID: UUID) {
+    static func applyEuclidean(pulses: Int, rotation: Int, wobble: Double = 0, projectState: ProjectState, nodeID: UUID) {
         let key = resolveKey(projectState: projectState, nodeID: nodeID)
-        let config = EuclideanConfig(pulses: pulses, rotation: rotation)
+        let config = EuclideanConfig(pulses: pulses, rotation: rotation, wobble: wobble)
         projectState.updateNode(id: nodeID) { node in
             SequenceFillService.applyEuclidean(
                 sequence: &node.sequence,
@@ -549,6 +549,13 @@ enum SequencerActions {
             )
         }
         reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Set wobble amount and regenerate the euclidean pattern at new step positions.
+    static func setWobble(_ wobble: Double, projectState: ProjectState, nodeID: UUID) {
+        guard let node = projectState.findNode(id: nodeID),
+              let euc = node.sequence.euclidean else { return }
+        applyEuclidean(pulses: euc.pulses, rotation: euc.rotation, wobble: wobble, projectState: projectState, nodeID: nodeID)
     }
 
     /// Random fill.

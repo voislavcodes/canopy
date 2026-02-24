@@ -25,6 +25,7 @@ struct ForestPitchedPanel: View {
     @State private var localHumanize: Double = 0.0
     @State private var localSwing: Double = 0.0
     @State private var localGateLength: Double = 0.75
+    @State private var localWobble: Double = 0
 
     // Grid drag tracking
     @State private var activeCell: Int? = nil
@@ -58,7 +59,7 @@ struct ForestPitchedPanel: View {
         guard let seq = node?.sequence else { return [] }
         let cols = columns
         if let euc = seq.euclidean {
-            return EuclideanRhythm.generate(steps: cols, pulses: euc.pulses, rotation: euc.rotation)
+            return EuclideanRhythm.generate(steps: cols, pulses: euc.pulses, rotation: euc.rotation, wobble: localWobble)
         }
         let sd = NoteSequence.stepDuration
         var occupancy = [Bool](repeating: false, count: cols)
@@ -209,13 +210,15 @@ struct ForestPitchedPanel: View {
         .overlay(gridOverlays)
     }
 
-    // Overlays for icon buttons (freeze/reset on GENERATE, etc.)
+    // Overlays for icon buttons (freeze/reset on GENERATE, wobble on EUC)
     @ViewBuilder
     private var gridOverlays: some View {
         if currentPage == 0 {
             GeometryReader { geo in
                 let cW = geo.size.width / 3
                 let cH = geo.size.height / 2
+
+                // MUT freeze/reset icons
                 VStack(spacing: 4 * cs) {
                     Button(action: { freezeMutation() }) {
                         Text("\u{2744}")
@@ -234,6 +237,31 @@ struct ForestPitchedPanel: View {
                     .help("Reset mutations")
                 }
                 .position(x: cW - 8 * cs, y: cH + cH * 0.35)
+
+                // EUC wobble icon (right edge of EUC cell, row 0 col 0)
+                if node?.sequence.euclidean != nil {
+                    let wobbleColor = localWobble > 0.01
+                        ? euclideanGreen.opacity(0.6 + localWobble * 0.4)
+                        : CanopyColors.chromeText.opacity(0.35)
+                    Text("\u{223F}")
+                        .font(.system(size: 12 * cs, weight: localWobble > 0.01 ? .bold : .regular, design: .monospaced))
+                        .foregroundColor(wobbleColor)
+                        .frame(width: 20 * cs, height: 20 * cs)
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 2)
+                                .onChanged { drag in
+                                    let delta = -drag.translation.height / (150 * cs)
+                                    localWobble = max(0, min(1, (node?.sequence.euclidean?.wobble ?? 0) + Double(delta)))
+                                }
+                                .onEnded { _ in
+                                    guard let nodeID = projectState.selectedNodeID else { return }
+                                    SequencerActions.setWobble(localWobble, projectState: projectState, nodeID: nodeID)
+                                }
+                        )
+                        .help("Wobble: push hits off perfect positions")
+                        .position(x: cW - 8 * cs, y: cH * 0.35)
+                }
             }
         }
     }
@@ -329,7 +357,10 @@ struct ForestPitchedPanel: View {
             drawChar(context, char, at: point, size: dotFontSize * scale, color: color)
         }
 
-        drawCellLabel(context, rect: rect, label: "EUC", value: "\(currentPulses)/\(cols)", active: active)
+        let eucValue = localWobble > 0.01
+            ? "\(currentPulses)/\(cols) ~\(Int(localWobble * 100))"
+            : "\(currentPulses)/\(cols)"
+        drawCellLabel(context, rect: rect, label: "EUC", value: eucValue, active: active)
     }
 
     // MARK: - PROB Knob (dot matrix)
@@ -1154,6 +1185,7 @@ struct ForestPitchedPanel: View {
         localHumanize = node.sequence.humanize ?? 0
         localSwing = node.sequence.swing ?? 0
         localGateLength = node.sequence.gateLength ?? 0.75
+        localWobble = node.sequence.euclidean?.wobble ?? 0
     }
 
     // MARK: - Action Wrappers
@@ -1180,7 +1212,7 @@ struct ForestPitchedPanel: View {
 
     private func applyEuclidean(pulses: Int, rotation: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        SequencerActions.applyEuclidean(pulses: pulses, rotation: rotation, projectState: projectState, nodeID: nodeID)
+        SequencerActions.applyEuclidean(pulses: pulses, rotation: rotation, wobble: localWobble, projectState: projectState, nodeID: nodeID)
     }
 
     private func randomFill() {
