@@ -32,8 +32,9 @@ struct ForestPitchedPanel: View {
     @State private var dragStartValue: Double = 0
     @State private var dragInitiated: Bool = false
     @State private var cellDragMode: CircleDragMode? = nil
+    @State private var gridCellWidth: CGFloat = 0
 
-    private enum CircleDragMode { case pulses, rotation }
+    private enum CircleDragMode { case pulses, rotation, wobble }
 
     // MARK: - Constants
 
@@ -181,6 +182,7 @@ struct ForestPitchedPanel: View {
                             let col = min(2, max(0, Int(drag.startLocation.x / cellW)))
                             let row = min(1, max(0, Int(drag.startLocation.y / cellH)))
                             activeCell = row * 3 + col
+                            gridCellWidth = cellW
                             dragInitiated = false
                         }
 
@@ -210,15 +212,13 @@ struct ForestPitchedPanel: View {
         .overlay(gridOverlays)
     }
 
-    // Overlays for icon buttons (freeze/reset on GENERATE, wobble on EUC)
+    // Overlays for icon buttons (freeze/reset on GENERATE)
     @ViewBuilder
     private var gridOverlays: some View {
         if currentPage == 0 {
             GeometryReader { geo in
                 let cW = geo.size.width / 3
                 let cH = geo.size.height / 2
-
-                // MUT freeze/reset icons
                 VStack(spacing: 4 * cs) {
                     Button(action: { freezeMutation() }) {
                         Text("\u{2744}")
@@ -237,31 +237,6 @@ struct ForestPitchedPanel: View {
                     .help("Reset mutations")
                 }
                 .position(x: cW - 8 * cs, y: cH + cH * 0.35)
-
-                // EUC wobble icon (right edge of EUC cell, row 0 col 0)
-                if node?.sequence.euclidean != nil {
-                    let wobbleColor = localWobble > 0.01
-                        ? euclideanGreen.opacity(0.6 + localWobble * 0.4)
-                        : CanopyColors.chromeText.opacity(0.35)
-                    Text("\u{223F}")
-                        .font(.system(size: 12 * cs, weight: localWobble > 0.01 ? .bold : .regular, design: .monospaced))
-                        .foregroundColor(wobbleColor)
-                        .frame(width: 20 * cs, height: 20 * cs)
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture(minimumDistance: 2)
-                                .onChanged { drag in
-                                    let delta = -drag.translation.height / (150 * cs)
-                                    localWobble = max(0, min(1, (node?.sequence.euclidean?.wobble ?? 0) + Double(delta)))
-                                }
-                                .onEnded { _ in
-                                    guard let nodeID = projectState.selectedNodeID else { return }
-                                    SequencerActions.setWobble(localWobble, projectState: projectState, nodeID: nodeID)
-                                }
-                        )
-                        .help("Wobble: push hits off perfect positions")
-                        .position(x: cW - 8 * cs, y: cH * 0.35)
-                }
             }
         }
     }
@@ -355,6 +330,28 @@ struct ForestPitchedPanel: View {
             let char = isHit ? "\u{25CF}" : "\u{25CB}"
             let scale: CGFloat = isPlayhead ? 1.3 : 1.0
             drawChar(context, char, at: point, size: dotFontSize * scale, color: color)
+        }
+
+        // Wobble wave indicator on right edge
+        if node?.sequence.euclidean != nil {
+            let waveX = rect.maxX - rect.width * 0.1
+            let waveH = rect.height * 0.4
+            let waveTop = rect.minY + rect.height * 0.18
+            let segments = 8
+            let isWobbleDrag = active && cellDragMode == .wobble
+            let wobbleColor = localWobble > 0.01
+                ? euclideanGreen.opacity(isWobbleDrag ? 0.9 : 0.5 + localWobble * 0.4)
+                : CanopyColors.chromeText.opacity(isWobbleDrag ? 0.5 : 0.25)
+
+            for i in 0..<segments {
+                let t = Double(i) / Double(segments - 1)
+                let y = waveTop + CGFloat(t) * waveH
+                let wobbleAmp = localWobble * 6.0
+                let xOff = CGFloat(sin(t * .pi * 2.5 + time * 2) * wobbleAmp)
+                let ch = localWobble > 0.5 ? "\u{223F}" : "\u{2022}"
+                drawChar(context, ch, at: CGPoint(x: waveX + xOff, y: y),
+                         size: max(7, 8 * cs), color: wobbleColor)
+            }
         }
 
         let eucValue = localWobble > 0.01
@@ -973,12 +970,20 @@ struct ForestPitchedPanel: View {
     private func initializeGenerateDrag(cell: Int, drag: DragGesture.Value) {
         switch cell {
         case 0:
-            cellDragMode = abs(drag.translation.width) > abs(drag.translation.height) ? .rotation : .pulses
-            if node?.sequence.euclidean != nil {
-                dragStartValue = cellDragMode == .rotation ? Double(currentRotation) : Double(currentPulses)
+            // Right 20% of EUC cell = wobble zone (when euclidean active)
+            let col = cell % 3
+            let cellLocalX = drag.startLocation.x - CGFloat(col) * gridCellWidth
+            if node?.sequence.euclidean != nil && cellLocalX > gridCellWidth * 0.8 {
+                cellDragMode = .wobble
+                dragStartValue = localWobble
             } else {
-                let active = currentPattern().filter { $0 }.count
-                dragStartValue = cellDragMode == .rotation ? 0 : Double(active)
+                cellDragMode = abs(drag.translation.width) > abs(drag.translation.height) ? .rotation : .pulses
+                if node?.sequence.euclidean != nil {
+                    dragStartValue = cellDragMode == .rotation ? Double(currentRotation) : Double(currentPulses)
+                } else {
+                    let active = currentPattern().filter { $0 }.count
+                    dragStartValue = cellDragMode == .rotation ? 0 : Double(active)
+                }
             }
         case 1: dragStartValue = localProbability
         case 2: dragStartValue = Double(columns)
@@ -1011,6 +1016,9 @@ struct ForestPitchedPanel: View {
                 let delta = -Int(round(drag.translation.height / (20 * cs)))
                 let newE = max(0, min(cols, Int(dragStartValue) + delta))
                 applyEuclidean(pulses: newE, rotation: currentRotation)
+            case .wobble:
+                let delta = -drag.translation.height / (150 * cs)
+                localWobble = max(0, min(1, dragStartValue + Double(delta)))
             case .none: break
             }
         case 1: // PROB
@@ -1043,6 +1051,11 @@ struct ForestPitchedPanel: View {
 
     private func commitGenerateDrag(cell: Int) {
         switch cell {
+        case 0:
+            if cellDragMode == .wobble {
+                guard let nodeID = projectState.selectedNodeID else { return }
+                SequencerActions.setWobble(localWobble, projectState: projectState, nodeID: nodeID)
+            }
         case 1: commitGlobalProbability()
         case 3: commitMutationAmount()
         default: break
