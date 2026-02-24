@@ -180,6 +180,8 @@ struct NoteSequence: Codable, Equatable {
     // MARK: - Forest Sequencer: GENERATE
     /// Position on circle of fifths for scale-aware transposition (-6 to +6).
     var fifthRotation: Int?
+    /// Octave offset for shifting all notes up/down (-3 to +3).
+    var octaveOffset: Int?
 
     // MARK: - Forest Sequencer: TRANSFORM
     /// Note extension amount for harmonically-aware bloom (0.0–1.0).
@@ -215,6 +217,7 @@ struct NoteSequence: Codable, Equatable {
         perStepProbability: [Double]? = nil,
         microTimingOffsets: [Double]? = nil,
         fifthRotation: Int? = nil,
+        octaveOffset: Int? = nil,
         bloomAmount: Double? = nil,
         invertEnabled: Bool? = nil,
         invertPivot: Int? = nil,
@@ -236,6 +239,7 @@ struct NoteSequence: Codable, Equatable {
         self.perStepProbability = perStepProbability
         self.microTimingOffsets = microTimingOffsets
         self.fifthRotation = fifthRotation
+        self.octaveOffset = octaveOffset
         self.bloomAmount = bloomAmount
         self.invertEnabled = invertEnabled
         self.invertPivot = invertPivot
@@ -261,6 +265,7 @@ struct NoteSequence: Codable, Equatable {
         perStepProbability = try container.decodeIfPresent([Double].self, forKey: .perStepProbability)
         microTimingOffsets = try container.decodeIfPresent([Double].self, forKey: .microTimingOffsets)
         fifthRotation = try container.decodeIfPresent(Int.self, forKey: .fifthRotation)
+        octaveOffset = try container.decodeIfPresent(Int.self, forKey: .octaveOffset)
         bloomAmount = try container.decodeIfPresent(Double.self, forKey: .bloomAmount)
         invertEnabled = try container.decodeIfPresent(Bool.self, forKey: .invertEnabled)
         invertPivot = try container.decodeIfPresent(Int.self, forKey: .invertPivot)

@@ -427,6 +427,16 @@ enum SequencerActions {
 
         // --- GENERATE transforms ---
 
+        // OCTAVE OFFSET: shift all pitches by octaves
+        if let octOff = seq.octaveOffset, octOff != 0 {
+            let semitoneShift = octOff * 12
+            events = events.map { e in
+                SequencerEvent(pitch: max(0, min(127, e.pitch + semitoneShift)), velocity: e.velocity,
+                               startBeat: e.startBeat, endBeat: e.endBeat,
+                               probability: e.probability, ratchetCount: e.ratchetCount)
+            }
+        }
+
         // FIFTH: scale-aware transposition
         if let fifthRot = seq.fifthRotation, fifthRot != 0 {
             events = applyFifthTranspose(events, rotation: fifthRot, key: key)
@@ -588,6 +598,14 @@ enum SequencerActions {
             } else {
                 node.sequence.mutation?.range = range
             }
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Set octave offset.
+    static func setOctaveOffset(_ offset: Int, projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            node.sequence.octaveOffset = offset == 0 ? nil : offset
         }
         reloadSequence(projectState: projectState, nodeID: nodeID)
     }

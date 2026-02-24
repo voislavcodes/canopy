@@ -34,7 +34,7 @@ struct ForestPitchedPanel: View {
     @State private var cellDragMode: CircleDragMode? = nil
     @State private var gridCellWidth: CGFloat = 0
 
-    private enum CircleDragMode { case pulses, rotation, wobble }
+    private enum CircleDragMode { case pulses, rotation, wobble, rngRange, rngOctave }
 
     // MARK: - Constants
 
@@ -456,7 +456,7 @@ struct ForestPitchedPanel: View {
         drawCellLabel(context, rect: rect, label: "MUT", value: "\(Int(value * 100))%", active: active)
     }
 
-    // MARK: - RNG Knob (range spread)
+    // MARK: - RNG Knob (range spread + octave offset secondary)
 
     private func drawRngKnob(context: GraphicsContext, rect: CGRect, value: Int, time: Double, active: Bool) {
         let fontSize: CGFloat = max(9, 11 * cs)
@@ -466,6 +466,7 @@ struct ForestPitchedPanel: View {
         let op: CGFloat = active ? 1.0 : 0.55
         let color = CanopyColors.glowColor.opacity(op)
 
+        // RNG art: arrow spread
         let halfWidth = value
         let arrowStr: String
         if halfWidth <= 1 { arrowStr = "\u{2190}\u{00B7}\u{2192}" }
@@ -474,7 +475,44 @@ struct ForestPitchedPanel: View {
             arrowStr = "\u{2190}\(dashes)\u{00B7}\(dashes)\u{2192}"
         }
         drawString(context, arrowStr, centerX: centerX, y: artCenterY, cellW: cellW, fontSize: fontSize, color: color)
-        drawCellLabel(context, rect: rect, label: "RNG", value: "\(value)", active: active)
+
+        // OCT indicator on right edge (like wobble on EUC)
+        let octOffset = node?.sequence.octaveOffset ?? 0
+        let isOctDrag = active && cellDragMode == .rngOctave
+        do {
+            let indicatorX = rect.maxX - rect.width * 0.1
+            let indicatorH = rect.height * 0.4
+            let indicatorTop = rect.minY + rect.height * 0.18
+            let segments = 7  // -3 to +3
+            let midSeg = segments / 2
+
+            for i in 0..<segments {
+                let t = Double(i) / Double(segments - 1)
+                let y = indicatorTop + CGFloat(t) * indicatorH
+                let segIdx = midSeg - i  // top = +3, mid = 0, bottom = -3
+
+                let isLit = (octOffset > 0 && segIdx > 0 && segIdx <= octOffset) ||
+                            (octOffset < 0 && segIdx < 0 && segIdx >= octOffset)
+                let isMid = segIdx == 0
+
+                let segColor: Color
+                if isLit {
+                    segColor = CanopyColors.glowColor.opacity(isOctDrag ? 0.9 : 0.7)
+                } else if isMid {
+                    segColor = CanopyColors.chromeText.opacity(isOctDrag ? 0.5 : 0.35)
+                } else {
+                    segColor = CanopyColors.chromeText.opacity(isOctDrag ? 0.35 : 0.18)
+                }
+
+                let ch = isMid ? "\u{2500}" : (isLit ? "\u{25CF}" : "\u{25CB}")
+                drawChar(context, ch, at: CGPoint(x: indicatorX, y: y),
+                         size: max(7, 8 * cs), color: segColor)
+            }
+        }
+
+        // Label — show octave offset in value when non-zero
+        let octStr = octOffset != 0 ? (octOffset > 0 ? " +\(octOffset)" : " \(octOffset)") : ""
+        drawCellLabel(context, rect: rect, label: "RNG", value: "\(value)\(octStr)", active: active)
     }
 
     // MARK: - FIFTH Knob (circle of fifths)
@@ -986,7 +1024,16 @@ struct ForestPitchedPanel: View {
         case 1: dragStartValue = localProbability
         case 2: dragStartValue = Double(columns)
         case 3: dragStartValue = localMutationAmount
-        case 4: dragStartValue = Double(node?.sequence.mutation?.range ?? 1)
+        case 4: // RNG / OCT — right 20% = octave zone
+            let col = cell % 3
+            let cellLocalX = drag.startLocation.x - CGFloat(col) * gridCellWidth
+            if cellLocalX > gridCellWidth * 0.8 {
+                cellDragMode = .rngOctave
+                dragStartValue = Double(node?.sequence.octaveOffset ?? 0)
+            } else {
+                cellDragMode = .rngRange
+                dragStartValue = Double(node?.sequence.mutation?.range ?? 1)
+            }
         case 5: dragStartValue = Double(node?.sequence.fifthRotation ?? 0)
         default: break
         }
@@ -1017,7 +1064,7 @@ struct ForestPitchedPanel: View {
             case .wobble:
                 let delta = -drag.translation.height / (150 * cs)
                 localWobble = max(0, min(1, dragStartValue + Double(delta)))
-            case .none: break
+            case .rngRange, .rngOctave, .none: break
             }
         case 1: // PROB
             let delta = -drag.translation.height / (150 * cs)
@@ -1035,10 +1082,16 @@ struct ForestPitchedPanel: View {
             let key = resolveKey()
             AudioEngine.shared.setMutation(amount: localMutationAmount, range: node?.sequence.mutation?.range ?? 1,
                                            rootSemitone: key.root.semitone, intervals: key.mode.intervals, nodeID: nodeID)
-        case 4: // RNG
-            let stepDelta = -Int(round(drag.translation.height / (25 * cs)))
-            let newRange = max(1, min(7, Int(dragStartValue) + stepDelta))
-            if newRange != (node?.sequence.mutation?.range ?? 1) { setMutationRange(newRange) }
+        case 4: // RNG / OCT
+            if cellDragMode == .rngOctave {
+                let stepDelta = -Int(round(drag.translation.height / (25 * cs)))
+                let newOct = max(-3, min(3, Int(dragStartValue) + stepDelta))
+                if newOct != (node?.sequence.octaveOffset ?? 0) { setOctaveOffset(newOct) }
+            } else {
+                let stepDelta = -Int(round(drag.translation.height / (25 * cs)))
+                let newRange = max(1, min(7, Int(dragStartValue) + stepDelta))
+                if newRange != (node?.sequence.mutation?.range ?? 1) { setMutationRange(newRange) }
+            }
         case 5: // FIFTH
             let delta = Int(round(drag.translation.width / (25 * cs)))
             let newRot = max(-6, min(6, Int(dragStartValue) + delta))
@@ -1234,6 +1287,11 @@ struct ForestPitchedPanel: View {
     private func setMutationRange(_ range: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
         SequencerActions.setMutationRange(range, projectState: projectState, nodeID: nodeID)
+    }
+
+    private func setOctaveOffset(_ offset: Int) {
+        guard let nodeID = projectState.selectedNodeID else { return }
+        SequencerActions.setOctaveOffset(offset, projectState: projectState, nodeID: nodeID)
     }
 
     private func freezeMutation() {
