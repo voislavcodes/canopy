@@ -332,8 +332,8 @@ struct ForestPitchedPanel: View {
             drawChar(context, char, at: point, size: dotFontSize * scale, color: color)
         }
 
-        // Wobble wave indicator on right edge
-        if node?.sequence.euclidean != nil {
+        // Wobble wave indicator on right edge (always visible, dimmed when inactive)
+        do {
             let waveX = rect.maxX - rect.width * 0.1
             let waveH = rect.height * 0.4
             let waveTop = rect.minY + rect.height * 0.18
@@ -341,7 +341,7 @@ struct ForestPitchedPanel: View {
             let isWobbleDrag = active && cellDragMode == .wobble
             let wobbleColor = localWobble > 0.01
                 ? euclideanGreen.opacity(isWobbleDrag ? 0.9 : 0.5 + localWobble * 0.4)
-                : CanopyColors.chromeText.opacity(isWobbleDrag ? 0.5 : 0.25)
+                : CanopyColors.chromeText.opacity(isWobbleDrag ? 0.5 : 0.2)
 
             for i in 0..<segments {
                 let t = Double(i) / Double(segments - 1)
