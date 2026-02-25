@@ -51,6 +51,12 @@ final class TreeAudioGraph {
     /// Attach a single new node to the live graph without touching existing nodes.
     func addUnit(for node: Node, engine: AVAudioEngine, sampleRate: Double) {
         guard units[node.id] == nil else { return }
+        // Warn on unimplemented sound types — they fall through to oscillator
+        if case .sampler = node.patch.soundType {
+            logger.warning("Sampler sound type is not yet implemented — node \(node.id) will use oscillator fallback")
+        } else if case .auv3 = node.patch.soundType {
+            logger.warning("AUv3 sound type is not yet implemented — node \(node.id) will use oscillator fallback")
+        }
         let isDrum: Bool
         if case .drumKit = node.patch.soundType { isDrum = true } else { isDrum = false }
         let isWest: Bool
@@ -100,8 +106,8 @@ final class TreeAudioGraph {
     }
 
     /// Load sequences for all nodes from the tree data.
-    func loadAllSequences(from tree: NodeTree) {
-        loadNodeSequenceRecursive(tree.rootNode)
+    func loadAllSequences(from tree: NodeTree, bpm: Double = 120.0) {
+        loadNodeSequenceRecursive(tree.rootNode, bpm: bpm)
     }
 
     // MARK: - Transport
@@ -219,7 +225,7 @@ final class TreeAudioGraph {
         }
     }
 
-    private func loadNodeSequenceRecursive(_ node: Node) {
+    private func loadNodeSequenceRecursive(_ node: Node, bpm: Double) {
         guard let unit = units[node.id] else { return }
         let seq = node.sequence
         let events = seq.notes.map { event in
@@ -245,10 +251,9 @@ final class TreeAudioGraph {
         )
         unit.setGlobalProbability(seq.globalProbability)
 
-        // Send arp config if present (uses default 120 BPM; recalculated on transport start)
+        // Send arp config if present
         if let arpConfig = seq.arpConfig {
             let sampleRate = AudioEngine.shared.sampleRate
-            let bpm = 120.0
             let beatsPerSecond = bpm / 60.0
             let secondsPerStep = arpConfig.rate.beatsPerStep / beatsPerSecond
             let samplesPerStep = max(1, Int(secondsPerStep * sampleRate))
@@ -275,7 +280,7 @@ final class TreeAudioGraph {
         }
 
         for child in node.children {
-            loadNodeSequenceRecursive(child)
+            loadNodeSequenceRecursive(child, bpm: bpm)
         }
     }
 

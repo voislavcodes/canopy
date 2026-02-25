@@ -367,8 +367,8 @@ final class AudioEngine {
     }
 
     /// Load sequences for all nodes from tree data.
-    func loadAllSequences(from tree: NodeTree) {
-        graph.loadAllSequences(from: tree)
+    func loadAllSequences(from tree: NodeTree, bpm: Double = 120.0) {
+        graph.loadAllSequences(from: tree, bpm: bpm)
     }
 
     // MARK: - LFO Modulation

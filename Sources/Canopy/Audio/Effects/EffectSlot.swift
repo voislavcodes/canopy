@@ -16,6 +16,8 @@ enum EffectSlot {
     case nebula(NebulaEffect)
     case melt(MeltEffect)
     case drift(DriftEffect)
+    case terrain(TerrainEffect)
+    case tide(TideEffect)
 
     /// Process a single sample through the effect.
     mutating func process(sample: Float, sampleRate: Float) -> Float {
@@ -59,6 +61,14 @@ enum EffectSlot {
         case .drift(var fx):
             let out = fx.process(sample: sample, sampleRate: sampleRate)
             self = .drift(fx)
+            return out
+        case .terrain(var fx):
+            let out = fx.process(sample: sample, sampleRate: sampleRate)
+            self = .terrain(fx)
+            return out
+        case .tide(var fx):
+            let out = fx.process(sample: sample, sampleRate: sampleRate)
+            self = .tide(fx)
             return out
         }
     }
@@ -124,6 +134,12 @@ enum EffectSlot {
         case .drift(var fx):
             fx.updateParameters(params)
             self = .drift(fx)
+        case .terrain(var fx):
+            fx.updateParameters(params)
+            self = .terrain(fx)
+        case .tide(var fx):
+            fx.updateParameters(params)
+            self = .tide(fx)
         }
     }
 
@@ -160,6 +176,12 @@ enum EffectSlot {
         case .drift(var fx):
             fx.reset()
             self = .drift(fx)
+        case .terrain(var fx):
+            fx.reset()
+            self = .terrain(fx)
+        case .tide(var fx):
+            fx.reset()
+            self = .tide(fx)
         }
     }
 
@@ -178,6 +200,8 @@ enum EffectSlot {
         case .nebula:   slot = .nebula(NebulaEffect())
         case .melt:     slot = .melt(MeltEffect())
         case .drift:    slot = .drift(DriftEffect())
+        case .terrain:  slot = .terrain(TerrainEffect())
+        case .tide:     slot = .tide(TideEffect())
         default:        slot = .color(ColorEffect()) // fallback
         }
         slot.updateParameters(parameters)

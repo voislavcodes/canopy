@@ -375,7 +375,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let tree = projectState.project.trees.first else { return }
         AudioEngine.shared.buildGraph(from: tree)
         AudioEngine.shared.configureAllPatches(from: tree)
-        AudioEngine.shared.loadAllSequences(from: tree)
+        AudioEngine.shared.loadAllSequences(from: tree, bpm: transportState.bpm)
     }
 
     // MARK: - File Actions

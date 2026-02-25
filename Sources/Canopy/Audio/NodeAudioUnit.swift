@@ -190,6 +190,7 @@ final class NodeAudioUnit {
                 case .sequencerStop:
                     seq.stop()
                     voices.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -402,6 +403,7 @@ final class NodeAudioUnit {
                 case .sequencerStop:
                     seq.stop()
                     drumKit.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -620,6 +622,7 @@ final class NodeAudioUnit {
                     seq.stop()
                     orbit.stop()
                     quake.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -844,6 +847,7 @@ final class NodeAudioUnit {
                 case .sequencerStop:
                     seq.stop()
                     westCoast.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1064,6 +1068,7 @@ final class NodeAudioUnit {
                 case .sequencerStop:
                     seq.stop()
                     flow.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1290,6 +1295,7 @@ final class NodeAudioUnit {
                 case .sequencerStop:
                     seq.stop()
                     swarm.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1512,6 +1518,7 @@ final class NodeAudioUnit {
                 case .sequencerStop:
                     seq.stop()
                     tide.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1745,6 +1752,7 @@ final class NodeAudioUnit {
                     seq.stop()
                     sporeSeq.stop()
                     spore.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -2329,6 +2337,7 @@ final class NodeAudioUnit {
                 case .sequencerStop:
                     seq.stop()
                     schmynth.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -2515,6 +2524,7 @@ final class NodeAudioUnit {
                 case .sequencerStop:
                     seq.stop()
                     fuse.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -2700,6 +2710,7 @@ final class NodeAudioUnit {
                 case .sequencerStop:
                     seq.stop()
                     volt.allNotesOff()
+                    filter.reset()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)

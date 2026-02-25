@@ -50,7 +50,7 @@ struct MainContentView: View {
         guard let tree = projectState.project.trees.first else { return }
         AudioEngine.shared.buildGraph(from: tree)
         AudioEngine.shared.configureAllPatches(from: tree)
-        AudioEngine.shared.loadAllSequences(from: tree)
+        AudioEngine.shared.loadAllSequences(from: tree, bpm: transportState.bpm)
 
         // Set focused node for beat polling — default to root if nothing selected
         if transportState.focusedNodeID == nil {
