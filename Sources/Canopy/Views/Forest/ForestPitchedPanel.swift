@@ -466,15 +466,18 @@ struct ForestPitchedPanel: View {
         let op: CGFloat = active ? 1.0 : 0.55
         let color = CanopyColors.glowColor.opacity(op)
 
-        // RNG art: arrow spread
-        let halfWidth = value
-        let arrowStr: String
-        if halfWidth <= 1 { arrowStr = "\u{2190}\u{00B7}\u{2192}" }
-        else {
-            let dashes = String(repeating: "\u{2500}", count: halfWidth - 1)
-            arrowStr = "\u{2190}\(dashes)\u{00B7}\(dashes)\u{2192}"
+        // RNG art: vertical arrow spread
+        let segSpacing: CGFloat = fontSize * 1.2
+        let totalH = CGFloat(value) * segSpacing
+        let topY = artCenterY - totalH * 0.5
+
+        drawChar(context, "\u{2191}", at: CGPoint(x: centerX, y: topY - segSpacing * 0.3), size: fontSize, color: color)
+        for i in 0..<value {
+            let y = topY + CGFloat(i) * segSpacing
+            let ch = i == value / 2 ? "\u{00B7}" : "\u{2502}"
+            drawChar(context, ch, at: CGPoint(x: centerX, y: y), size: fontSize, color: color)
         }
-        drawString(context, arrowStr, centerX: centerX, y: artCenterY, cellW: cellW, fontSize: fontSize, color: color)
+        drawChar(context, "\u{2193}", at: CGPoint(x: centerX, y: topY + totalH - segSpacing + segSpacing * 0.3), size: fontSize, color: color)
 
         // OCT indicator on right edge (like wobble on EUC)
         let octOffset = node?.sequence.octaveOffset ?? 0

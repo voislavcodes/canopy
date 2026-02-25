@@ -33,6 +33,8 @@ struct ForestEngineView: View {
             FusePanel(projectState: projectState)
         case .volt:
             VoltPanel(projectState: projectState)
+        case .schmynth:
+            SchmynthPanel(projectState: projectState)
         default:
             SynthControlsPanel(projectState: projectState)
         }

@@ -1018,6 +1018,41 @@ struct FuseConfig: Codable, Equatable {
     static let industrial = FuseConfig(soul: 0.85, tune: 0.75, couple: 0.80, body: 0.10, color: 0.90)
 }
 
+/// Circuit-modeled subtractive synthesizer — the bread-and-butter engine for pads, leads, bass, keys.
+/// Capacitor-reset oscillator → Schmitt Cascade Filter (SCF) → RC envelope.
+struct SchmynthConfig: Codable, Equatable {
+    var waveform: Int = 0        // 0=SAW, 1=SQR, 2=TRI, 3=SINE
+    var cutoff: Double = 8000    // Hz, 20-20000
+    var resonance: Double = 0    // 0-1
+    var filterMode: Int = 0      // 0=LP, 1=BP, 2=HP
+    var attack: Double = 0.01    // seconds
+    var decay: Double = 0.1
+    var sustain: Double = 0.7    // 0-1
+    var release: Double = 0.3
+    var warm: Double = 0.3       // 0-1
+    var volume: Double = 0.8
+    var pan: Double = 0.0
+
+    // MARK: - Preset Seeds
+
+    /// Classic sawtooth — the fundamental subtractive patch.
+    static let classicSaw = SchmynthConfig()
+    /// Fat detuned bass. Deep, warm, powerful.
+    static let fatBass = SchmynthConfig(waveform: 0, cutoff: 800, resonance: 0.35, attack: 0.005, decay: 0.15, sustain: 0.6, release: 0.15, warm: 0.5)
+    /// Acid squelch — resonant square through swept filter.
+    static let acidSqr = SchmynthConfig(waveform: 1, cutoff: 1200, resonance: 0.7, attack: 0.003, decay: 0.2, sustain: 0.3, release: 0.2, warm: 0.4)
+    /// Warm pad — soft triangle with slow attack.
+    static let warmPad = SchmynthConfig(waveform: 2, cutoff: 4000, resonance: 0.15, attack: 0.8, decay: 0.4, sustain: 0.85, release: 1.2, warm: 0.6)
+    /// Pure tone — diode-shaped sine, gentle and clean.
+    static let pureTone = SchmynthConfig(waveform: 3, cutoff: 20000, resonance: 0, attack: 0.02, decay: 0.1, sustain: 0.9, release: 0.5, warm: 0.1)
+    /// Pluck lead — fast attack, short decay, bright filter.
+    static let pluckLead = SchmynthConfig(waveform: 0, cutoff: 6000, resonance: 0.4, attack: 0.001, decay: 0.3, sustain: 0.2, release: 0.15, warm: 0.3)
+    /// Dark drone — low cutoff, high resonance, slow everything.
+    static let darkDrone = SchmynthConfig(waveform: 0, cutoff: 400, resonance: 0.6, attack: 1.5, decay: 0.5, sustain: 0.8, release: 2.0, warm: 0.7)
+    /// Hollow square — classic hollow square wave, medium filter.
+    static let hollowSquare = SchmynthConfig(waveform: 1, cutoff: 3000, resonance: 0.2, attack: 0.01, decay: 0.2, sustain: 0.7, release: 0.3, warm: 0.25)
+}
+
 enum SoundType: Codable, Equatable {
     case oscillator(OscillatorConfig)
     case drumKit(DrumKitConfig)
@@ -1029,6 +1064,7 @@ enum SoundType: Codable, Equatable {
     case spore(SporeConfig)
     case fuse(FuseConfig)
     case volt(VoltDrumKitConfig)
+    case schmynth(SchmynthConfig)
     case sampler(SamplerConfig)
     case auv3(AUv3Config)
 }

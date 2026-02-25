@@ -293,6 +293,8 @@ class ProjectState: ObservableObject {
                 for i in 0..<kit.voices.count {
                     AudioEngine.shared.configureVoltSlot(index: i, kit.voices[i], nodeID: nodeID)
                 }
+            case .schmynth(let config):
+                AudioEngine.shared.configureSchmynth(config, nodeID: nodeID)
             default:
                 break
             }

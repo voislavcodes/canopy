@@ -119,6 +119,11 @@ enum AudioCommand {
                      tonBend: Double, tonDecay: Double,
                      warm: Double)
 
+    // SCHMYNTH engine: circuit-modeled subtractive synthesis
+    case setSchmynth(waveform: Int, cutoff: Double, resonance: Double, filterMode: Int,
+                     attack: Double, decay: Double, sustain: Double, release: Double,
+                     warm: Double, volume: Double)
+
     // FX chain swap (per-node effect chain replacement)
     case setFXChain(EffectChain)
 }

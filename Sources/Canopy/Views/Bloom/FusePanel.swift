@@ -42,7 +42,7 @@ struct FusePanel: View {
                 Spacer()
 
                 ModuleSwapButton(
-                    options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm"), ("Spore", "spore"), ("Fuse", "fuse"), ("Volt", "volt")],
+                    options: [("Oscillator", "osc"), ("FM Drum", "drum"), ("Quake", "quake"), ("West Coast", "west"), ("Flow", "flow"), ("Tide", "tide"), ("Swarm", "swarm"), ("Spore", "spore"), ("Fuse", "fuse"), ("Volt", "volt"), ("Schmynth", "schmynth")],
                     current: "fuse",
                     onChange: { type in
                         guard let nodeID = projectState.selectedNodeID else { return }
@@ -64,6 +64,8 @@ struct FusePanel: View {
                             projectState.swapEngine(nodeID: nodeID, to: .spore(SporeConfig()))
                         } else if type == "volt" {
                             projectState.swapEngine(nodeID: nodeID, to: .volt(VoltDrumKitConfig.defaultKit()))
+                        } else if type == "schmynth" {
+                            projectState.swapEngine(nodeID: nodeID, to: .schmynth(SchmynthConfig()))
                         }
                     }
                 )

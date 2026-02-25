@@ -52,6 +52,7 @@ enum CanopyColors {
     static let nodeSpore = Color(red: 0.85, green: 0.65, blue: 0.35)  // Warm amber for stochastic
     static let nodeFuse = Color(red: 0.9, green: 0.45, blue: 0.25)   // Burnt orange for analog circuits
     static let nodeVolt = Color(red: 0.95, green: 0.3, blue: 0.3)    // Electric red for circuit drums
+    static let nodeSchmynth = Color(red: 0.2, green: 0.75, blue: 0.4)  // Green for classic subtractive
 
 
     /// Map a PresetColor to a SwiftUI Color.

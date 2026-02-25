@@ -32,7 +32,7 @@ final class NodeAudioUnit {
 
     var orbitBodyAngles: (Float, Float, Float, Float, Float, Float) { _orbitBodyAngles.pointee }
 
-    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false, isTide: Bool = false, isSwarm: Bool = false, isQuake: Bool = false, isSpore: Bool = false, isFuse: Bool = false, isVolt: Bool = false,
+    init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false, isTide: Bool = false, isSwarm: Bool = false, isQuake: Bool = false, isSpore: Bool = false, isFuse: Bool = false, isVolt: Bool = false, isSchmynth: Bool = false,
          clockSamplePosition: UnsafeMutablePointer<Int64>, clockIsRunning: UnsafeMutablePointer<Bool>) {
         self.nodeID = nodeID
         self.commandBuffer = AudioCommandRingBuffer(capacity: 256)
@@ -48,7 +48,13 @@ final class NodeAudioUnit {
         let panPtr = self._pan
         let orbitAnglesPtr = self._orbitBodyAngles
 
-        if isVolt {
+        if isSchmynth {
+            self.sourceNode = Self.makeSchmynthSourceNode(
+                cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
+                panPtr: panPtr, sampleRate: sampleRate,
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+            )
+        } else if isVolt {
             self.sourceNode = Self.makeVoltSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, sampleRate: sampleRate,
@@ -265,7 +271,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in oscillator path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in oscillator path
 
                 case .setFXChain(let chain):
@@ -483,7 +489,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in drum kit path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in drum kit path
 
                 case .setFXChain(let chain):
@@ -700,7 +706,7 @@ final class NodeAudioUnit {
                 case .setSwarmImprint:
                     break // ignored in quake path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in quake path
 
                 case .setFXChain(let chain):
@@ -935,7 +941,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in west coast path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in west coast path
 
                 case .setFXChain(let chain):
@@ -1148,7 +1154,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in flow path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in flow path
 
                 case .setFXChain(let chain):
@@ -1371,7 +1377,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in swarm path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in swarm path
 
                 case .setFXChain(let chain):
@@ -1598,7 +1604,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in tide path
 
-                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
+                case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in tide path
 
                 case .setFXChain(let chain):
@@ -1846,7 +1852,7 @@ final class NodeAudioUnit {
                 case .useOrbitSequencer:
                     break // ignored in spore path
 
-                case .setFuse, .setVoltSlot:
+                case .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in spore path
 
                 case .setFXChain(let chain):
@@ -2227,6 +2233,15 @@ final class NodeAudioUnit {
         ))
     }
 
+    func configureSchmynth(_ config: SchmynthConfig) {
+        commandBuffer.push(.setSchmynth(
+            waveform: config.waveform, cutoff: config.cutoff, resonance: config.resonance,
+            filterMode: config.filterMode, attack: config.attack, decay: config.decay,
+            sustain: config.sustain, release: config.release,
+            warm: config.warm, volume: config.volume
+        ))
+    }
+
     func configureVoltSlot(index: Int, _ config: VoltConfig) {
         let layerAInt: Int
         switch config.layerA {
@@ -2262,6 +2277,192 @@ final class NodeAudioUnit {
             tonShape: config.tonShape, tonBend: config.tonBend, tonDecay: config.tonDecay,
             warm: config.warm
         ))
+    }
+
+    // MARK: - SCHMYNTH Render Path
+
+    private static func makeSchmynthSourceNode(
+        cmdBuffer: AudioCommandRingBuffer,
+        beatPtr: UnsafeMutablePointer<Double>,
+        playingPtr: UnsafeMutablePointer<Bool>,
+        panPtr: UnsafeMutablePointer<Float>,
+        sampleRate: Double,
+        clockPtr: UnsafeMutablePointer<Int64>,
+        clockRunning: UnsafeMutablePointer<Bool>
+    ) -> AVAudioSourceNode {
+        var schmynth = SchmynthVoiceManager()
+        var seq = Sequencer()
+        var filter = MoogLadderFilter()
+        var lfoBank = LFOBank()
+        var fxChain = EffectChain()
+        var volume: Double = 0.8
+        var volumeSmoothed: Double = 0.8
+        let sr = sampleRate
+        let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+
+        return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            let pan = panPtr.pointee
+            let angle = Double((pan + 1) * 0.5) * .pi * 0.5
+            let gainL = Float(cos(angle))
+            let gainR = Float(sin(angle))
+
+            // Drain command buffer
+            while let cmd = cmdBuffer.pop() {
+                switch cmd {
+                case .noteOn(let pitch, let velocity):
+                    schmynth.noteOn(pitch: pitch, velocity: velocity, frequency: 0)
+
+                case .noteOff(let pitch):
+                    schmynth.noteOff(pitch: pitch)
+
+                case .allNotesOff:
+                    schmynth.allNotesOff()
+
+                case .setPatch(_, _, _, _, _, _, let newVolume):
+                    volume = newVolume
+
+                case .sequencerStart(let bpm):
+                    seq.start(bpm: bpm)
+                    fxChain.updateBPM(bpm)
+
+                case .sequencerStop:
+                    seq.stop()
+                    schmynth.allNotesOff()
+
+                case .sequencerSetBPM(let bpm):
+                    seq.setBPM(bpm)
+                    fxChain.updateBPM(bpm)
+
+                case .sequencerLoad(let events, let lengthInBeats,
+                                    let direction, let mutationAmount, let mutationRange,
+                                    let scaleRootSemitone, let scaleIntervals):
+                    schmynth.allNotesOff()
+                    seq.load(events: events, lengthInBeats: lengthInBeats,
+                             direction: direction,
+                             mutationAmount: mutationAmount, mutationRange: mutationRange,
+                             scaleRootSemitone: scaleRootSemitone, scaleIntervals: scaleIntervals)
+
+                case .sequencerSetGlobalProbability(let prob):
+                    seq.globalProbability = prob
+
+                case .sequencerSetMutation(let amount, let range, let rootSemitone, let intervals):
+                    seq.setMutation(amount: amount, range: range, rootSemitone: rootSemitone, intervals: intervals)
+
+                case .sequencerResetMutation:
+                    seq.resetMutation()
+
+                case .sequencerFreezeMutation:
+                    seq.freezeMutation()
+
+                case .sequencerSetArp(let active, let samplesPerStep, let gateLength, let mode):
+                    seq.setArpConfig(active: active, samplesPerStep: samplesPerStep,
+                                     gateLength: gateLength, mode: mode)
+
+                case .sequencerSetArpPool(let pitches, let velocities, let startBeats, let endBeats):
+                    seq.setArpPool(pitches: pitches, velocities: velocities, startBeats: startBeats, endBeats: endBeats)
+
+                case .setFilter(let enabled, let cutoff, let reso):
+                    filter.enabled = enabled
+                    filter.cutoffHz = cutoff
+                    filter.resonance = reso
+                    filter.updateCoefficients(sampleRate: sr)
+
+                case .setLFOSlot(let slotIndex, let enabled, let waveform,
+                                 let rateHz, let initialPhase, let depth, let parameter):
+                    lfoBank.configureSlot(slotIndex, enabled: enabled, waveform: waveform,
+                                          rateHz: rateHz, initialPhase: initialPhase,
+                                          depth: depth, parameter: parameter)
+
+                case .setLFOSlotCount(let count):
+                    lfoBank.slotCount = count
+
+                case .setSchmynth(let waveform, let cutoff, let resonance, let filterMode,
+                                  let attack, let decay, let sustain, let release,
+                                  let warm, let newVolume):
+                    volume = newVolume
+                    schmynth.configure(
+                        waveform: waveform, cutoff: Float(cutoff), resonance: Float(resonance),
+                        filterMode: filterMode, attack: Float(attack), decay: Float(decay),
+                        sustain: Float(sustain), release: Float(release), warm: Float(warm)
+                    )
+
+                case .setFXChain(let chain):
+                    fxChain = chain
+
+                case .setDrumVoice, .setWestCoast, .setFlow, .setTide, .setSwarm,
+                     .setFlowImprint, .setTideImprint, .setSwarmImprint,
+                     .setQuakeVoice, .setQuakeVolume, .setOrbit, .useOrbitSequencer,
+                     .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale,
+                     .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot:
+                    break // ignored in schmynth path
+                }
+            }
+
+            schmynth.sampleRate = Float(sr)
+            let srF = Float(sr)
+            let baseSample = clockPtr.pointee
+
+            // Render loop
+            if lfoBank.slotCount > 0 {
+                for frame in 0..<Int(frameCount) {
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &schmynth, detune: 0)
+                    let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
+                    _ = resMod
+
+                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
+                    let raw = schmynth.renderSampleFloat(sampleRate: Float(sr)) * Float(volumeSmoothed)
+
+                    let sample: Float
+                    if cutMod != 0 {
+                        sample = filter.processWithCutoffMod(raw, cutoffMod: cutMod, sampleRate: sr)
+                    } else {
+                        sample = filter.process(raw)
+                    }
+
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
+
+                    let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
+                    let modAngle = (modPan + 1.0) * 0.5 * .pi * 0.5
+                    let modGainL = Float(cos(modAngle))
+                    let modGainR = Float(sin(modAngle))
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                        }
+                    }
+                }
+            } else {
+                for frame in 0..<Int(frameCount) {
+                    seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &schmynth, detune: 0)
+
+                    volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                    let raw = schmynth.renderSampleFloat(sampleRate: Float(sr)) * Float(volumeSmoothed)
+                    let sample = filter.process(raw)
+
+                    let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
+
+                    if ablPointer.count >= 2 {
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                    } else {
+                        for buf in 0..<ablPointer.count {
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                        }
+                    }
+                }
+            }
+
+            playingPtr.pointee = seq.isPlaying
+            beatPtr.pointee = seq.currentBeat
+
+            return noErr
+        }
     }
 
     // MARK: - FUSE Render Path
@@ -2378,7 +2579,7 @@ final class NodeAudioUnit {
                      .setFlowImprint, .setTideImprint, .setSwarmImprint,
                      .setQuakeVoice, .setQuakeVolume, .setOrbit, .useOrbitSequencer,
                      .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale,
-                     .sporeSeqStart, .sporeSeqStop, .setVoltSlot:
+                     .sporeSeqStart, .sporeSeqStop, .setVoltSlot, .setSchmynth:
                     break // ignored in fuse path
                 }
             }
@@ -2580,7 +2781,7 @@ final class NodeAudioUnit {
                      .setFlowImprint, .setTideImprint, .setSwarmImprint,
                      .setQuakeVoice, .setQuakeVolume, .setOrbit, .useOrbitSequencer,
                      .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale,
-                     .sporeSeqStart, .sporeSeqStop, .setFuse:
+                     .sporeSeqStart, .sporeSeqStop, .setFuse, .setSchmynth:
                     break // ignored in volt path
                 }
             }

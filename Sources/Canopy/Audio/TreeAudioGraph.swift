@@ -69,7 +69,9 @@ final class TreeAudioGraph {
         if case .fuse = node.patch.soundType { isFuse = true } else { isFuse = false }
         let isVolt: Bool
         if case .volt = node.patch.soundType { isVolt = true } else { isVolt = false }
-        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow, isTide: isTide, isSwarm: isSwarm, isQuake: isQuake, isSpore: isSpore, isFuse: isFuse, isVolt: isVolt,
+        let isSchmynth: Bool
+        if case .schmynth = node.patch.soundType { isSchmynth = true } else { isSchmynth = false }
+        let unit = NodeAudioUnit(nodeID: node.id, sampleRate: sampleRate, isDrumKit: isDrum, isWestCoast: isWest, isFlow: isFlow, isTide: isTide, isSwarm: isSwarm, isQuake: isQuake, isSpore: isSpore, isFuse: isFuse, isVolt: isVolt, isSchmynth: isSchmynth,
                                  clockSamplePosition: clockSamplePosition, clockIsRunning: clockIsRunning)
         engine.attach(unit.sourceNode)
         // Connect directly to main mixer — same pattern as Phase 2.
@@ -199,6 +201,8 @@ final class TreeAudioGraph {
             for i in 0..<kit.voices.count {
                 unit.configureVoltSlot(index: i, kit.voices[i])
             }
+        case .schmynth(let config):
+            unit.configureSchmynth(config)
         default:
             break
         }
