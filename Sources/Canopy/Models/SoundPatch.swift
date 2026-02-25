@@ -1021,7 +1021,7 @@ struct FuseConfig: Codable, Equatable {
 /// Circuit-modeled subtractive synthesizer — the bread-and-butter engine for pads, leads, bass, keys.
 /// Capacitor-reset oscillator → Schmitt Cascade Filter (SCF) → RC envelope.
 struct SchmynthConfig: Codable, Equatable {
-    var waveform: Int = 0        // 0=SAW, 1=SQR, 2=TRI, 3=SINE
+    var waveform: Int = 0        // 0=SAW, 1=SQR, 2=TRI
     var cutoff: Double = 8000    // Hz, 20-20000
     var resonance: Double = 0    // 0-1
     var filterMode: Int = 0      // 0=LP, 1=BP, 2=HP
@@ -1043,8 +1043,8 @@ struct SchmynthConfig: Codable, Equatable {
     static let acidSqr = SchmynthConfig(waveform: 1, cutoff: 1200, resonance: 0.7, attack: 0.003, decay: 0.2, sustain: 0.3, release: 0.2, warm: 0.4)
     /// Warm pad — soft triangle with slow attack.
     static let warmPad = SchmynthConfig(waveform: 2, cutoff: 4000, resonance: 0.15, attack: 0.8, decay: 0.4, sustain: 0.85, release: 1.2, warm: 0.6)
-    /// Pure tone — diode-shaped sine, gentle and clean.
-    static let pureTone = SchmynthConfig(waveform: 3, cutoff: 20000, resonance: 0, attack: 0.02, decay: 0.1, sustain: 0.9, release: 0.5, warm: 0.1)
+    /// Pure tone — gentle triangle, clean and soft.
+    static let pureTone = SchmynthConfig(waveform: 2, cutoff: 20000, resonance: 0, attack: 0.02, decay: 0.1, sustain: 0.9, release: 0.5, warm: 0.1)
     /// Pluck lead — fast attack, short decay, bright filter.
     static let pluckLead = SchmynthConfig(waveform: 0, cutoff: 6000, resonance: 0.4, attack: 0.001, decay: 0.3, sustain: 0.2, release: 0.15, warm: 0.3)
     /// Dark drone — low cutoff, high resonance, slow everything.

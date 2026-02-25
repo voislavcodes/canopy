@@ -165,7 +165,7 @@ struct SchmynthPanel: View {
                 .font(.system(size: 8 * cs, weight: .bold, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.5))
 
-            ForEach(Array(["SAW", "SQR", "TRI", "SIN"].enumerated()), id: \.offset) { idx, label in
+            ForEach(Array(["SAW", "SQR", "TRI"].enumerated()), id: \.offset) { idx, label in
                 Button(action: {
                     localWaveform = idx
                     commitConfig { $0.waveform = idx }
@@ -324,7 +324,7 @@ struct SchmynthPanel: View {
         drawString(context, "\u{2190}rst\u{2518}", centerX: (oscMidLeft + oscMidRight) * 0.5, y: rowY(1) + rowH * 0.6, cellW: cellW, fontSize: fontSize * 0.85, color: wireColor.opacity(dimOp))
 
         // Row 2: Waveform tap indicators — active one glows
-        let waveLabels = ["SAW", "SQR", "TRI", "SIN"]
+        let waveLabels = ["SAW", "SQR", "TRI"]
         let tapSpacing = (oscRight - oscLeft) / CGFloat(waveLabels.count + 1)
         for (i, label) in waveLabels.enumerated() {
             let tapX = oscLeft + tapSpacing * CGFloat(i + 1)

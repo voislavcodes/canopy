@@ -2,7 +2,7 @@ import Foundation
 
 /// Parameters broadcast to all SCHMYNTH voices from the audio thread.
 struct SchmynthParams {
-    var waveform: Int = 0          // 0=SAW, 1=SQR, 2=TRI, 3=SINE
+    var waveform: Int = 0          // 0=SAW, 1=SQR, 2=TRI
     var cutoff: Float = 8000       // Hz, 20-20000
     var resonance: Float = 0       // 0-1
     var filterMode: Int = 0        // 0=LP, 1=BP, 2=HP
@@ -187,13 +187,6 @@ struct SchmynthVoice {
             integratorCap += step
             integratorCap = max(-1.0, min(1.0, integratorCap))
             oscOut = integratorCap
-        case 3: // SINE — waveshaped triangle
-            let integrationRate = noteFreq * 4.0 / sampleRate
-            let maxStep: Float = 0.1
-            let step = min(abs(sqOut * integrationRate), maxStep) * (sqOut > 0 ? 1.0 : -1.0)
-            integratorCap += step
-            integratorCap = max(-1.0, min(1.0, integratorCap))
-            oscOut = SchmynthVoice.diodeWaveshape(integratorCap)
         default:
             oscOut = triOut
         }
@@ -366,28 +359,6 @@ struct SchmynthVoice {
         }
 
         return env.capVoltage
-    }
-
-    // MARK: - Diode Waveshaper
-
-    /// Progressive soft clipping: rounds triangle peaks into ~sine shape.
-    @inline(__always)
-    static func diodeWaveshape(_ x: Float) -> Float {
-        let abs_x = abs(x)
-        let sign_x: Float = x >= 0 ? 1.0 : -1.0
-
-        let shaped: Float
-        if abs_x < 0.6 {
-            shaped = abs_x
-        } else if abs_x < 0.8 {
-            let excess = abs_x - 0.6
-            shaped = 0.6 + excess * (1.0 - excess * 2.5)
-        } else {
-            let excess = abs_x - 0.8
-            shaped = 0.775 + excess * (1.0 - excess * 5.0) * 0.5
-        }
-
-        return sign_x * min(shaped, 0.785) / 0.785
     }
 
     // MARK: - Tolerance Seeding
