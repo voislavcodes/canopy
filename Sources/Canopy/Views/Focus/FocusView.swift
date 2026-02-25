@@ -29,10 +29,17 @@ struct FocusView: View {
     @State private var sequencerHasSelection: Bool = false
 
     var body: some View {
-        ZStack {
-            CanopyColors.canvasBackground
-                .ignoresSafeArea()
+        VStack(spacing: 0) {
+            // Unified top bar
+            topBar
+                .background(CanopyColors.bloomPanelBackground.opacity(0.95))
 
+            // Thin bottom border
+            Rectangle()
+                .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
+                .frame(height: 1)
+
+            // Content area
             Group {
                 switch activePanel {
                 case .synth:
@@ -50,13 +57,8 @@ struct FocusView: View {
             .environment(\.canvasScale, 1.0)
             .transition(.opacity.animation(.easeInOut(duration: 0.15)))
             .id(activePanel)
-
-            // Panel indicator
-            VStack {
-                panelIndicator
-                Spacer()
-            }
         }
+        .background(CanopyColors.canvasBackground.ignoresSafeArea())
         .onAppear {
             activePanel = .sequencer
             installFocusKeyMonitor()
@@ -66,30 +68,66 @@ struct FocusView: View {
         }
     }
 
-    // MARK: - Panel Indicator
+    // MARK: - Top Bar
 
-    private var panelIndicator: some View {
-        HStack(spacing: 12) {
-            ForEach(BloomPanel.allCases, id: \.self) { panel in
-                Text(panelLabel(panel))
-                    .font(.system(size: 11, weight: activePanel == panel ? .bold : .regular, design: .monospaced))
-                    .foregroundColor(activePanel == panel ? CanopyColors.chromeTextBright : CanopyColors.chromeText.opacity(0.5))
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            activePanel = panel
+    private var topBar: some View {
+        HStack(spacing: 0) {
+            // Left side: panel-specific content
+            HStack(spacing: 6) {
+                if activePanel == .sequencer {
+                    ModuleSwapButton(
+                        options: [("Pitched", SequencerType.pitched), ("Drum", SequencerType.drum), ("Orbit", SequencerType.orbit), ("Spore", SequencerType.sporeSeq)],
+                        current: projectState.selectedNode?.sequencerType ?? .pitched,
+                        onChange: { type in
+                            guard let nodeID = projectState.selectedNodeID else { return }
+                            projectState.swapSequencer(nodeID: nodeID, to: type)
                         }
-                    }
+                    )
+                    Text("SEQUENCE")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                } else {
+                    Text(panelLabel(activePanel))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                }
             }
+            .frame(minWidth: 100, alignment: .leading)
+
+            Spacer()
+
+            // Center: panel tab pills
+            HStack(spacing: 12) {
+                ForEach(BloomPanel.allCases, id: \.self) { panel in
+                    let isActive = activePanel == panel
+                    Text(panelLabel(panel))
+                        .font(.system(size: 11, weight: isActive ? .bold : .regular, design: .monospaced))
+                        .foregroundColor(isActive ? CanopyColors.chromeTextBright : CanopyColors.chromeText.opacity(0.5))
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                activePanel = panel
+                            }
+                        }
+                }
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 10)
+            .background(CanopyColors.bloomPanelBackground.opacity(0.85))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
+            )
+
+            Spacer()
+
+            // Right side: balanced spacer
+            Spacer()
+                .frame(minWidth: 100)
         }
-        .padding(.vertical, 8)
         .padding(.horizontal, 16)
-        .background(CanopyColors.bloomPanelBackground.opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
-        )
-        .padding(.top, 8)
+        .padding(.vertical, 8)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func panelLabel(_ panel: BloomPanel) -> String {

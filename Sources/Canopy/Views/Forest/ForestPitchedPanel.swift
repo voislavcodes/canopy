@@ -3,9 +3,13 @@ import SwiftUI
 /// Forest-mode pitched sequencer: 18 generative controls across three pages.
 /// Three pages: GENERATE (birth the pattern), TRANSFORM (shape it), PLAY (perform it).
 /// Each page is a 3×2 grid of ASCII art knobs rendered via Canvas + TimelineView.
+/// In `.focus` layout mode, all 18 cells are shown in a flat 3×6 grid with no header/chrome.
 struct ForestPitchedPanel: View {
+    enum LayoutMode { case forest, focus }
+
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
+    var layoutMode: LayoutMode = .forest
     @Environment(\.canvasScale) var cs
 
     private let panelWidth: CGFloat = 380
@@ -74,6 +78,13 @@ struct ForestPitchedPanel: View {
     // MARK: - Body
 
     var body: some View {
+        switch layoutMode {
+        case .forest: forestBody
+        case .focus: focusBody
+        }
+    }
+
+    private var forestBody: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {
             headerRow
             paramGrid
@@ -91,6 +102,12 @@ struct ForestPitchedPanel: View {
         .onTapGesture { }
         .onAppear { syncSeqFromModel() }
         .onChange(of: projectState.selectedNodeID) { _ in syncSeqFromModel() }
+    }
+
+    private var focusBody: some View {
+        paramGridFlat
+            .onAppear { syncSeqFromModel() }
+            .onChange(of: projectState.selectedNodeID) { _ in syncSeqFromModel() }
     }
 
     // MARK: - Header
@@ -236,6 +253,148 @@ struct ForestPitchedPanel: View {
                 }
                 .position(x: cW - 8 * cs, y: cH + cH * 0.35)
             }
+        }
+    }
+
+    // MARK: - Flat 3×6 Grid (Focus Mode)
+
+    private var paramGridFlat: some View {
+        GeometryReader { geo in
+            let cellW = geo.size.width / 3
+            let cellH = geo.size.height / 6
+
+            ZStack {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                    Canvas { context, size in
+                        let time = timeline.date.timeIntervalSinceReferenceDate
+                        let cW = size.width / 3
+                        let cH = size.height / 6
+
+                        for row in 0..<6 {
+                            for col in 0..<3 {
+                                let globalIdx = row * 3 + col
+                                let rect = CGRect(x: CGFloat(col) * cW, y: CGFloat(row) * cH, width: cW, height: cH)
+                                let isActive = activeCell == globalIdx
+                                drawCellByGlobalIndex(globalIdx, context: context, rect: rect, time: time, active: isActive)
+                            }
+                        }
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { drag in
+                            if activeCell == nil {
+                                let col = min(2, max(0, Int(drag.startLocation.x / cellW)))
+                                let row = min(5, max(0, Int(drag.startLocation.y / cellH)))
+                                activeCell = row * 3 + col
+                                gridCellWidth = cellW
+                                dragInitiated = false
+                            }
+
+                            let movement = sqrt(pow(drag.translation.width, 2) + pow(drag.translation.height, 2))
+                            if !dragInitiated && movement > 4 {
+                                dragInitiated = true
+                                let globalIdx = activeCell!
+                                let page = globalIdx / 6
+                                let cell = globalIdx % 6
+                                initializeDragFlat(page: page, cell: cell, drag: drag)
+                            }
+
+                            if dragInitiated {
+                                let globalIdx = activeCell!
+                                let page = globalIdx / 6
+                                let cell = globalIdx % 6
+                                handleDragFlat(page: page, cell: cell, drag: drag)
+                            }
+                        }
+                        .onEnded { drag in
+                            let globalIdx = activeCell ?? 0
+                            let page = globalIdx / 6
+                            let cell = globalIdx % 6
+                            if !dragInitiated {
+                                handleTapFlat(page: page, cell: cell)
+                            } else {
+                                commitDragFlat(page: page, cell: cell)
+                            }
+                            activeCell = nil
+                            cellDragMode = nil
+                            dragInitiated = false
+                        }
+                )
+
+                // Freeze/reset overlay — MUT cell is at row 1, col 0 (globalIdx 3)
+                GeometryReader { overlayGeo in
+                    let cW = overlayGeo.size.width / 3
+                    let cH = overlayGeo.size.height / 6
+                    VStack(spacing: 4 * cs) {
+                        Button(action: { freezeMutation() }) {
+                            Text("\u{2744}")
+                                .font(.system(size: 10 * cs, design: .monospaced))
+                                .foregroundColor(CanopyColors.chromeText.opacity(0.45))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Freeze mutations")
+
+                        Button(action: { resetMutation() }) {
+                            Text("\u{21BA}")
+                                .font(.system(size: 11 * cs, design: .monospaced))
+                                .foregroundColor(CanopyColors.chromeText.opacity(0.45))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reset mutations")
+                    }
+                    .position(x: cW - 8 * cs, y: cH + cH * 0.35)
+                }
+            }
+        }
+    }
+
+    /// Draw a cell by global index (0-17) mapping across all three pages.
+    private func drawCellByGlobalIndex(_ globalIdx: Int, context: GraphicsContext, rect: CGRect, time: Double, active: Bool) {
+        let page = globalIdx / 6
+        let cell = globalIdx % 6
+        switch page {
+        case 0: drawGenerateCell(cell, context: context, rect: rect, time: time, active: active)
+        case 1: drawTransformCell(cell, context: context, rect: rect, time: time, active: active)
+        case 2: drawPlayCell(cell, context: context, rect: rect, time: time, active: active)
+        default: break
+        }
+    }
+
+    // Flat-mode drag/tap routing (page is derived from globalIdx)
+
+    private func initializeDragFlat(page: Int, cell: Int, drag: DragGesture.Value) {
+        switch page {
+        case 0: initializeGenerateDrag(cell: cell, drag: drag)
+        case 1: initializeTransformDrag(cell: cell)
+        case 2: initializePlayDrag(cell: cell)
+        default: break
+        }
+    }
+
+    private func handleDragFlat(page: Int, cell: Int, drag: DragGesture.Value) {
+        switch page {
+        case 0: handleGenerateDrag(cell: cell, drag: drag)
+        case 1: handleTransformDrag(cell: cell, drag: drag)
+        case 2: handlePlayDrag(cell: cell, drag: drag)
+        default: break
+        }
+    }
+
+    private func commitDragFlat(page: Int, cell: Int) {
+        switch page {
+        case 0: commitGenerateDrag(cell: cell)
+        case 1: commitTransformDrag(cell: cell)
+        case 2: commitPlayDrag(cell: cell)
+        default: break
+        }
+    }
+
+    private func handleTapFlat(page: Int, cell: Int) {
+        switch page {
+        case 1: handleTransformTap(cell: cell)
+        case 2: handlePlayTap(cell: cell)
+        default: break
         }
     }
 
