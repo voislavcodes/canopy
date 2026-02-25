@@ -172,13 +172,11 @@ struct ForestPitchedPanel: View {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
                 Canvas { context, size in
                     let time = timeline.date.timeIntervalSinceReferenceDate
-                    let cW = size.width / 3
-                    let cH = size.height / 2
 
                     for row in 0..<2 {
                         for col in 0..<3 {
                             let idx = row * 3 + col
-                            let rect = CGRect(x: CGFloat(col) * cW, y: CGFloat(row) * cH, width: cW, height: cH)
+                            let rect = CGRect(x: CGFloat(col) * cellW, y: CGFloat(row) * cellH, width: cellW, height: cellH)
                             let isActive = activeCell == idx
 
                             switch currentPage {
@@ -268,13 +266,11 @@ struct ForestPitchedPanel: View {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
                     Canvas { context, size in
                         let time = timeline.date.timeIntervalSinceReferenceDate
-                        let cW = size.width / 3
-                        let cH = size.height / 6
 
                         for row in 0..<6 {
                             for col in 0..<3 {
                                 let globalIdx = row * 3 + col
-                                let rect = CGRect(x: CGFloat(col) * cW, y: CGFloat(row) * cH, width: cW, height: cH)
+                                let rect = CGRect(x: CGFloat(col) * cellW, y: CGFloat(row) * cellH, width: cellW, height: cellH)
                                 let isActive = activeCell == globalIdx
                                 drawCellByGlobalIndex(globalIdx, context: context, rect: rect, time: time, active: isActive)
                             }
@@ -620,7 +616,6 @@ struct ForestPitchedPanel: View {
 
     private func drawRngKnob(context: GraphicsContext, rect: CGRect, value: Int, time: Double, active: Bool) {
         let fontSize: CGFloat = max(9, 11 * cs)
-        let cellW: CGFloat = fontSize * 0.62
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55

@@ -118,8 +118,10 @@ struct FocusSequencerView: View {
         let rh = SequencerGridCore.cellHeight(fontSize: fontSize)
 
         return HStack(spacing: 0) {
-            // Grid column — top-aligned content, fills remaining space
+            // Grid column — vertically centered content, fills remaining space
             VStack(spacing: 0) {
+                Spacer()
+
                 if let node {
                     HStack(alignment: .top, spacing: 4) {
                         focusTouchStrip(pitches: pitches, fontSize: fontSize)
@@ -130,11 +132,12 @@ struct FocusSequencerView: View {
                     }
                     .padding(.leading, 6)
                     .padding(.trailing, 6)
-                    .padding(.top, 12)
 
                     velocityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize, stripWidth: cw + 2)
+                        .padding(.top, 6)
 
                     probabilityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize, stripWidth: cw + 2)
+                        .padding(.bottom, 6)
                 }
 
                 // Page indicator (only for sequences > 32 steps)
@@ -629,8 +632,8 @@ struct FocusSequencerView: View {
                     let charCol = colMap[localStep]
                     let x = CGFloat(charCol) * cw + cw / 2
                     let y = rh / 2
-                    let blockChar = Self.blockChar(for: avgVel)
-                    SequencerGridCore.drawChar(context, blockChar, at: CGPoint(x: x, y: y),
+                    let ch = Self.dotChar(for: avgVel)
+                    SequencerGridCore.drawChar(context, ch, at: CGPoint(x: x, y: y),
                                                size: fontSize, color: CanopyColors.glowColor.opacity(0.3 + avgVel * 0.5))
                 }
             }
@@ -684,8 +687,8 @@ struct FocusSequencerView: View {
                     let charCol = colMap[localStep]
                     let x = CGFloat(charCol) * cw + cw / 2
                     let y = rh / 2
-                    let blockChar = Self.blockChar(for: prob)
-                    SequencerGridCore.drawChar(context, blockChar, at: CGPoint(x: x, y: y),
+                    let ch = Self.dotChar(for: prob)
+                    SequencerGridCore.drawChar(context, ch, at: CGPoint(x: x, y: y),
                                                size: fontSize, color: CanopyColors.glowColor.opacity(0.2 + prob * 0.35))
                 }
             }
@@ -754,15 +757,11 @@ struct FocusSequencerView: View {
         return SequencerActions.resolveKey(projectState: projectState, nodeID: nodeID)
     }
 
-    /// Map a 0–1 value to an ASCII block character.
-    private static func blockChar(for value: Double) -> String {
-        if value <= 0 { return " " }
-        if value < 0.15 { return "\u{2581}" } // ▁
-        if value < 0.30 { return "\u{2582}" } // ▂
-        if value < 0.45 { return "\u{2583}" } // ▃
-        if value < 0.60 { return "\u{2584}" } // ▄
-        if value < 0.75 { return "\u{2585}" } // ▅
-        if value < 0.90 { return "\u{2586}" } // ▆
-        return "\u{2587}" // ▇
+    /// Map a 0–1 value to a dot → circle character.
+    private static func dotChar(for value: Double) -> String {
+        if value <= 0     { return " " }
+        if value < 0.33   { return "\u{00B7}" }  // ·
+        if value < 0.66   { return "\u{2022}" }  // •
+        return "\u{25CF}"                         // ●
     }
 }
