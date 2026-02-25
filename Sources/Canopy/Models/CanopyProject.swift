@@ -41,7 +41,7 @@ struct CanopyProject: Codable, Equatable {
         modifiedAt: Date = Date(),
         lfos: [LFODefinition] = [],
         modulationRoutings: [ModulationRouting] = [],
-        scaleAwareEnabled: Bool = false,
+        scaleAwareEnabled: Bool = true,
         formatVersion: Int = CanopyProject.currentFormatVersion,
         masterBus: MasterBus = MasterBus()
     ) {

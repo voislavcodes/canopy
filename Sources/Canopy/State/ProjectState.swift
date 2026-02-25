@@ -24,7 +24,7 @@ class ProjectState: ObservableObject {
     /// MIDI notes currently held via computer keyboard — merged into visual keyboard state.
     @Published var computerKeyPressedNotes: Set<Int> = []
     /// When true, the computer keyboard acts as a MIDI piano input.
-    @Published var computerKeyboardEnabled: Bool = false
+    @Published var computerKeyboardEnabled: Bool = true
 
     // MARK: - MIDI Capture state (not persisted)
 
