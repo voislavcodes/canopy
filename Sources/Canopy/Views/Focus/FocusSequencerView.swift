@@ -114,8 +114,8 @@ struct FocusSequencerView: View {
         let gridWidth = gridAreaWidth - labelWidth - stripWidth - 32
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
         let fontSize = max(6, min(24, gridWidth / (CGFloat(charCols) * 0.78)))
+        let cw = SequencerGridCore.cellWidth(fontSize: fontSize)
         let rh = SequencerGridCore.cellHeight(fontSize: fontSize)
-        let laneInsetX = stripWidth + labelWidth + 16
 
         return HStack(spacing: 0) {
             // Grid column — top-aligned content, fills remaining space
@@ -130,14 +130,11 @@ struct FocusSequencerView: View {
                     }
                     .padding(.leading, 6)
                     .padding(.trailing, 6)
+                    .padding(.top, 12)
 
-                    velocityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize)
-                        .padding(.leading, laneInsetX)
-                        .padding(.trailing, 6)
+                    velocityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize, stripWidth: cw + 2)
 
-                    probabilityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize)
-                        .padding(.leading, laneInsetX)
-                        .padding(.trailing, 6)
+                    probabilityLane(sequence: node.sequence, nodeID: node.id, fontSize: fontSize, stripWidth: cw + 2)
                 }
 
                 // Page indicator (only for sequences > 32 steps)
@@ -148,7 +145,7 @@ struct FocusSequencerView: View {
 
                 Spacer()
             }
-            .padding(.top, 12)
+            .frame(maxWidth: .infinity)
 
             // Divider
             Rectangle()
@@ -595,14 +592,14 @@ struct FocusSequencerView: View {
 
     // MARK: - Velocity Lane
 
-    private func velocityLane(sequence: NoteSequence, nodeID: UUID, fontSize: CGFloat) -> some View {
+    private func velocityLane(sequence: NoteSequence, nodeID: UUID, fontSize: CGFloat, stripWidth: CGFloat) -> some View {
         let pOffset = pageOffset
         let activeCols = activeColumnsOnPage
         let cw = SequencerGridCore.cellWidth(fontSize: fontSize)
+        let rh = SequencerGridCore.cellHeight(fontSize: fontSize)
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
         let colMap = SequencerGridCore.stepToCharCol(for: displayColumns)
         let reverseMap = SequencerGridCore.charColToStep(displayColumns: displayColumns)
-        let laneHeight: CGFloat = 44
         let canvasWidth = CGFloat(charCols) * cw
         let sd = NoteSequence.stepDuration
 
@@ -618,117 +615,96 @@ struct FocusSequencerView: View {
             }
         }
 
-        return VStack(spacing: 0) {
-            Rectangle()
-                .fill(CanopyColors.bloomPanelBorder.opacity(0.2))
-                .frame(height: 1)
-
-            HStack(spacing: 0) {
-                Text("VEL")
-                    .font(.system(size: 8, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText.opacity(0.35))
-                    .frame(width: 24, alignment: .trailing)
-                    .padding(.trailing, 2)
-
-                Canvas { context, size in
-                    for localStep in 0..<displayColumns {
-                        guard localStep < activeCols else { continue }
-                        guard let velData = stepVelSum[localStep] else { continue }
-                        let avgVel = velData.total / Double(velData.count)
-
-                        let charCol = colMap[localStep]
-                        let x = CGFloat(charCol) * cw + cw / 2
-                        let barHeight = CGFloat(avgVel) * (laneHeight - 4)
-                        let barY = laneHeight - barHeight
-
-                        let barRect = CGRect(x: x - cw * 0.35, y: barY, width: cw * 0.7, height: barHeight)
-                        context.fill(
-                            Path(barRect),
-                            with: .color(CanopyColors.glowColor.opacity(0.3 + avgVel * 0.5))
-                        )
-                    }
+        return HStack(alignment: .top, spacing: 4) {
+            Spacer().frame(width: stripWidth)
+            Text("V")
+                .font(.system(size: max(7, fontSize * 0.6), weight: .regular, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.35))
+                .frame(width: 28, height: rh, alignment: .trailing)
+            Canvas { context, size in
+                for localStep in 0..<displayColumns {
+                    guard localStep < activeCols else { continue }
+                    guard let velData = stepVelSum[localStep] else { continue }
+                    let avgVel = velData.total / Double(velData.count)
+                    let charCol = colMap[localStep]
+                    let x = CGFloat(charCol) * cw + cw / 2
+                    let y = rh / 2
+                    let blockChar = Self.blockChar(for: avgVel)
+                    SequencerGridCore.drawChar(context, blockChar, at: CGPoint(x: x, y: y),
+                                               size: fontSize, color: CanopyColors.glowColor.opacity(0.3 + avgVel * 0.5))
                 }
-                .frame(width: canvasWidth, height: laneHeight)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            let charCol = Int(value.location.x / cw)
-                            guard charCol >= 0, charCol < charCols else { return }
-                            guard let localStep = reverseMap[charCol], localStep < activeCols else { return }
-                            let globalStep = localStep + pOffset
-                            let velocity = max(0.05, min(1.0, 1.0 - (value.location.y / laneHeight)))
-                            setVelocityForStep(step: globalStep, velocity: velocity, nodeID: nodeID)
-                        }
-                )
             }
+            .frame(width: canvasWidth, height: rh)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let charCol = Int(value.location.x / cw)
+                        guard charCol >= 0, charCol < charCols else { return }
+                        guard let localStep = reverseMap[charCol], localStep < activeCols else { return }
+                        let globalStep = localStep + pOffset
+                        let velocity = max(0.05, min(1.0, 1.0 - (value.location.y / rh)))
+                        setVelocityForStep(step: globalStep, velocity: velocity, nodeID: nodeID)
+                    }
+            )
         }
+        .padding(.leading, 6)
+        .padding(.trailing, 6)
     }
 
     // MARK: - Probability Lane
 
-    private func probabilityLane(sequence: NoteSequence, nodeID: UUID, fontSize: CGFloat) -> some View {
+    private func probabilityLane(sequence: NoteSequence, nodeID: UUID, fontSize: CGFloat, stripWidth: CGFloat) -> some View {
         let pOffset = pageOffset
         let activeCols = activeColumnsOnPage
         let cw = SequencerGridCore.cellWidth(fontSize: fontSize)
+        let rh = SequencerGridCore.cellHeight(fontSize: fontSize)
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
         let colMap = SequencerGridCore.stepToCharCol(for: displayColumns)
         let reverseMap = SequencerGridCore.charColToStep(displayColumns: displayColumns)
-        let laneHeight: CGFloat = 44
         let canvasWidth = CGFloat(charCols) * cw
         let perStep = sequence.perStepProbability
 
-        return VStack(spacing: 0) {
-            Rectangle()
-                .fill(CanopyColors.bloomPanelBorder.opacity(0.2))
-                .frame(height: 1)
-
-            HStack(spacing: 0) {
-                Text("PROB")
-                    .font(.system(size: 8, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeText.opacity(0.3))
-                    .frame(width: 24, alignment: .trailing)
-                    .padding(.trailing, 2)
-
-                Canvas { context, size in
-                    for localStep in 0..<displayColumns {
-                        guard localStep < activeCols else { continue }
-                        let globalStep = localStep + pOffset
-
-                        let prob: Double
-                        if let arr = perStep, globalStep < arr.count {
-                            prob = arr[globalStep]
-                        } else {
-                            prob = 1.0
-                        }
-
-                        let charCol = colMap[localStep]
-                        let x = CGFloat(charCol) * cw + cw / 2
-                        let barHeight = CGFloat(prob) * (laneHeight - 4)
-                        let barY = laneHeight - barHeight
-
-                        let barRect = CGRect(x: x - cw * 0.35, y: barY, width: cw * 0.7, height: barHeight)
-                        context.fill(
-                            Path(barRect),
-                            with: .color(CanopyColors.glowColor.opacity(0.2 + prob * 0.35))
-                        )
+        return HStack(alignment: .top, spacing: 4) {
+            Spacer().frame(width: stripWidth)
+            Text("P")
+                .font(.system(size: max(7, fontSize * 0.6), weight: .regular, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.35))
+                .frame(width: 28, height: rh, alignment: .trailing)
+            Canvas { context, size in
+                for localStep in 0..<displayColumns {
+                    guard localStep < activeCols else { continue }
+                    let globalStep = localStep + pOffset
+                    let prob: Double
+                    if let arr = perStep, globalStep < arr.count {
+                        prob = arr[globalStep]
+                    } else {
+                        prob = 1.0
                     }
+                    let charCol = colMap[localStep]
+                    let x = CGFloat(charCol) * cw + cw / 2
+                    let y = rh / 2
+                    let blockChar = Self.blockChar(for: prob)
+                    SequencerGridCore.drawChar(context, blockChar, at: CGPoint(x: x, y: y),
+                                               size: fontSize, color: CanopyColors.glowColor.opacity(0.2 + prob * 0.35))
                 }
-                .frame(width: canvasWidth, height: laneHeight)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            let charCol = Int(value.location.x / cw)
-                            guard charCol >= 0, charCol < charCols else { return }
-                            guard let localStep = reverseMap[charCol], localStep < activeCols else { return }
-                            let globalStep = localStep + pOffset
-                            let prob = max(0.0, min(1.0, 1.0 - (value.location.y / laneHeight)))
-                            setPerStepProbability(step: globalStep, probability: prob, nodeID: nodeID)
-                        }
-                )
             }
+            .frame(width: canvasWidth, height: rh)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let charCol = Int(value.location.x / cw)
+                        guard charCol >= 0, charCol < charCols else { return }
+                        guard let localStep = reverseMap[charCol], localStep < activeCols else { return }
+                        let globalStep = localStep + pOffset
+                        let prob = max(0.0, min(1.0, 1.0 - (value.location.y / rh)))
+                        setPerStepProbability(step: globalStep, probability: prob, nodeID: nodeID)
+                    }
+            )
         }
+        .padding(.leading, 6)
+        .padding(.trailing, 6)
     }
 
     private func setPerStepProbability(step: Int, probability: Double, nodeID: UUID) {
@@ -776,5 +752,17 @@ struct FocusSequencerView: View {
             return projectState.project.globalKey
         }
         return SequencerActions.resolveKey(projectState: projectState, nodeID: nodeID)
+    }
+
+    /// Map a 0–1 value to an ASCII block character.
+    private static func blockChar(for value: Double) -> String {
+        if value <= 0 { return " " }
+        if value < 0.15 { return "\u{2581}" } // ▁
+        if value < 0.30 { return "\u{2582}" } // ▂
+        if value < 0.45 { return "\u{2583}" } // ▃
+        if value < 0.60 { return "\u{2584}" } // ▄
+        if value < 0.75 { return "\u{2585}" } // ▅
+        if value < 0.90 { return "\u{2586}" } // ▆
+        return "\u{2587}" // ▇
     }
 }
