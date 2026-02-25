@@ -10,7 +10,7 @@ struct CanopyCanvasView: View {
 
     @State private var scrollMonitor: Any?
     @State private var keyMonitor: Any?
-    @State private var showPresetPicker = false
+    @State private var presetPickerNodeID: UUID?
     @State private var editingNodeID: UUID?
     @State private var editingName: String = ""
     @State private var lastNodeTapID: UUID?
@@ -53,21 +53,21 @@ struct CanopyCanvasView: View {
                     allNodes: allNodes,
                     selectedNode: selectedNode,
                     selectedNodeID: selectedNodeID,
-                    showPresetPicker: showPresetPicker,
+                    presetPickerNodeID: presetPickerNodeID,
                     onAddBranch: { nodeID in
                         if let node = projectState.findNode(id: nodeID) {
                             ensureInitialOffsets(for: node)
                         }
-                        projectState.selectNode(nodeID)
-                        showPresetPicker = true
+                        presetPickerNodeID = nodeID
                     },
                     onPresetSelected: { preset in
-                        showPresetPicker = false
-                        if let sel = selectedNodeID {
-                            handleAddBranch(to: sel, preset: preset)
+                        if let targetID = presetPickerNodeID {
+                            presetPickerNodeID = nil
+                            projectState.selectNode(targetID)
+                            handleAddBranch(to: targetID, preset: preset)
                         }
                     },
-                    onPickerDismiss: { showPresetPicker = false },
+                    onPickerDismiss: { presetPickerNodeID = nil },
                     onNodeTap: { nodeID in
                         let now = Date()
                         // Detect double-tap manually to avoid gesture disambiguation delay
@@ -82,7 +82,7 @@ struct CanopyCanvasView: View {
                             lastNodeTapID = nil
                         } else {
                             // Single tap — select immediately
-                            showPresetPicker = false
+                            presetPickerNodeID = nil
                             if let node = projectState.findNode(id: nodeID) {
                                 ensureInitialOffsets(for: node)
                             }
@@ -466,7 +466,7 @@ struct CanopyCanvasView: View {
         }
 
         projectState.selectNode(nil)
-        showPresetPicker = false
+        presetPickerNodeID = nil
         editingNodeID = nil
         // Dismiss LFO popover on canvas background tap
         projectState.selectedLFOID = nil
@@ -482,7 +482,7 @@ private struct TreeContentView: View {
     let allNodes: [Node]
     let selectedNode: Node?
     let selectedNodeID: UUID?
-    let showPresetPicker: Bool
+    let presetPickerNodeID: UUID?
     let onAddBranch: (UUID) -> Void
     let onPresetSelected: (NodePreset) -> Void
     let onPickerDismiss: () -> Void
@@ -529,7 +529,7 @@ private struct TreeContentView: View {
             // Add branch button for hovered (non-selected) node
             if let hoveredID = hoveredNodeID,
                hoveredID != selectedNodeID,
-               !showPresetPicker,
+               presetPickerNodeID == nil,
                let hoveredNode = allNodes.first(where: { $0.id == hoveredID }) {
                 AddBranchButton(
                     parentPosition: CGPoint(x: hoveredNode.position.x, y: hoveredNode.position.y),
@@ -549,25 +549,27 @@ private struct TreeContentView: View {
                 .transition(.opacity.animation(.easeOut(duration: 0.15)))
             }
 
-            // Add branch button or preset picker for selected node
-            if let selectedNode {
-                if showPresetPicker {
-                    let pickerPos = AddBranchButton.buttonPosition(
-                        parentPosition: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y),
-                        children: selectedNode.children
-                    )
-                    PresetPickerView(
-                        onSelect: onPresetSelected,
-                        onDismiss: onPickerDismiss
-                    )
-                    .position(pickerPos)
-                } else {
-                    AddBranchButton(
-                        parentPosition: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y),
-                        children: selectedNode.children
-                    ) {
-                        onAddBranch(selectedNode.id)
-                    }
+            // Preset picker for any node (driven by presetPickerNodeID)
+            if let pickerID = presetPickerNodeID,
+               let pickerNode = allNodes.first(where: { $0.id == pickerID }) {
+                let pickerPos = AddBranchButton.buttonPosition(
+                    parentPosition: CGPoint(x: pickerNode.position.x, y: pickerNode.position.y),
+                    children: pickerNode.children
+                )
+                PresetPickerView(
+                    onSelect: onPresetSelected,
+                    onDismiss: onPickerDismiss
+                )
+                .position(pickerPos)
+            }
+
+            // Add branch button for selected node (when picker is not open)
+            if let selectedNode, presetPickerNodeID == nil {
+                AddBranchButton(
+                    parentPosition: CGPoint(x: selectedNode.position.x, y: selectedNode.position.y),
+                    children: selectedNode.children
+                ) {
+                    onAddBranch(selectedNode.id)
                 }
             }
         }
