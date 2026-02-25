@@ -113,7 +113,11 @@ struct FocusSequencerView: View {
         let gridAreaWidth = width - sidebarWidth - 1
         let gridWidth = gridAreaWidth - labelWidth - stripWidth - 32
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
-        let fontSize = max(6, min(24, gridWidth / (CGFloat(charCols) * 0.78)))
+        let widthFontSize = gridWidth / (CGFloat(charCols) * 0.78)
+        // Grid = pitchRows + 2 border rows; + 2 lanes (V, P); * cellHeight multiplier + padding
+        let totalRows = CGFloat(pitchRows + 2 + 2)
+        let heightFontSize = (height - 24) / (totalRows * 1.9)
+        let fontSize = max(6, min(24, min(widthFontSize, heightFontSize)))
         let cw = SequencerGridCore.cellWidth(fontSize: fontSize)
         let rh = SequencerGridCore.cellHeight(fontSize: fontSize)
 
@@ -148,7 +152,7 @@ struct FocusSequencerView: View {
 
                 Spacer()
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Divider
             Rectangle()
