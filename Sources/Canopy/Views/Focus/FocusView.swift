@@ -34,7 +34,6 @@ struct FocusView: View {
             topBar
                 .background(CanopyColors.bloomPanelBackground.opacity(0.95))
 
-            // Thin bottom border
             Rectangle()
                 .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
                 .frame(height: 1)
@@ -71,32 +70,8 @@ struct FocusView: View {
     // MARK: - Top Bar
 
     private var topBar: some View {
-        HStack(spacing: 0) {
-            // Left side: panel-specific content
-            HStack(spacing: 6) {
-                if activePanel == .sequencer {
-                    ModuleSwapButton(
-                        options: [("Pitched", SequencerType.pitched), ("Drum", SequencerType.drum), ("Orbit", SequencerType.orbit), ("Spore", SequencerType.sporeSeq)],
-                        current: projectState.selectedNode?.sequencerType ?? .pitched,
-                        onChange: { type in
-                            guard let nodeID = projectState.selectedNodeID else { return }
-                            projectState.swapSequencer(nodeID: nodeID, to: type)
-                        }
-                    )
-                    Text("SEQUENCE")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                } else {
-                    Text(panelLabel(activePanel))
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-                }
-            }
-            .frame(minWidth: 100, alignment: .leading)
-
-            Spacer()
-
-            // Center: panel tab pills
+        ZStack {
+            // Center: panel tab pills (truly centered)
             HStack(spacing: 12) {
                 ForEach(BloomPanel.allCases, id: \.self) { panel in
                     let isActive = activePanel == panel
@@ -119,11 +94,56 @@ struct FocusView: View {
                     .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
             )
 
-            Spacer()
+            // Left side: panel-specific content
+            HStack {
+                HStack(spacing: 6) {
+                    if activePanel == .sequencer {
+                        ModuleSwapButton(
+                            options: [("Pitched", SequencerType.pitched), ("Drum", SequencerType.drum), ("Orbit", SequencerType.orbit), ("Spore", SequencerType.sporeSeq)],
+                            current: projectState.selectedNode?.sequencerType ?? .pitched,
+                            onChange: { type in
+                                guard let nodeID = projectState.selectedNodeID else { return }
+                                projectState.swapSequencer(nodeID: nodeID, to: type)
+                            }
+                        )
+                        Text("SEQUENCE")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                    } else {
+                        Text(panelLabel(activePanel))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                    }
+                }
 
-            // Right side: balanced spacer
-            Spacer()
-                .frame(minWidth: 100)
+                Spacer()
+
+                // Right side: dice + expand
+                HStack(spacing: 8) {
+                    Button(action: {
+                        guard let nodeID = projectState.selectedNodeID else { return }
+                        SequencerActions.randomFill(projectState: projectState, nodeID: nodeID)
+                    }) {
+                        Image(systemName: "dice")
+                            .font(.system(size: 12))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Random scale fill")
+
+                    Button(action: {
+                        withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                            viewModeManager.exitFocus()
+                        }
+                    }) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Exit focus mode")
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

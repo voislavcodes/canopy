@@ -106,6 +106,7 @@ struct ForestPitchedPanel: View {
 
     private var focusBody: some View {
         paramGridFlat
+            .padding(.bottom, 8)
             .onAppear { syncSeqFromModel() }
             .onChange(of: projectState.selectedNodeID) { _ in syncSeqFromModel() }
     }
