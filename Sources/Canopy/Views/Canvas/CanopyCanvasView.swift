@@ -54,7 +54,13 @@ struct CanopyCanvasView: View {
                     selectedNode: selectedNode,
                     selectedNodeID: selectedNodeID,
                     showPresetPicker: showPresetPicker,
-                    onAddBranch: { _ in showPresetPicker = true },
+                    onAddBranch: { nodeID in
+                        if let node = projectState.findNode(id: nodeID) {
+                            ensureInitialOffsets(for: node)
+                        }
+                        projectState.selectNode(nodeID)
+                        showPresetPicker = true
+                    },
                     onPresetSelected: { preset in
                         showPresetPicker = false
                         if let sel = selectedNodeID {
@@ -76,6 +82,7 @@ struct CanopyCanvasView: View {
                             lastNodeTapID = nil
                         } else {
                             // Single tap — select immediately
+                            showPresetPicker = false
                             if let node = projectState.findNode(id: nodeID) {
                                 ensureInitialOffsets(for: node)
                             }
@@ -138,7 +145,6 @@ struct CanopyCanvasView: View {
             .onAppear { installScrollMonitor(); installKeyMonitor() }
             .onDisappear { removeScrollMonitor(); removeKeyMonitor() }
             .onChange(of: projectState.selectedNodeID) { _ in
-                showPresetPicker = false
                 editingNodeID = nil
             }
         }
@@ -482,6 +488,9 @@ private struct TreeContentView: View {
     let onPickerDismiss: () -> Void
     let onNodeTap: (UUID) -> Void
 
+    @State private var hoveredNodeID: UUID?
+    @State private var hoverDismissWork: DispatchWorkItem?
+
     var body: some View {
         ZStack {
             // Branch lines (behind everything)
@@ -505,6 +514,39 @@ private struct TreeContentView: View {
                 .onTapGesture {
                     onNodeTap(node.id)
                 }
+                .onHover { isHovered in
+                    if isHovered {
+                        hoverDismissWork?.cancel()
+                        hoveredNodeID = node.id
+                    } else if hoveredNodeID == node.id {
+                        let work = DispatchWorkItem { hoveredNodeID = nil }
+                        hoverDismissWork = work
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+                    }
+                }
+            }
+
+            // Add branch button for hovered (non-selected) node
+            if let hoveredID = hoveredNodeID,
+               hoveredID != selectedNodeID,
+               !showPresetPicker,
+               let hoveredNode = allNodes.first(where: { $0.id == hoveredID }) {
+                AddBranchButton(
+                    parentPosition: CGPoint(x: hoveredNode.position.x, y: hoveredNode.position.y),
+                    children: []
+                ) {
+                    onAddBranch(hoveredNode.id)
+                }
+                .onHover { isHovered in
+                    if isHovered {
+                        hoverDismissWork?.cancel()
+                    } else {
+                        let work = DispatchWorkItem { hoveredNodeID = nil }
+                        hoverDismissWork = work
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+                    }
+                }
+                .transition(.opacity.animation(.easeOut(duration: 0.15)))
             }
 
             // Add branch button or preset picker for selected node

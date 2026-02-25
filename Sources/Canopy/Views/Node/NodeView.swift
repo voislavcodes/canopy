@@ -49,6 +49,8 @@ struct NodeView: View {
                 .font(.system(size: 13, weight: .regular, design: .monospaced))
                 .foregroundColor(CanopyColors.nodeLabel)
         }
+        .frame(width: 60, height: 70)
+        .contentShape(Rectangle())
         .opacity(node.isMuted ? 0.35 : 1.0)
         .position(x: node.position.x, y: node.position.y)
     }
