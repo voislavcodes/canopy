@@ -424,6 +424,31 @@ struct CanopyCanvasView: View {
                 return nil
             }
 
+            // Delete/Backspace — remove selected node (not root)
+            if event.keyCode == 51 || event.keyCode == 117 {
+                guard let projectState = projectState,
+                      let nodeID = projectState.selectedNodeID else { return event }
+                // Don't delete the root node
+                let rootID = projectState.project.trees.first?.rootNode.id
+                guard nodeID != rootID else { return event }
+                DispatchQueue.main.async {
+                    // Collect all descendant IDs to remove from audio graph
+                    func collectIDs(_ node: Node) -> [UUID] {
+                        [node.id] + node.children.flatMap { collectIDs($0) }
+                    }
+                    let nodeToDelete = projectState.findNode(id: nodeID)
+                    let idsToRemove = nodeToDelete.map { collectIDs($0) } ?? [nodeID]
+                    projectState.selectNode(nil)
+                    withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
+                        projectState.removeNode(id: nodeID)
+                    }
+                    for id in idsToRemove {
+                        AudioEngine.shared.removeNode(id)
+                    }
+                }
+                return nil
+            }
+
             return event
         }
     }
