@@ -212,7 +212,7 @@ struct SchmynthVoice {
         let amped = filtered * envLevel * velocity
 
         // === Output limiter (Rule 6) ===
-        return tanhf(amped * 2.0)
+        return tanhf(amped)
     }
 
     // MARK: - SCF (Schmitt Cascade Filter)
@@ -237,45 +237,49 @@ struct SchmynthVoice {
         let fbSignal = scf.stageOutput.3
         let inputWithFeedback = input - fbSignal * fbAmount
 
-        // Stage 1
-        let g0 = g * (1.0 + tol.scfRC0 * warm * 0.02)
-        scf.stageCap.0 += (inputWithFeedback - scf.stageCap.0) * g0
-        scf.stageOutput.0 = SchmynthVoice.schmittTransfer(
-            scf.stageCap.0,
+        // Stage 1 — nonlinearity on input, then integrate
+        let nl0 = SchmynthVoice.schmittTransfer(
+            inputWithFeedback,
             hysteresisState: &scf.stageHyst.0,
             hysteresisWidth: 0.05 + warm * 0.03,
             gain: 1.0 + tol.scfGain0 * warm * 0.01
         )
+        let g0 = g * (1.0 + tol.scfRC0 * warm * 0.02)
+        scf.stageCap.0 += (nl0 - scf.stageCap.0) * g0
+        scf.stageOutput.0 = scf.stageCap.0
 
         // Stage 2
-        let g1 = g * (1.0 + tol.scfRC1 * warm * 0.02)
-        scf.stageCap.1 += (scf.stageOutput.0 - scf.stageCap.1) * g1
-        scf.stageOutput.1 = SchmynthVoice.schmittTransfer(
-            scf.stageCap.1,
+        let nl1 = SchmynthVoice.schmittTransfer(
+            scf.stageOutput.0,
             hysteresisState: &scf.stageHyst.1,
             hysteresisWidth: 0.05 + warm * 0.03,
             gain: 1.0 + tol.scfGain1 * warm * 0.01
         )
+        let g1 = g * (1.0 + tol.scfRC1 * warm * 0.02)
+        scf.stageCap.1 += (nl1 - scf.stageCap.1) * g1
+        scf.stageOutput.1 = scf.stageCap.1
 
         // Stage 3
-        let g2 = g * (1.0 + tol.scfRC2 * warm * 0.02)
-        scf.stageCap.2 += (scf.stageOutput.1 - scf.stageCap.2) * g2
-        scf.stageOutput.2 = SchmynthVoice.schmittTransfer(
-            scf.stageCap.2,
+        let nl2 = SchmynthVoice.schmittTransfer(
+            scf.stageOutput.1,
             hysteresisState: &scf.stageHyst.2,
             hysteresisWidth: 0.05 + warm * 0.03,
             gain: 1.0 + tol.scfGain2 * warm * 0.01
         )
+        let g2 = g * (1.0 + tol.scfRC2 * warm * 0.02)
+        scf.stageCap.2 += (nl2 - scf.stageCap.2) * g2
+        scf.stageOutput.2 = scf.stageCap.2
 
         // Stage 4
-        let g3 = g * (1.0 + tol.scfRC3 * warm * 0.02)
-        scf.stageCap.3 += (scf.stageOutput.2 - scf.stageCap.3) * g3
-        scf.stageOutput.3 = SchmynthVoice.schmittTransfer(
-            scf.stageCap.3,
+        let nl3 = SchmynthVoice.schmittTransfer(
+            scf.stageOutput.2,
             hysteresisState: &scf.stageHyst.3,
             hysteresisWidth: 0.05 + warm * 0.03,
             gain: 1.0 + tol.scfGain3 * warm * 0.01
         )
+        let g3 = g * (1.0 + tol.scfRC3 * warm * 0.02)
+        scf.stageCap.3 += (nl3 - scf.stageCap.3) * g3
+        scf.stageOutput.3 = scf.stageCap.3
 
         // Clamp all cap values (Rule 4)
         scf.stageCap.0 = max(-4.0, min(4.0, scf.stageCap.0))
@@ -286,7 +290,7 @@ struct SchmynthVoice {
         // Mode output selection
         switch mode {
         case 0: return scf.stageOutput.3                                    // LP
-        case 1: return scf.stageOutput.1 - scf.stageOutput.3               // BP
+        case 1: return scf.stageOutput.0 - scf.stageOutput.3               // BP
         case 2: return input - scf.stageOutput.3                            // HP
         default: return scf.stageOutput.3
         }
