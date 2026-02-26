@@ -64,6 +64,7 @@ struct MainContentView: View {
         }
         .onChange(of: projectState.project.trees.count) { _ in
             syncViewModeToTreeCount()
+            syncForestAdvanceToState()
         }
         .onChange(of: projectState.selectedNodeID) { _ in
             handleNodeSelectionChange()
@@ -164,12 +165,14 @@ struct MainContentView: View {
         guard newID != lastSyncedTreeID else { return }
         lastSyncedTreeID = newID
 
-        // Stop transport if playing
-        if transportState.isPlaying {
-            transportState.stopPlayback()
+        let wasPlaying = transportState.isPlaying
+
+        // Seamless swap: fade out old sequencers, rebuild, restart if was playing.
+        // Never stop transport — playback should be continuous.
+        if wasPlaying {
+            AudioEngine.shared.stopAllSequencersWithFade()
         }
 
-        // Swap audio graph to the newly selected tree
         AudioEngine.shared.teardownGraph()
         guard let tree = projectState.selectedTree else { return }
         AudioEngine.shared.buildGraph(from: tree)
@@ -191,16 +194,17 @@ struct MainContentView: View {
 
         // Update focused node
         transportState.focusedNodeID = tree.rootNode.id
+
+        // Restart sequencers if playback was active
+        if wasPlaying {
+            AudioEngine.shared.startAllSequencers(bpm: transportState.bpm)
+        }
     }
 
     // MARK: - Playback State Management
 
     private func handlePlaybackStart() {
-        // Only activate forest advance if we're in forest view with 2+ trees.
-        // In tree detail, the selected tree just loops on its own.
-        if viewModeManager.isForest {
-            activateForestAdvance()
-        }
+        syncForestAdvanceToState()
     }
 
     private func handlePlaybackStop() {
@@ -210,30 +214,36 @@ struct MainContentView: View {
     }
 
     /// Called when view mode changes (forest ↔ treeDetail ↔ focus).
-    /// Entering forest with 2+ trees auto-starts multi-tree playback.
     private func handleViewModeChange() {
-        let trees = projectState.project.trees
-
-        if viewModeManager.isForest, trees.count >= 2 {
-            // Entering forest with 2+ trees → start playback if not already playing,
-            // and activate multi-tree advance.
+        if viewModeManager.isForest, projectState.project.trees.count >= 2 {
+            // Entering forest with 2+ trees → start playback if not already playing
             if !transportState.isPlaying {
                 transportState.startPlayback()
             }
-            activateForestAdvance()
+        }
+        syncForestAdvanceToState()
+    }
+
+    /// Single source of truth: activate or deactivate forest advance based on current state.
+    /// Called when trees.count changes, view mode changes, or playback starts.
+    private func syncForestAdvanceToState() {
+        let trees = projectState.project.trees
+        let shouldAdvance = transportState.isPlaying
+            && viewModeManager.isForest
+            && trees.count >= 2
+
+        if shouldAdvance {
+            forestPlayback.activeTreeID = projectState.selectedTreeID ?? trees.first?.id
+            forestPlayback.computeNextTree(trees: trees)
+        } else if !transportState.isPlaying {
+            // Only clear if not playing. If playing in tree detail, keep IDs nil
+            // so poller doesn't run, but don't clear if we might re-enter forest.
+            forestPlayback.activeTreeID = nil
+            forestPlayback.nextTreeID = nil
         } else if !viewModeManager.isForest {
-            // Entering tree detail/focus → deactivate forest advance, just loop selected tree.
             forestPlayback.activeTreeID = nil
             forestPlayback.nextTreeID = nil
         }
-    }
-
-    /// Set up forest advance so the poller can detect cycle boundaries and swap trees.
-    private func activateForestAdvance() {
-        let trees = projectState.project.trees
-        guard trees.count >= 2 else { return }
-        forestPlayback.activeTreeID = projectState.selectedTreeID ?? trees.first?.id
-        forestPlayback.computeNextTree(trees: trees)
     }
 
     // MARK: - Node Selection Change
