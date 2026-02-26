@@ -49,6 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.center()
         window.title = "Canopy"
         window.titlebarAppearsTransparent = true
+        window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = NSColor(red: 0.055, green: 0.065, blue: 0.06, alpha: 1)
         window.makeKeyAndOrderFront(nil)
 
@@ -105,7 +106,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = NSHostingView(rootView: browserView)
         window.keyDownHandler = nil
         window.keyUpHandler = nil
-        window.title = "Canopy"
+        window.updateCenteredTitle("Canopy")
         window.isDocumentEdited = false
 
         // Resize to browser size
@@ -160,15 +161,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         window.setFrame(centered, display: true, animate: true)
 
+        window.installCenteredTitle()
         rebuildAudioGraph()
         updateWindowTitle()
 
         // Subscribe to title updates
         cancellables.removeAll()
-        projectState.$isDirty
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateWindowTitle() }
-            .store(in: &cancellables)
         projectState.$project
             .map(\.name)
             .removeDuplicates()
@@ -210,8 +208,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateWindowTitle() {
-        window.title = "Canopy — \(projectState.project.name)"
-        window.isDocumentEdited = projectState.isDirty
+        window.updateCenteredTitle(projectState.project.name)
     }
 
     // MARK: - Menu Bar

@@ -4,8 +4,6 @@ struct ToolbarView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
 
-    @State private var isEditingName = false
-    @State private var editedName = ""
     @State private var showRootPicker = false
     @State private var showModePicker = false
 
@@ -14,39 +12,37 @@ struct ToolbarView: View {
     }
 
     var body: some View {
-        ZStack {
-            // Center: transport (play, stop, BPM) — truly centered in the bar
-            TransportView(transportState: transportState)
-
-            // Left / right edges
-            HStack(spacing: 12) {
-                // Project name
-                if isEditingName {
-                    TextField("Project Name", text: $editedName, onCommit: {
-                        projectState.project.name = editedName
-                        projectState.markDirty()
-                        isEditingName = false
-                    })
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(CanopyColors.chromeTextBright)
-                    .frame(width: 160)
-                } else {
-                    Text(projectState.project.name)
-                        .font(.system(size: 14, weight: .semibold))
+        HStack(spacing: 12) {
+                // FOREST / RIVER tabs — matching FX/MOD style
+                HStack(spacing: 12) {
+                    Text("FOREST")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(CanopyColors.chromeTextBright)
-                        .onTapGesture(count: 2) {
-                            editedName = projectState.project.name
-                            isEditingName = true
-                        }
+                    Text("RIVER")
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                        .allowsHitTesting(false)
                 }
-
-                // Scale section — Ableton-style inline
-                scaleSection
+                .padding(.vertical, 4)
+                .padding(.horizontal, 12)
+                .background(CanopyColors.bloomPanelBackground.opacity(0.85))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
+                )
 
                 Spacer()
 
-                // Computer keyboard MIDI input toggle + dirty indicator
+                // Transport (centered via spacers)
+                TransportView(transportState: transportState)
+
+                Spacer()
+
+                // Scale controls + keyboard toggle (right side)
+                scaleSection
+
+                // Computer keyboard MIDI input toggle
                 Button(action: {
                     projectState.computerKeyboardEnabled.toggle()
                 }) {
@@ -66,17 +62,9 @@ struct ToolbarView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Computer keyboard MIDI input (A-L = notes, ; / ' = octave)")
-                .overlay(alignment: .leading) {
-                    Circle()
-                        .fill(CanopyColors.chromeText.opacity(projectState.isDirty ? 0.4 : 0))
-                        .frame(width: 6, height: 6)
-                        .offset(x: -9, y: 1)
-                        .allowsHitTesting(false)
-                }
-            }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(CanopyColors.chromeBackground)
         .overlay(
             Rectangle()
@@ -90,12 +78,6 @@ struct ToolbarView: View {
 
     private var scaleSection: some View {
         HStack(spacing: 2) {
-            // "Scale" label
-            Text("SCALE")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText.opacity(0.4))
-                .padding(.trailing, 4)
-
             // Scale-aware toggle
             Button(action: {
                 projectState.project.scaleAwareEnabled.toggle()
