@@ -313,66 +313,23 @@ struct CanopyCanvasView: View {
             projectState.selectNode(newNode.id)
         }
 
-        // Hot-patch: add single node to live audio graph
+        // Hot-patch: add single node to live audio graph using the same full
+        // initialization path as project load / engine swap. This ensures the
+        // new branch gets proper patch, sequence (with direction, mutation, scale,
+        // probability), filter, and FX configuration — and follows the master clock.
         AudioEngine.shared.addNode(newNode)
-        switch newNode.patch.soundType {
-        case .oscillator(let config):
-            let waveformIndex: Int
-            switch config.waveform {
-            case .sine: waveformIndex = 0
-            case .triangle: waveformIndex = 1
-            case .sawtooth: waveformIndex = 2
-            case .square: waveformIndex = 3
-            case .noise: waveformIndex = 4
-            }
-            AudioEngine.shared.configurePatch(
-                waveform: waveformIndex, detune: config.detune,
-                attack: newNode.patch.envelope.attack, decay: newNode.patch.envelope.decay,
-                sustain: newNode.patch.envelope.sustain, release: newNode.patch.envelope.release,
-                volume: newNode.patch.volume,
-                nodeID: newNode.id
-            )
-        case .drumKit(let kitConfig):
-            for (i, voiceConfig) in kitConfig.voices.enumerated() {
-                AudioEngine.shared.configureDrumVoice(index: i, config: voiceConfig, nodeID: newNode.id)
-            }
-            AudioEngine.shared.configurePatch(
-                waveform: 0, detune: 0,
-                attack: 0, decay: 0, sustain: 0, release: 0,
-                volume: newNode.patch.volume,
-                nodeID: newNode.id
-            )
-        case .westCoast(let config):
-            AudioEngine.shared.configureWestCoast(config, nodeID: newNode.id)
-        case .flow(let config):
-            AudioEngine.shared.configureFlow(config, nodeID: newNode.id)
-        case .tide(let config):
-            AudioEngine.shared.configureTide(config, nodeID: newNode.id)
-        case .swarm(let config):
-            AudioEngine.shared.configureSwarm(config, nodeID: newNode.id)
-        case .spore(let config):
-            AudioEngine.shared.configureSpore(config, nodeID: newNode.id)
-        default:
-            break
-        }
-        // Configure filter from preset
+        AudioEngine.shared.configureSingleNodePatch(newNode)
+        AudioEngine.shared.loadSingleNodeSequence(newNode, bpm: transportState.bpm)
         AudioEngine.shared.configureFilter(
             enabled: newNode.patch.filter.enabled,
             cutoff: newNode.patch.filter.cutoff,
             resonance: newNode.patch.filter.resonance,
             nodeID: newNode.id
         )
-        let events = newNode.sequence.notes.map { event in
-            SequencerEvent(
-                pitch: event.pitch, velocity: event.velocity,
-                startBeat: event.startBeat, endBeat: event.startBeat + event.duration
-            )
-        }
-        AudioEngine.shared.loadSequence(events, lengthInBeats: newNode.sequence.lengthInBeats, nodeID: newNode.id)
 
         // If transport is playing, start the new node's sequencer too
-        if transportState.isPlaying {
-            AudioEngine.shared.graph.unit(for: newNode.id)?.startSequencer(bpm: transportState.bpm)
+        if AudioEngine.shared.isClockRunning {
+            AudioEngine.shared.startNodeSequencer(nodeID: newNode.id, bpm: transportState.bpm)
         }
     }
 

@@ -314,6 +314,12 @@ struct Sequencer {
             scaleIntervals[i] = incomingIntervals[i]
         }
 
+        // If the sequencer is already playing, request a clock sync so the next
+        // tick() adopts the current global position cleanly instead of seeing a
+        // massive loopDelta (newLoopCount >> 0) and firing handleLoopWrap N times.
+        if isPlaying {
+            self.needsClockSync = true
+        }
         self.loopCount = 0
     }
 
