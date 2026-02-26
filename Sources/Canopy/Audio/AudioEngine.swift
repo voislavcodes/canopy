@@ -123,6 +123,11 @@ final class AudioEngine {
         graph.removeUnit(for: nodeID, engine: engine)
     }
 
+    /// Fade a node to silence then remove it (click-free).
+    func muteAndRemoveNode(_ nodeID: UUID) {
+        graph.muteAndRemoveUnit(for: nodeID, engine: engine)
+    }
+
     /// Configure the full sound patch for a single node (all sound types, pan, filter, FX).
     func configureSingleNodePatch(_ node: Node) {
         graph.configureSingleNodePatch(node)

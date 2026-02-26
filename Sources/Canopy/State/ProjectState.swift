@@ -274,7 +274,7 @@ class ProjectState: ObservableObject {
     /// Swap the sound engine on a node. Rebuilds the audio subgraph with full
     /// patch, sequence, FX, and sequencer configuration — matching the project-load path.
     func swapEngine(nodeID: UUID, to soundType: SoundType) {
-        AudioEngine.shared.removeNode(nodeID)
+        AudioEngine.shared.muteAndRemoveNode(nodeID)
         updateNode(id: nodeID) { node in
             node.patch.soundType = soundType
         }

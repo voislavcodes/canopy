@@ -22,6 +22,9 @@ final class NodeAudioUnit {
     /// -1.0 = full left, 0.0 = center, 1.0 = full right.
     private let _pan = UnsafeMutablePointer<Float>.allocate(capacity: 1)
 
+    /// Fade state for click-free removal. 0 = normal, 1 = fading out, 2 = faded out.
+    private let _fadeState = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
+
     var currentBeat: Double { _currentBeat.pointee }
     var isPlaying: Bool { _isPlaying.pointee }
 
@@ -41,77 +44,79 @@ final class NodeAudioUnit {
         _isPlaying.initialize(to: false)
         _pan.initialize(to: 0)
         _orbitBodyAngles.initialize(to: (0, 0, 0, 0, 0, 0))
+        _fadeState.initialize(to: 0)
 
         let cmdBuffer = self.commandBuffer
         let beatPtr = self._currentBeat
         let playingPtr = self._isPlaying
         let panPtr = self._pan
         let orbitAnglesPtr = self._orbitBodyAngles
+        let fadeStatePtr = self._fadeState
 
         if isSchmynth {
             self.sourceNode = Self.makeSchmynthSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isVolt {
             self.sourceNode = Self.makeVoltSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isFuse {
             self.sourceNode = Self.makeFuseSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isSpore {
             self.sourceNode = Self.makeSporeSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isQuake {
             self.sourceNode = Self.makeQuakeSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, orbitAnglesPtr: orbitAnglesPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, orbitAnglesPtr: orbitAnglesPtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isSwarm {
             self.sourceNode = Self.makeSwarmSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isTide {
             self.sourceNode = Self.makeTideSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isFlow {
             self.sourceNode = Self.makeFlowSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isWestCoast {
             self.sourceNode = Self.makeWestCoastSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else if isDrumKit {
             self.sourceNode = Self.makeDrumKitSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         } else {
             self.sourceNode = Self.makeOscillatorSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
-                panPtr: panPtr, sampleRate: sampleRate,
+                panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning
             )
         }
@@ -124,6 +129,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>
@@ -349,6 +355,7 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }
@@ -360,6 +367,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>
@@ -562,6 +570,7 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }
@@ -573,6 +582,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         orbitAnglesPtr: UnsafeMutablePointer<(Float, Float, Float, Float, Float, Float)>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
@@ -793,6 +803,7 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
             }
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }
@@ -804,6 +815,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>
@@ -1017,6 +1029,7 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }
@@ -1028,6 +1041,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>
@@ -1243,6 +1257,7 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }
@@ -1254,6 +1269,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>
@@ -1466,6 +1482,7 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }
@@ -1477,6 +1494,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>
@@ -1694,6 +1712,7 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }
@@ -1705,6 +1724,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>
@@ -1961,6 +1981,7 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying || sporeSeq.isRunning
             beatPtr.pointee = seq.currentBeat
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }
@@ -1974,6 +1995,47 @@ final class NodeAudioUnit {
         _pan.deallocate()
         _orbitBodyAngles.deinitialize(count: 1)
         _orbitBodyAngles.deallocate()
+        _fadeState.deinitialize(count: 1)
+        _fadeState.deallocate()
+    }
+
+    /// Request a one-buffer fade-out. The render callback will ramp to zero
+    /// over the next buffer and then output silence until removed.
+    func requestFadeOut() {
+        _fadeState.pointee = 1
+    }
+
+    /// Whether the fade-out has completed (safe to disconnect).
+    var isFadedOut: Bool {
+        _fadeState.pointee == 2
+    }
+
+    /// Apply buffer-level fade for click-free removal. Called at the end of
+    /// every render callback, after all synthesis and FX processing.
+    /// State 0 = normal (no-op), 1 = ramp 1→0 this buffer, 2 = output zeros.
+    @inline(__always)
+    static func applyFade(
+        _ abl: UnsafeMutableAudioBufferListPointer,
+        frameCount: UInt32,
+        fadeState: UnsafeMutablePointer<Int32>
+    ) {
+        let state = fadeState.pointee
+        guard state != 0 else { return }
+        let frames = Int(frameCount)
+        if state == 1 {
+            let divisor = Float(max(1, frames - 1))
+            for frame in 0..<frames {
+                let gain = Float(frames - 1 - frame) / divisor
+                for buf in 0..<abl.count {
+                    abl[buf].mData?.assumingMemoryBound(to: Float.self)[frame] *= gain
+                }
+            }
+            fadeState.pointee = 2
+        } else {
+            for buf in 0..<abl.count {
+                memset(abl[buf].mData, 0, Int(abl[buf].mDataByteSize))
+            }
+        }
     }
 
     // MARK: - Public API (main thread)
@@ -2294,6 +2356,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>
@@ -2470,6 +2533,7 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }
@@ -2481,6 +2545,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>
@@ -2656,6 +2721,7 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }
@@ -2667,6 +2733,7 @@ final class NodeAudioUnit {
         beatPtr: UnsafeMutablePointer<Double>,
         playingPtr: UnsafeMutablePointer<Bool>,
         panPtr: UnsafeMutablePointer<Float>,
+        fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>
@@ -2824,6 +2891,7 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
     }

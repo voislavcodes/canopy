@@ -98,6 +98,24 @@ final class TreeAudioGraph {
         logger.info("Removed audio unit for node \(nodeID)")
     }
 
+    /// Fade a node to silence over one audio buffer, then detach it.
+    /// The render callback applies a linear ramp to zero and sets a flag
+    /// when done. We poll briefly then disconnect — click-free removal.
+    func muteAndRemoveUnit(for nodeID: UUID, engine: AVAudioEngine) {
+        guard let unit = units[nodeID] else { return }
+        unit.requestFadeOut()
+        // Wait for the render callback to complete the fade (typically < 12ms).
+        // Poll in 1ms increments with a hard cap to avoid hanging.
+        for _ in 0..<30 {
+            if unit.isFadedOut { break }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        engine.disconnectNodeOutput(unit.sourceNode)
+        engine.detach(unit.sourceNode)
+        units.removeValue(forKey: nodeID)
+        logger.info("Faded and removed audio unit for node \(nodeID)")
+    }
+
     // MARK: - Bulk Configuration
 
     /// Configure patches for all nodes from the tree data.
