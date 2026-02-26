@@ -201,8 +201,10 @@ struct MainContentView: View {
     // MARK: - Node Selection Change
 
     private func handleNodeSelectionChange() {
-        // Send allNotesOff only to the PREVIOUSLY selected node (keyboard cleanup)
-        if let prevID = previousSelectedNodeID {
+        // Release held keyboard notes on the PREVIOUSLY selected node.
+        // Only when the sequencer is stopped — during playback the sequencer
+        // manages its own voices and allNotesOff would cause a click/gap.
+        if let prevID = previousSelectedNodeID, !AudioEngine.shared.isClockRunning {
             AudioEngine.shared.allNotesOff(nodeID: prevID)
         }
 
