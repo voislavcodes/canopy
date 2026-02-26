@@ -271,7 +271,8 @@ class ProjectState: ObservableObject {
 
     // MARK: - Module Swapping
 
-    /// Swap the sound engine on a node. Rebuilds the audio subgraph.
+    /// Swap the sound engine on a node. Rebuilds the audio subgraph with full
+    /// patch, sequence, FX, and sequencer configuration — matching the project-load path.
     func swapEngine(nodeID: UUID, to soundType: SoundType) {
         AudioEngine.shared.removeNode(nodeID)
         updateNode(id: nodeID) { node in
@@ -279,24 +280,10 @@ class ProjectState: ObservableObject {
         }
         if let node = findNode(id: nodeID) {
             AudioEngine.shared.addNode(node)
-            // Configure engine-specific parameters after rebuilding subgraph
-            switch soundType {
-            case .quake(let config):
-                AudioEngine.shared.configureQuake(config, nodeID: nodeID)
-                AudioEngine.shared.configurePatch(
-                    waveform: 0, detune: 0, attack: 0, decay: 0,
-                    sustain: 0, release: 0, volume: config.volume, nodeID: nodeID
-                )
-            case .fuse(let config):
-                AudioEngine.shared.configureFuse(config, nodeID: nodeID)
-            case .volt(let kit):
-                for i in 0..<kit.voices.count {
-                    AudioEngine.shared.configureVoltSlot(index: i, kit.voices[i], nodeID: nodeID)
-                }
-            case .schmynth(let config):
-                AudioEngine.shared.configureSchmynth(config, nodeID: nodeID)
-            default:
-                break
+            AudioEngine.shared.configureSingleNodePatch(node)
+            AudioEngine.shared.loadSingleNodeSequence(node, bpm: project.bpm)
+            if AudioEngine.shared.isClockRunning {
+                AudioEngine.shared.startNodeSequencer(nodeID: nodeID, bpm: project.bpm)
             }
         }
         markDirty()

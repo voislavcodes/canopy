@@ -121,6 +121,11 @@ final class TreeAudioGraph {
         }
     }
 
+    /// Start a single node's sequencer without resetting the global clock.
+    func startUnit(for nodeID: UUID, bpm: Double) {
+        units[nodeID]?.startSequencer(bpm: bpm)
+    }
+
     /// Stop all sequencers and silence all notes.
     func stopAll() {
         clockIsRunning.pointee = false
@@ -151,7 +156,8 @@ final class TreeAudioGraph {
         }
     }
 
-    private func configureNodePatchRecursive(_ node: Node) {
+    /// Configure the sound patch for a single node (no recursion).
+    func configureSingleNodePatch(_ node: Node) {
         guard let unit = units[node.id] else { return }
         switch node.patch.soundType {
         case .oscillator(let config):
@@ -163,11 +169,9 @@ final class TreeAudioGraph {
                 volume: node.patch.volume
             )
         case .drumKit(let kitConfig):
-            // Configure each drum voice
             for (i, voiceConfig) in kitConfig.voices.enumerated() {
                 unit.configureDrumVoice(index: i, config: voiceConfig)
             }
-            // Set volume via setPatch (only volume field matters for drums)
             unit.configurePatch(waveform: 0, detune: 0,
                                attack: 0, decay: 0, sustain: 0, release: 0,
                                volume: node.patch.volume)
@@ -175,7 +179,6 @@ final class TreeAudioGraph {
             unit.configureWestCoast(config)
         case .flow(let config):
             unit.configureFlow(config)
-            // Restore imprint if saved
             if config.spectralSource == .imprint, let imprint = config.imprint {
                 unit.configureFlowImprint(imprint.harmonicAmplitudes)
             }
@@ -192,7 +195,6 @@ final class TreeAudioGraph {
             }
         case .quake(let config):
             unit.configureQuake(config)
-            // Set volume via setPatch (only volume field matters for quake)
             unit.configurePatch(waveform: 0, detune: 0,
                                attack: 0, decay: 0, sustain: 0, release: 0,
                                volume: config.volume)
@@ -215,17 +217,21 @@ final class TreeAudioGraph {
         unit.setPan(Float(node.patch.pan))
         let f = node.patch.filter
         unit.configureFilter(enabled: f.enabled, cutoff: f.cutoff, resonance: f.resonance)
-        // Push per-node FX chain
         if !node.effects.isEmpty {
             let chain = EffectChain.build(from: node.effects)
             unit.setFXChain(chain)
         }
+    }
+
+    private func configureNodePatchRecursive(_ node: Node) {
+        configureSingleNodePatch(node)
         for child in node.children {
             configureNodePatchRecursive(child)
         }
     }
 
-    private func loadNodeSequenceRecursive(_ node: Node, bpm: Double) {
+    /// Load the note sequence for a single node (no recursion).
+    func loadSingleNodeSequence(_ node: Node, bpm: Double) {
         guard let unit = units[node.id] else { return }
         let seq = node.sequence
         let events = seq.notes.map { event in
@@ -251,7 +257,6 @@ final class TreeAudioGraph {
         )
         unit.setGlobalProbability(seq.globalProbability)
 
-        // Send arp config if present
         if let arpConfig = seq.arpConfig {
             let sampleRate = AudioEngine.shared.sampleRate
             let beatsPerSecond = bpm / 60.0
@@ -267,18 +272,19 @@ final class TreeAudioGraph {
                            endBeats: Array(pool.endBeats.prefix(pool.count)))
         }
 
-        // Send orbit config if node uses orbit sequencer
         if node.sequencerType == .orbit {
             let orbitConfig = node.orbitConfig ?? OrbitConfig()
             unit.configureOrbit(orbitConfig)
             unit.setUseOrbitSequencer(true)
         }
 
-        // Send SPORE sequencer config if present
         if let sporeSeq = node.sporeSeqConfig {
             unit.configureSporeSeq(sporeSeq, key: node.scaleOverride ?? node.key)
         }
+    }
 
+    private func loadNodeSequenceRecursive(_ node: Node, bpm: Double) {
+        loadSingleNodeSequence(node, bpm: bpm)
         for child in node.children {
             loadNodeSequenceRecursive(child, bpm: bpm)
         }

@@ -123,6 +123,26 @@ final class AudioEngine {
         graph.removeUnit(for: nodeID, engine: engine)
     }
 
+    /// Configure the full sound patch for a single node (all sound types, pan, filter, FX).
+    func configureSingleNodePatch(_ node: Node) {
+        graph.configureSingleNodePatch(node)
+    }
+
+    /// Load the note sequence for a single node (notes, arp, orbit, spore seq).
+    func loadSingleNodeSequence(_ node: Node, bpm: Double) {
+        graph.loadSingleNodeSequence(node, bpm: bpm)
+    }
+
+    /// Start a single node's sequencer without resetting the global clock.
+    func startNodeSequencer(nodeID: UUID, bpm: Double) {
+        graph.startUnit(for: nodeID, bpm: bpm)
+    }
+
+    /// Whether the unified tree clock is currently running.
+    var isClockRunning: Bool {
+        graph.clockIsRunning.pointee
+    }
+
     // MARK: - Per-Node Commands (main thread)
 
     /// Send a note-on command to a specific node.
