@@ -469,18 +469,11 @@ final class TreeAudioGraph {
     func loadSingleNodeSequence(_ node: Node, bpm: Double) {
         guard let unit = units[node.id] else { return }
         let seq = node.sequence
-        let events = seq.notes.map { event in
-            SequencerEvent(
-                pitch: event.pitch,
-                velocity: event.velocity,
-                startBeat: event.startBeat,
-                endBeat: event.startBeat + event.duration,
-                probability: event.probability,
-                ratchetCount: event.ratchetCount
-            )
-        }
-
         let key = node.scaleOverride ?? node.key
+
+        // Apply all sequence transforms (octave, fifth, invert, bloom, etc.)
+        let events = SequenceTransforms.transformedEvents(from: seq, key: key)
+
         let mutation = seq.mutation
         unit.loadSequence(
             events, lengthInBeats: seq.lengthInBeats,
