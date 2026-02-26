@@ -54,18 +54,14 @@ final class TreeAudioGraph {
     }
 
     /// Crossfade swap: build new tree's graph alongside old one, start new sequencers,
-    /// then fade out and remove old units. Zero-gap, click-free.
-    ///
-    /// Critical ordering: old units keep playing at full volume while new units are
-    /// bootstrapped. Fade-out is requested AFTER new start commands are queued, so
-    /// the audio thread processes both (old fade + new start) in the same render
-    /// callback — true crossfade with no silence gap.
+    /// stop old sequencers and let voices ring out through natural ADSR release.
+    /// Fallback path when no pre-staged tree is available.
     func crossfadeSwap(to tree: NodeTree, engine: AVAudioEngine, sampleRate: Double, bpm: Double) {
         // 1. Capture old unit IDs
         let oldIDs = Array(units.keys)
 
         // 2. Build new units alongside old ones (new tree has fresh UUIDs).
-        //    Old units keep playing at full volume during this — no fade yet.
+        //    Old units keep playing at full volume during this.
         buildNodeRecursive(tree.rootNode, engine: engine, sampleRate: sampleRate)
         logger.info("Crossfade swap: built \(self.units.count - oldIDs.count) new unit(s)")
 
@@ -84,25 +80,17 @@ final class TreeAudioGraph {
             units[id]?.startSequencer(bpm: bpm)
         }
 
-        // 5. NOW fade old units — new start commands are already queued, so the
-        //    audio thread will drain both in the same render callback: old ramps
-        //    down while new ramps up. True crossfade overlap.
+        // 5. Stop old sequencers — voices ring out through natural ADSR release.
+        //    No hard fade — old audio decays naturally while new tree plays.
         for id in oldIDs {
-            units[id]?.requestFadeOut()
+            units[id]?.stopSequencer()
         }
 
-        // 6. Wait for old units to finish fading, then detach them
-        for _ in 0..<30 {
-            if oldIDs.allSatisfy({ units[$0]?.isFadedOut ?? true }) { break }
-            Thread.sleep(forTimeInterval: 0.001)
-        }
-        for id in oldIDs {
-            if let unit = units[id] {
-                engine.disconnectNodeOutput(unit.sourceNode)
-                engine.detach(unit.sourceNode)
-            }
-            units.removeValue(forKey: id)
-        }
+        // 6. Remove old units from tracking, keep connected for release tails
+        let drainingUnits = oldIDs.compactMap { units.removeValue(forKey: $0) }
+
+        // 7. Deferred cleanup after voices finish releasing
+        scheduleDrainingCleanup(drainingUnits, engine: engine)
     }
 
     /// Fade all units to silence, then tear down. Click-free.
@@ -148,9 +136,13 @@ final class TreeAudioGraph {
     }
 
     /// Activate the pre-staged tree. Lightweight — just pushes start commands
-    /// and fades old units. No engine.attach/connect (already done during staging).
-    /// The audio thread processes both (new start + old fade) in the same render
-    /// callback for a true zero-gap crossfade.
+    /// and stops old sequencers. No engine.attach/connect (already done during staging).
+    ///
+    /// Old voices ring out naturally through their ADSR release (no hard fade).
+    /// At the cycle boundary, handleLoopWrap has already sent noteOff to all active
+    /// voices, so they're already in release. stopSequencer prevents new note triggers
+    /// after the clock reset. Old units stay connected to the engine producing release
+    /// tail audio, then get cleaned up asynchronously after a timeout.
     func activateStagedTree(engine: AVAudioEngine, bpm: Double) {
         guard !stagedIDs.isEmpty else { return }
 
@@ -168,27 +160,24 @@ final class TreeAudioGraph {
             units[id]?.startSequencer(bpm: bpm)
         }
 
-        // Fade old units — audio thread processes start + fade in the same render callback
+        // Stop old sequencers — prevents new note triggers after clock reset.
+        // voices.allNotesOff() in the stop handler is a no-op here since voices
+        // are already in release from handleLoopWrap at the cycle boundary.
+        // Crucially: NO requestFadeOut — let voices ring out through natural ADSR release.
         for id in oldIDs {
-            units[id]?.requestFadeOut()
+            units[id]?.stopSequencer()
         }
 
-        // Clear staging state (these units are now the active ones)
+        // Remove old units from tracking (transport/BPM ops won't touch them)
+        // but keep them connected to engine so release tails are audible.
+        let drainingUnits = oldIDs.compactMap { units.removeValue(forKey: $0) }
+
+        // Clear staging state (staged units are now the active ones)
         stagedIDs.removeAll()
         stagedTreeID = nil
 
-        // Wait for old fade + detach
-        for _ in 0..<30 {
-            if oldIDs.allSatisfy({ units[$0]?.isFadedOut ?? true }) { break }
-            Thread.sleep(forTimeInterval: 0.001)
-        }
-        for id in oldIDs {
-            if let unit = units[id] {
-                engine.disconnectNodeOutput(unit.sourceNode)
-                engine.detach(unit.sourceNode)
-            }
-            units.removeValue(forKey: id)
-        }
+        // Deferred cleanup: after voices finish releasing, anti-click fade + detach
+        scheduleDrainingCleanup(drainingUnits, engine: engine)
     }
 
     /// Remove pre-staged units without activating them.
@@ -202,6 +191,31 @@ final class TreeAudioGraph {
         }
         stagedIDs.removeAll()
         stagedTreeID = nil
+    }
+
+    /// Schedule deferred cleanup for old units whose voices are ringing out.
+    /// Units stay connected to the engine producing release tail audio.
+    /// After a generous timeout, apply an anti-click fade and detach.
+    private func scheduleDrainingCleanup(_ drainingUnits: [NodeAudioUnit], engine: AVAudioEngine) {
+        guard !drainingUnits.isEmpty else { return }
+        // 3 seconds covers even long ADSR releases (typical default is 0.3s).
+        // Units produce release tail audio during this time, then get faded + detached.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3.0) {
+            // Anti-click fade before disconnecting (catches any lingering signal)
+            for unit in drainingUnits {
+                unit.requestFadeOut()
+            }
+            // Wait for the one-buffer fade to complete
+            for _ in 0..<30 {
+                if drainingUnits.allSatisfy({ $0.isFadedOut }) { break }
+                Thread.sleep(forTimeInterval: 0.001)
+            }
+            // Disconnect and detach (safe from any non-audio thread)
+            for unit in drainingUnits {
+                engine.disconnectNodeOutput(unit.sourceNode)
+                engine.detach(unit.sourceNode)
+            }
+        }
     }
 
     // MARK: - Incremental Add/Remove
