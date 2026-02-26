@@ -211,6 +211,7 @@ struct MainContentView: View {
         projectState.resetFreeRunningClock()
         forestPlayback.activeTreeID = nil
         forestPlayback.nextTreeID = nil
+        AudioEngine.shared.clearStagedTree()
     }
 
     /// Called when view mode changes (forest ↔ treeDetail ↔ focus).
@@ -235,14 +236,16 @@ struct MainContentView: View {
         if shouldAdvance {
             forestPlayback.activeTreeID = projectState.selectedTreeID ?? trees.first?.id
             forestPlayback.computeNextTree(trees: trees)
+            // Pre-stage the next tree so the first transition is also zero-gap
+            stageNextTreeIfNeeded()
         } else if !transportState.isPlaying {
-            // Only clear if not playing. If playing in tree detail, keep IDs nil
-            // so poller doesn't run, but don't clear if we might re-enter forest.
             forestPlayback.activeTreeID = nil
             forestPlayback.nextTreeID = nil
+            AudioEngine.shared.clearStagedTree()
         } else if !viewModeManager.isForest {
             forestPlayback.activeTreeID = nil
             forestPlayback.nextTreeID = nil
+            AudioEngine.shared.clearStagedTree()
         }
     }
 
@@ -360,9 +363,13 @@ struct MainContentView: View {
         // Track that we've synced this tree so handleTreeSelectionChange doesn't double-rebuild
         lastSyncedTreeID = tree.id
 
-        // Crossfade swap: builds new graph alongside old, starts new sequencers,
-        // fades out old units, then detaches them. Zero-gap, click-free.
-        AudioEngine.shared.crossfadeSwap(to: tree, bpm: transportState.bpm)
+        // Use pre-staged graph if available (zero-gap: only pushes start + fade commands).
+        // Fall back to crossfade swap (builds graph at transition time — has brief latency).
+        if AudioEngine.shared.stagedTreeID == tree.id {
+            AudioEngine.shared.activateStagedTree(bpm: transportState.bpm)
+        } else {
+            AudioEngine.shared.crossfadeSwap(to: tree, bpm: transportState.bpm)
+        }
 
         // Push per-node FX chains for new tree
         var nodes: [Node] = []
@@ -377,6 +384,20 @@ struct MainContentView: View {
 
         // Update selected tree to match the playing tree (highlights in forest UI)
         projectState.selectedTreeID = tree.id
+
+        // Pre-stage the NEXT tree for the following transition
+        stageNextTreeIfNeeded()
+    }
+
+    /// Pre-stage the predicted next tree so the transition is zero-gap.
+    /// Skips if the correct tree is already staged.
+    private func stageNextTreeIfNeeded() {
+        let trees = projectState.project.trees
+        guard trees.count >= 2,
+              let nextID = forestPlayback.nextTreeID,
+              nextID != AudioEngine.shared.stagedTreeID,
+              let nextTree = trees.first(where: { $0.id == nextID }) else { return }
+        AudioEngine.shared.stageNextTree(nextTree, bpm: transportState.bpm)
     }
 
     // MARK: - Private Helpers

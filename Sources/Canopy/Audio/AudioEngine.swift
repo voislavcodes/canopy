@@ -138,10 +138,35 @@ final class AudioEngine {
         graph.teardownGraphWithFade(engine: engine)
     }
 
-    /// Crossfade swap: build new tree alongside old, start new, fade+remove old. Zero-gap.
+    /// Crossfade swap: build new tree alongside old, start new, fade+remove old.
+    /// Fallback path — use stageNextTree + activateStagedTree for zero-gap transitions.
     func crossfadeSwap(to tree: NodeTree, bpm: Double) {
         guard sampleRate > 0 else { return }
         graph.crossfadeSwap(to: tree, engine: engine, sampleRate: sampleRate, bpm: bpm)
+    }
+
+    // MARK: - Pre-staging
+
+    /// Pre-build the next tree's graph while the current tree plays.
+    /// Moves slow engine.attach/connect out of the transition path.
+    func stageNextTree(_ tree: NodeTree, bpm: Double) {
+        guard sampleRate > 0 else { return }
+        graph.stageNextTree(tree, engine: engine, sampleRate: sampleRate, bpm: bpm)
+    }
+
+    /// Activate the pre-staged tree. Lightweight — just start commands + fade old.
+    func activateStagedTree(bpm: Double) {
+        graph.activateStagedTree(engine: engine, bpm: bpm)
+    }
+
+    /// Remove pre-staged units without activating them.
+    func clearStagedTree() {
+        graph.clearStagedTree(engine: engine)
+    }
+
+    /// The tree ID currently pre-staged for the next transition, if any.
+    var stagedTreeID: UUID? {
+        graph.stagedTreeID
     }
 
     /// Configure the full sound patch for a single node (all sound types, pan, filter, FX).

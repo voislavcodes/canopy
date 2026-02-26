@@ -7,6 +7,13 @@ final class TreeAudioGraph {
     private(set) var units: [UUID: NodeAudioUnit] = [:]
     private let logger = Logger(subsystem: "com.canopy", category: "TreeAudioGraph")
 
+    /// IDs of pre-staged units (attached, configured, loaded — but sequencer NOT started).
+    /// These live in `units` alongside active units but produce silence until activated.
+    private(set) var stagedIDs: Set<UUID> = []
+
+    /// The tree ID that has been pre-staged for the next transition, if any.
+    private(set) var stagedTreeID: UUID?
+
     // MARK: - Unified Tree Clock
     // One Int64 sample counter for the entire tree. Source nodes READ it,
     // MasterBusAU ADVANCES it — render order guarantees no races.
@@ -48,24 +55,25 @@ final class TreeAudioGraph {
 
     /// Crossfade swap: build new tree's graph alongside old one, start new sequencers,
     /// then fade out and remove old units. Zero-gap, click-free.
+    ///
+    /// Critical ordering: old units keep playing at full volume while new units are
+    /// bootstrapped. Fade-out is requested AFTER new start commands are queued, so
+    /// the audio thread processes both (old fade + new start) in the same render
+    /// callback — true crossfade with no silence gap.
     func crossfadeSwap(to tree: NodeTree, engine: AVAudioEngine, sampleRate: Double, bpm: Double) {
         // 1. Capture old unit IDs
         let oldIDs = Array(units.keys)
 
-        // 2. Request fade-out on old units (audio thread processes this ~12ms)
-        for id in oldIDs {
-            units[id]?.requestFadeOut()
-        }
-
-        // 3. Build new units alongside old ones (new tree has fresh UUIDs)
+        // 2. Build new units alongside old ones (new tree has fresh UUIDs).
+        //    Old units keep playing at full volume during this — no fade yet.
         buildNodeRecursive(tree.rootNode, engine: engine, sampleRate: sampleRate)
         logger.info("Crossfade swap: built \(self.units.count - oldIDs.count) new unit(s)")
 
-        // 4. Configure patches and load sequences for new nodes
+        // 3. Configure patches and load sequences for new nodes
         configureNodePatchRecursive(tree.rootNode)
         loadNodeSequenceRecursive(tree.rootNode, bpm: bpm)
 
-        // 5. Reset fade on new units and start sequencers (resets clock to 0)
+        // 4. Prepare new units and start sequencers
         let newIDs = Set(units.keys).subtracting(oldIDs)
         for id in newIDs {
             units[id]?.resetFade()
@@ -74,6 +82,13 @@ final class TreeAudioGraph {
         clockIsRunning.pointee = true
         for id in newIDs {
             units[id]?.startSequencer(bpm: bpm)
+        }
+
+        // 5. NOW fade old units — new start commands are already queued, so the
+        //    audio thread will drain both in the same render callback: old ramps
+        //    down while new ramps up. True crossfade overlap.
+        for id in oldIDs {
+            units[id]?.requestFadeOut()
         }
 
         // 6. Wait for old units to finish fading, then detach them
@@ -104,6 +119,89 @@ final class TreeAudioGraph {
             engine.detach(unit.sourceNode)
         }
         units.removeAll()
+    }
+
+    // MARK: - Pre-staging for Zero-Gap Transitions
+
+    /// Pre-build the next tree's audio graph while the current tree is still playing.
+    /// Units are attached, connected, configured, and loaded — but NOT started.
+    /// They output silence (no active voices, sequencer dormant) until activated.
+    /// This moves the slow engine.attach/connect work out of the transition path.
+    func stageNextTree(_ tree: NodeTree, engine: AVAudioEngine, sampleRate: Double, bpm: Double) {
+        clearStagedTree(engine: engine)
+
+        let beforeIDs = Set(units.keys)
+
+        // Build units (the slow part — engine.attach + engine.connect)
+        buildNodeRecursive(tree.rootNode, engine: engine, sampleRate: sampleRate)
+
+        // Configure patches and load sequences. These push commands to each unit's
+        // ring buffer; the render callbacks drain them while outputting silence
+        // (sequencer not started → no voices active → zeros).
+        configureNodePatchRecursive(tree.rootNode)
+        loadNodeSequenceRecursive(tree.rootNode, bpm: bpm)
+
+        stagedIDs = Set(units.keys).subtracting(beforeIDs)
+        stagedTreeID = tree.id
+
+        logger.info("Staged \(self.stagedIDs.count) unit(s) for tree \(tree.id)")
+    }
+
+    /// Activate the pre-staged tree. Lightweight — just pushes start commands
+    /// and fades old units. No engine.attach/connect (already done during staging).
+    /// The audio thread processes both (new start + old fade) in the same render
+    /// callback for a true zero-gap crossfade.
+    func activateStagedTree(engine: AVAudioEngine, bpm: Double) {
+        guard !stagedIDs.isEmpty else { return }
+
+        let oldIDs = Set(units.keys).subtracting(stagedIDs)
+
+        // Ensure staged units aren't in a faded state
+        for id in stagedIDs {
+            units[id]?.resetFade()
+        }
+
+        // Reset clock and start new sequencers — just pointer writes + command pushes
+        clockSamplePosition.pointee = 0
+        clockIsRunning.pointee = true
+        for id in stagedIDs {
+            units[id]?.startSequencer(bpm: bpm)
+        }
+
+        // Fade old units — audio thread processes start + fade in the same render callback
+        for id in oldIDs {
+            units[id]?.requestFadeOut()
+        }
+
+        // Clear staging state (these units are now the active ones)
+        stagedIDs.removeAll()
+        stagedTreeID = nil
+
+        // Wait for old fade + detach
+        for _ in 0..<30 {
+            if oldIDs.allSatisfy({ units[$0]?.isFadedOut ?? true }) { break }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        for id in oldIDs {
+            if let unit = units[id] {
+                engine.disconnectNodeOutput(unit.sourceNode)
+                engine.detach(unit.sourceNode)
+            }
+            units.removeValue(forKey: id)
+        }
+    }
+
+    /// Remove pre-staged units without activating them.
+    func clearStagedTree(engine: AVAudioEngine) {
+        for id in stagedIDs {
+            if let unit = units[id] {
+                engine.disconnectNodeOutput(unit.sourceNode)
+                engine.detach(unit.sourceNode)
+            }
+            units.removeValue(forKey: id)
+        }
+        stagedIDs.removeAll()
+        stagedTreeID = nil
     }
 
     // MARK: - Incremental Add/Remove
@@ -207,15 +305,16 @@ final class TreeAudioGraph {
 
     // MARK: - Transport
 
-    /// Start all sequencers simultaneously at the given BPM.
+    /// Start all active sequencers simultaneously at the given BPM.
+    /// Excludes pre-staged units (they start only via activateStagedTree).
     func startAll(bpm: Double) {
         // Reset fade state from any previous stopAllWithFade()
-        for (_, unit) in units {
+        for (id, unit) in units where !stagedIDs.contains(id) {
             unit.resetFade()
         }
         clockSamplePosition.pointee = 0
         clockIsRunning.pointee = true
-        for (_, unit) in units {
+        for (id, unit) in units where !stagedIDs.contains(id) {
             unit.startSequencer(bpm: bpm)
         }
     }
@@ -225,24 +324,24 @@ final class TreeAudioGraph {
         units[nodeID]?.startSequencer(bpm: bpm)
     }
 
-    /// Stop all sequencers and silence all notes (instant — may click).
+    /// Stop all active sequencers and silence all notes (instant — may click).
     func stopAll() {
         clockIsRunning.pointee = false
-        for (_, unit) in units {
+        for (id, unit) in units where !stagedIDs.contains(id) {
             unit.stopSequencer()
         }
     }
 
-    /// Fade all units to silence, then stop sequencers. Click-free.
+    /// Fade all active units to silence, then stop sequencers. Click-free.
     /// Units stay in faded state (outputting zeros) until the next startAll().
     func stopAllWithFade() {
-        // Request fade-out on every unit
-        for (_, unit) in units {
+        // Request fade-out on every active unit (not staged)
+        for (id, unit) in units where !stagedIDs.contains(id) {
             unit.requestFadeOut()
         }
         // Wait for all to finish (typically < 12ms)
         for _ in 0..<30 {
-            let allDone = units.values.allSatisfy { $0.isFadedOut }
+            let allDone = units.filter({ !stagedIDs.contains($0.key) }).values.allSatisfy { $0.isFadedOut }
             if allDone { break }
             Thread.sleep(forTimeInterval: 0.001)
         }
@@ -251,14 +350,14 @@ final class TreeAudioGraph {
         // .sequencerStop command can process without any audible transient.
         // Fade is reset in startAll() before the next playback begins.
         clockIsRunning.pointee = false
-        for (_, unit) in units {
+        for (id, unit) in units where !stagedIDs.contains(id) {
             unit.stopSequencer()
         }
     }
 
-    /// Update BPM on all running sequencers.
+    /// Update BPM on all running sequencers (excludes staged).
     func setAllBPM(_ bpm: Double) {
-        for (_, unit) in units {
+        for (id, unit) in units where !stagedIDs.contains(id) {
             unit.setSequencerBPM(bpm)
         }
     }
