@@ -7,6 +7,7 @@ class ForestPlaybackState: ObservableObject {
     @Published var transitionMode: TreeTransitionMode = .instant
     @Published var activeTreeID: UUID?    // Currently playing tree (during playback)
     @Published var nextTreeID: UUID?      // Next tree (for visual indicator)
+    @Published var isLockedToTree: Bool = false  // When true, advance is paused — locked tree loops
 
     /// Ping-pong direction state. true = forward (→), false = backward (←).
     var pingPongForward: Bool = true
@@ -67,6 +68,7 @@ class ForestPlaybackState: ObservableObject {
     @discardableResult
     func checkAndAdvance(clockSamples: Int64, sampleRate: Double, bpm: Double,
                          cycleLengthInBeats: Double, trees: [NodeTree]) -> NodeTree? {
+        guard !isLockedToTree else { return nil }
         guard trees.count >= 2, activeTreeID != nil else { return nil }
 
         let beat = Double(clockSamples) * bpm / (60.0 * sampleRate)

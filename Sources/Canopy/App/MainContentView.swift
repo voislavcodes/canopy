@@ -82,6 +82,9 @@ struct MainContentView: View {
         .onChange(of: viewModeManager.mode) { _ in
             handleViewModeChange()
         }
+        .onChange(of: forestPlayback.isLockedToTree) { _ in
+            syncForestAdvanceToState()
+        }
     }
 
     // MARK: - View Mode Sync
@@ -211,11 +214,17 @@ struct MainContentView: View {
         projectState.resetFreeRunningClock()
         forestPlayback.activeTreeID = nil
         forestPlayback.nextTreeID = nil
+        forestPlayback.isLockedToTree = false
         AudioEngine.shared.clearStagedTree()
     }
 
     /// Called when view mode changes (forest ↔ treeDetail ↔ focus).
     private func handleViewModeChange() {
+        // Entering tree detail during playback → lock to that tree (it loops until user exits)
+        if viewModeManager.isTreeDetail && transportState.isPlaying
+            && projectState.project.trees.count >= 2 {
+            forestPlayback.isLockedToTree = true
+        }
         if viewModeManager.isForest, projectState.project.trees.count >= 2 {
             // Entering forest with 2+ trees → start playback if not already playing
             if !transportState.isPlaying {
@@ -226,21 +235,36 @@ struct MainContentView: View {
     }
 
     /// Single source of truth: activate or deactivate forest advance based on current state.
-    /// Called when trees.count changes, view mode changes, or playback starts.
+    /// Called when trees.count changes, view mode changes, playback starts, or lock changes.
     private func syncForestAdvanceToState() {
         let trees = projectState.project.trees
+
+        // If a node is selected in forest during playback, auto-lock
+        // (covers the 1→2 tree creation race where trees.count fires before node selection)
+        if viewModeManager.isForest && transportState.isPlaying
+            && trees.count >= 2 && projectState.selectedNodeID != nil {
+            forestPlayback.isLockedToTree = true
+        }
+
         let shouldAdvance = transportState.isPlaying
             && viewModeManager.isForest
             && trees.count >= 2
+            && !forestPlayback.isLockedToTree
 
         if shouldAdvance {
             forestPlayback.activeTreeID = projectState.selectedTreeID ?? trees.first?.id
             forestPlayback.computeNextTree(trees: trees)
             // Pre-stage the next tree so the first transition is also zero-gap
             stageNextTreeIfNeeded()
+        } else if forestPlayback.isLockedToTree && transportState.isPlaying {
+            // Locked: keep activeTreeID set, clear next/staging so no advance occurs
+            forestPlayback.activeTreeID = projectState.selectedTreeID ?? trees.first?.id
+            forestPlayback.nextTreeID = nil
+            AudioEngine.shared.clearStagedTree()
         } else if !transportState.isPlaying {
             forestPlayback.activeTreeID = nil
             forestPlayback.nextTreeID = nil
+            forestPlayback.isLockedToTree = false
             AudioEngine.shared.clearStagedTree()
         } else if !viewModeManager.isForest {
             forestPlayback.activeTreeID = nil
@@ -264,6 +288,12 @@ struct MainContentView: View {
             pushPatchToEngine(node.patch, nodeID: node.id)
             transportState.focusedNodeID = node.id
 
+            // Node selected during forest playback → lock to this tree (user is interacting)
+            if viewModeManager.isForest && transportState.isPlaying
+                && projectState.project.trees.count >= 2 {
+                forestPlayback.isLockedToTree = true
+            }
+
             // Update focus target if already in focus mode
             if case .focus = viewModeManager.mode {
                 viewModeManager.enterFocus(nodeID: node.id)
@@ -274,12 +304,24 @@ struct MainContentView: View {
                 viewModeManager.exitFocus()
             }
 
-            // Single tree with content + node deselected → show forest so "new" node appears
-            if viewModeManager.isTreeDetail,
-               projectState.project.trees.count == 1,
-               singleTreeHasContent() {
-                withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                    viewModeManager.exitTreeDetail()
+            // Node deselected → unlock so forest advance resumes
+            if forestPlayback.isLockedToTree {
+                forestPlayback.isLockedToTree = false
+            }
+
+            // Node deselected in tree detail → return to forest
+            if viewModeManager.isTreeDetail {
+                let treeCount = projectState.project.trees.count
+                if treeCount >= 2 {
+                    // Multi-tree → return to forest, advance resumes (lock already cleared above)
+                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                        viewModeManager.exitTreeDetail()
+                    }
+                } else if treeCount == 1, singleTreeHasContent() {
+                    // Single tree with content → forest so "new" node appears
+                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                        viewModeManager.exitTreeDetail()
+                    }
                 }
             }
         }

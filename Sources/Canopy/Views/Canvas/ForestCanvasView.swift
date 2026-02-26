@@ -234,11 +234,28 @@ struct ForestCanvasView: View {
             withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
                 viewModeManager.enterTreeDetail(treeID: treeID)
             }
+            return
+        }
+        lastTreeTapTime = now
+        lastTreeTapID = treeID
+
+        // During forest advance: lock/unlock
+        if transportState.isPlaying && forestPlayback.activeTreeID != nil
+            && projectState.project.trees.count >= 2 {
+            if forestPlayback.isLockedToTree && forestPlayback.activeTreeID == treeID {
+                // Tap locked tree → unlock, resume advance
+                forestPlayback.isLockedToTree = false
+                // syncForestAdvanceToState() fires via onChange(of: isLockedToTree)
+            } else {
+                // Tap any tree → jump and lock
+                forestPlayback.isLockedToTree = true
+                forestPlayback.nextTreeID = nil
+                AudioEngine.shared.clearStagedTree()
+                projectState.selectTree(treeID)
+                // selectTree triggers handleTreeSelectionChange which swaps audio
+            }
         } else {
-            // Single tap → select tree
             projectState.selectTree(treeID)
-            lastTreeTapTime = now
-            lastTreeTapID = treeID
         }
     }
 
