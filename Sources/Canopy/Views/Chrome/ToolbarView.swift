@@ -77,25 +77,18 @@ struct ToolbarView: View {
     // MARK: - Ableton-Style Scale Section
 
     private var scaleSection: some View {
-        HStack(spacing: 2) {
+        let enabled = projectState.project.scaleAwareEnabled
+
+        return HStack(spacing: 6) {
             // Scale-aware toggle
             Button(action: {
                 projectState.project.scaleAwareEnabled.toggle()
                 projectState.markDirty()
             }) {
-                let enabled = projectState.project.scaleAwareEnabled
                 Image(systemName: "music.note")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(enabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.35))
                     .frame(width: 22, height: 22)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(enabled ? CanopyColors.glowColor.opacity(0.1) : Color.clear)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(enabled ? CanopyColors.glowColor.opacity(0.3) : CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
-                    )
             }
             .buttonStyle(.plain)
             .help("Scale-aware mode")
@@ -104,17 +97,7 @@ struct ToolbarView: View {
             Button(action: { showRootPicker.toggle() }) {
                 Text(globalKey.root.displayName)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundColor(CanopyColors.glowColor)
-                    .frame(minWidth: 24, minHeight: 22)
-                    .padding(.horizontal, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(CanopyColors.glowColor.opacity(0.1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(CanopyColors.glowColor.opacity(0.3), lineWidth: 0.5)
-                    )
+                    .foregroundColor(enabled ? CanopyColors.glowColor : CanopyColors.chromeTextBright)
             }
             .buttonStyle(.plain)
             .popover(isPresented: $showRootPicker) {
@@ -125,23 +108,21 @@ struct ToolbarView: View {
             Button(action: { showModePicker.toggle() }) {
                 Text(shortModeName(globalKey.mode))
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.chromeTextBright)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(CanopyColors.chromeBackground.opacity(0.8))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(CanopyColors.chromeBorder.opacity(0.4), lineWidth: 0.5)
-                    )
+                    .foregroundColor(enabled ? CanopyColors.chromeTextBright : CanopyColors.chromeText.opacity(0.5))
             }
             .buttonStyle(.plain)
             .popover(isPresented: $showModePicker) {
                 modePickerPopover
             }
         }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(CanopyColors.bloomPanelBackground.opacity(0.85))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
+        )
     }
 
     // MARK: - Root Picker Popover
