@@ -274,8 +274,8 @@ struct ForestCanvasView: View {
             }
         }
 
-        // Background tap — deselect
-        projectState.selectTree(nil)
+        // Background tap — deselect node/bloom but keep tree selected
+        // (tree stays selected so audio graph remains valid during forest playback)
         projectState.selectNode(nil)
         editingTreeID = nil
         projectState.selectedLFOID = nil
@@ -379,14 +379,6 @@ private struct ForestContentView: View {
 
     var body: some View {
         ZStack {
-            // Connecting line between trees
-            if trees.count > 1 {
-                ForestConnectorLine(
-                    treeCount: trees.count,
-                    treeSpacing: treeSpacing
-                )
-            }
-
             // Tree circles
             ForEach(Array(trees.enumerated()), id: \.element.id) { index, tree in
                 let pos = treePosition(index: index, total: trees.count)
