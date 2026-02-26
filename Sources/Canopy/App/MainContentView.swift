@@ -82,19 +82,27 @@ struct MainContentView: View {
 
     // MARK: - View Mode Sync
 
-    /// With 1 tree: auto-enter treeDetail (preserves the familiar node canvas UX).
+    /// With 1 empty tree: auto-enter treeDetail (so user can start creating).
+    /// With 1 tree that has content: stay in current mode (forest shows "new" node).
     /// With 2+ trees: forest mode is natural. Don't force-switch if already in focus/treeDetail.
     private func syncViewModeToTreeCount() {
         let count = projectState.project.trees.count
         if count <= 1 {
-            // Single tree — go to treeDetail unless already in focus
+            // Single tree — only auto-enter treeDetail if tree is empty
             if case .focus = viewModeManager.mode { return }
+            if case .forest = viewModeManager.mode, singleTreeHasContent() { return }
             if let treeID = projectState.selectedTreeID ?? projectState.project.trees.first?.id {
                 viewModeManager.enterTreeDetail(treeID: treeID)
             }
         } else if viewModeManager.isTreeDetail {
             // Grew from 1→2 trees while in treeDetail — stay there (don't yank the user away)
         }
+    }
+
+    /// Check if the first (only) tree has any musical content.
+    private func singleTreeHasContent() -> Bool {
+        guard let tree = projectState.project.trees.first else { return false }
+        return !tree.rootNode.sequence.notes.isEmpty || !tree.rootNode.children.isEmpty
     }
 
     // MARK: - Audio Graph Sync
@@ -218,9 +226,18 @@ struct MainContentView: View {
                 viewModeManager.enterFocus(nodeID: node.id)
             }
         } else {
-            // Node deselected — exit focus mode
+            // Node deselected
             if case .focus = viewModeManager.mode {
                 viewModeManager.exitFocus()
+            }
+
+            // Single tree with content + node deselected → show forest so "new" node appears
+            if viewModeManager.isTreeDetail,
+               projectState.project.trees.count == 1,
+               singleTreeHasContent() {
+                withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                    viewModeManager.exitTreeDetail()
+                }
             }
         }
 

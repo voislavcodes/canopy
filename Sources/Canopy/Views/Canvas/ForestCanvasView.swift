@@ -45,7 +45,8 @@ struct ForestCanvasView: View {
                     isPlaying: transportState.isPlaying,
                     treeSpacing: treeSpacing,
                     editingTreeID: editingTreeID,
-                    showNewTreePopover: showNewTreePopover,
+                    showNewTreePopover: $showNewTreePopover,
+                    projectState: projectState,
                     onTreeTap: { treeID in handleTreeTap(treeID) },
                     onNewTreeTap: { handleNewTreeTap() }
                 )
@@ -242,10 +243,7 @@ struct ForestCanvasView: View {
     }
 
     private func handleNewTreeTap() {
-        guard let tree = projectState.addTree() else { return }
-        withAnimation(.spring(duration: 0.4, bounce: 0.15)) {
-            projectState.selectTree(tree.id)
-        }
+        showNewTreePopover = true
     }
 
     private func handleTap(at location: CGPoint, viewSize: CGSize) {
@@ -264,8 +262,9 @@ struct ForestCanvasView: View {
             }
         }
 
-        // Hit test new tree node
-        if trees.count < 8 {
+        // Hit test new tree node (only visible when first tree has content)
+        let hasContent = trees.first.map { !$0.rootNode.sequence.notes.isEmpty || !$0.rootNode.children.isEmpty } ?? false
+        if trees.count < 8, hasContent {
             let newPos = newTreePosition(treeCount: trees.count)
             let dx = canvas.x - newPos.x
             let dy = canvas.y - newPos.y
@@ -373,7 +372,8 @@ private struct ForestContentView: View {
     let isPlaying: Bool
     let treeSpacing: CGFloat
     let editingTreeID: UUID?
-    let showNewTreePopover: Bool
+    @Binding var showNewTreePopover: Bool
+    var projectState: ProjectState
     let onTreeTap: (UUID) -> Void
     let onNewTreeTap: () -> Void
 
@@ -401,11 +401,17 @@ private struct ForestContentView: View {
                 .position(x: pos.x, y: pos.y)
             }
 
-            // "New tree" node
+            // "New tree" node with variation popover
             if trees.count < 8, hasAnyContent() {
                 let pos = newTreePosition(treeCount: trees.count)
                 NewTreeNodeView()
                     .onTapGesture { onNewTreeTap() }
+                    .popover(isPresented: $showNewTreePopover) {
+                        NewTreePopoverView(
+                            projectState: projectState,
+                            onDismiss: { showNewTreePopover = false }
+                        )
+                    }
                     .position(x: pos.x, y: pos.y)
             }
         }

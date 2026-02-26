@@ -333,26 +333,75 @@ private struct TreesPopoverView: View {
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.5))
 
-            // Sequential mode pill (only mode for now)
-            HStack(spacing: 6) {
-                Text("→")
+            FlowLayout(spacing: 4) {
+                ForEach(ForestPlaybackState.TreePlaybackMode.allCases, id: \.self) { mode in
+                    playbackModePill(mode)
+                }
+            }
+
+            Divider()
+                .background(CanopyColors.chromeBorder)
+
+            // Transition mode
+            Text("TRANSITION")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+            HStack(spacing: 4) {
+                ForEach(ForestPlaybackState.TreeTransitionMode.allCases, id: \.self) { mode in
+                    transitionModePill(mode)
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 220)
+        .background(CanopyColors.bloomPanelBackground)
+    }
+
+    private func playbackModePill(_ mode: ForestPlaybackState.TreePlaybackMode) -> some View {
+        let isSelected = forestPlayback.playbackMode == mode
+        return Button(action: { forestPlayback.playbackMode = mode }) {
+            HStack(spacing: 5) {
+                Text(mode.symbol)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                Text("Sequential")
+                Text(mode.displayName)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
             }
-            .foregroundColor(CanopyColors.glowColor)
+            .foregroundColor(isSelected ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.6))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(CanopyColors.glowColor.opacity(0.12))
+            .background(isSelected ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(
                 RoundedRectangle(cornerRadius: 5)
-                    .stroke(CanopyColors.glowColor.opacity(0.4), lineWidth: 0.5)
+                    .stroke(
+                        isSelected ? CanopyColors.glowColor.opacity(0.4) : CanopyColors.chromeBorder.opacity(0.2),
+                        lineWidth: 0.5
+                    )
             )
         }
-        .padding(14)
-        .frame(width: 200)
-        .background(CanopyColors.bloomPanelBackground)
+        .buttonStyle(.plain)
+    }
+
+    private func transitionModePill(_ mode: ForestPlaybackState.TreeTransitionMode) -> some View {
+        let isSelected = forestPlayback.transitionMode == mode
+        return Button(action: { forestPlayback.transitionMode = mode }) {
+            Text(mode.displayName)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(isSelected ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.6))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(isSelected ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(
+                            isSelected ? CanopyColors.glowColor.opacity(0.4) : CanopyColors.chromeBorder.opacity(0.2),
+                            lineWidth: 0.5
+                        )
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private func treeRow(tree: NodeTree, index: Int) -> some View {
