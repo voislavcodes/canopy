@@ -6,15 +6,32 @@ struct MainContentView: View {
     @StateObject private var canvasState = CanvasState()
     @StateObject private var bloomState = BloomState()
     @StateObject private var viewModeManager = ViewModeManager()
+    @StateObject private var forestPlayback = ForestPlaybackState()
 
     /// Tracks the previously selected node so we can send allNotesOff on deselect.
     @State private var previousSelectedNodeID: UUID?
+    /// Tracks the last tree ID we synced audio for, to skip redundant rebuilds.
+    @State private var lastSyncedTreeID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
-            ToolbarView(projectState: projectState, transportState: transportState)
+            ToolbarView(
+                projectState: projectState,
+                transportState: transportState,
+                forestPlayback: forestPlayback
+            )
 
-            if viewModeManager.isForest {
+            switch viewModeManager.mode {
+            case .forest:
+                ForestCanvasView(
+                    projectState: projectState,
+                    canvasState: canvasState,
+                    bloomState: bloomState,
+                    viewModeManager: viewModeManager,
+                    transportState: transportState,
+                    forestPlayback: forestPlayback
+                )
+            case .treeDetail:
                 CanopyCanvasView(
                     projectState: projectState,
                     canvasState: canvasState,
@@ -22,7 +39,7 @@ struct MainContentView: View {
                     viewModeManager: viewModeManager,
                     transportState: transportState
                 )
-            } else {
+            case .focus:
                 FocusView(projectState: projectState, transportState: transportState)
             }
 
@@ -30,24 +47,68 @@ struct MainContentView: View {
         }
         .environmentObject(viewModeManager)
         .background(CanopyColors.canvasBackground)
+        .overlay {
+            // Forest playback advance polling (hidden, runs during multi-tree playback)
+            ForestAdvancePoller(
+                projectState: projectState,
+                transportState: transportState,
+                forestPlayback: forestPlayback,
+                onTreeAdvance: { newTree in performTreeSwap(to: newTree) }
+            )
+            .allowsHitTesting(false)
+            .frame(width: 0, height: 0)
+        }
         .onAppear {
             syncTreeToEngine()
+            syncViewModeToTreeCount()
+        }
+        .onChange(of: projectState.project.trees.count) { _ in
+            syncViewModeToTreeCount()
         }
         .onChange(of: projectState.selectedNodeID) { _ in
             handleNodeSelectionChange()
         }
+        .onChange(of: projectState.selectedTreeID) { _ in
+            handleTreeSelectionChange()
+        }
         .onChange(of: transportState.isPlaying) { isPlaying in
-            if !isPlaying {
-                projectState.resetFreeRunningClock()
+            if isPlaying {
+                handlePlaybackStart()
+            } else {
+                handlePlaybackStop()
             }
+        }
+    }
+
+    // MARK: - View Mode Sync
+
+    /// With 1 tree: auto-enter treeDetail (preserves the familiar node canvas UX).
+    /// With 2+ trees: forest mode is natural. Don't force-switch if already in focus/treeDetail.
+    private func syncViewModeToTreeCount() {
+        let count = projectState.project.trees.count
+        if count <= 1 {
+            // Single tree — go to treeDetail unless already in focus
+            if case .focus = viewModeManager.mode { return }
+            if let treeID = projectState.selectedTreeID ?? projectState.project.trees.first?.id {
+                viewModeManager.enterTreeDetail(treeID: treeID)
+            }
+        } else if viewModeManager.isTreeDetail {
+            // Grew from 1→2 trees while in treeDetail — stay there (don't yank the user away)
         }
     }
 
     // MARK: - Audio Graph Sync
 
-    /// Build full audio graph from the first tree. Used on initial load / project switch.
+    /// Build full audio graph from the selected tree. Used on initial load / project switch.
     func syncTreeToEngine() {
-        guard let tree = projectState.project.trees.first else { return }
+        guard let tree = projectState.selectedTree ?? projectState.project.trees.first else { return }
+
+        // Ensure selectedTreeID is set
+        if projectState.selectedTreeID == nil {
+            projectState.selectedTreeID = tree.id
+        }
+        lastSyncedTreeID = tree.id
+
         AudioEngine.shared.buildGraph(from: tree)
         AudioEngine.shared.configureAllPatches(from: tree)
         AudioEngine.shared.loadAllSequences(from: tree, bpm: transportState.bpm)
@@ -64,7 +125,8 @@ struct MainContentView: View {
         projectState.syncMasterBusToEngine()
 
         // Push per-node FX chains to audio engine
-        for node in projectState.allNodes() {
+        let nodes = projectState.allNodesForSelectedTree()
+        for node in nodes {
             if !node.effects.isEmpty {
                 projectState.syncNodeFXToEngine(nodeID: node.id)
             }
@@ -78,9 +140,62 @@ struct MainContentView: View {
         loadSequenceToEngine(node)
     }
 
-    /// Remove a single node from the live audio graph.
+    /// Remove a single node from the live audio graph (click-free).
     func removeNodeFromEngine(id: UUID) {
-        AudioEngine.shared.removeNode(id)
+        AudioEngine.shared.muteAndRemoveNode(id)
+    }
+
+    // MARK: - Tree Selection Change
+
+    private func handleTreeSelectionChange() {
+        guard let newID = projectState.selectedTreeID else { return }
+        // Skip if we already have the audio graph for this tree
+        guard newID != lastSyncedTreeID else { return }
+        lastSyncedTreeID = newID
+
+        // Stop transport if playing
+        if transportState.isPlaying {
+            transportState.stopPlayback()
+        }
+
+        // Swap audio graph to the newly selected tree
+        AudioEngine.shared.teardownGraph()
+        guard let tree = projectState.selectedTree else { return }
+        AudioEngine.shared.buildGraph(from: tree)
+        AudioEngine.shared.configureAllPatches(from: tree)
+        AudioEngine.shared.loadAllSequences(from: tree, bpm: transportState.bpm)
+
+        // Push per-node FX chains
+        var nodes: [Node] = []
+        collectNodes(from: tree.rootNode, into: &nodes)
+        for node in nodes {
+            if !node.effects.isEmpty {
+                projectState.syncNodeFXToEngine(nodeID: node.id)
+            }
+        }
+
+        // Push modulation and master bus
+        projectState.syncModulationToEngine()
+        projectState.syncMasterBusToEngine()
+
+        // Update focused node
+        transportState.focusedNodeID = tree.rootNode.id
+    }
+
+    // MARK: - Playback State Management
+
+    private func handlePlaybackStart() {
+        let trees = projectState.project.trees
+        if trees.count >= 2 {
+            forestPlayback.activeTreeID = projectState.selectedTreeID
+            forestPlayback.computeNextTree(trees: trees)
+        }
+    }
+
+    private func handlePlaybackStop() {
+        projectState.resetFreeRunningClock()
+        forestPlayback.activeTreeID = nil
+        forestPlayback.nextTreeID = nil
     }
 
     // MARK: - Node Selection Change
@@ -97,12 +212,12 @@ struct MainContentView: View {
             transportState.focusedNodeID = node.id
 
             // Update focus target if already in focus mode
-            if !viewModeManager.isForest {
+            if case .focus = viewModeManager.mode {
                 viewModeManager.enterFocus(nodeID: node.id)
             }
         } else {
             // Node deselected — exit focus mode
-            if !viewModeManager.isForest {
+            if case .focus = viewModeManager.mode {
                 viewModeManager.exitFocus()
             }
         }
@@ -180,4 +295,112 @@ struct MainContentView: View {
         AudioEngine.shared.setGlobalProbability(seq.globalProbability, nodeID: node.id)
     }
 
+    // MARK: - Tree Swap (for forest playback advance)
+
+    private func performTreeSwap(to tree: NodeTree) {
+        AudioEngine.shared.stopAllSequencersWithFade()
+        AudioEngine.shared.teardownGraph()
+        AudioEngine.shared.buildGraph(from: tree)
+        AudioEngine.shared.configureAllPatches(from: tree)
+        AudioEngine.shared.loadAllSequences(from: tree, bpm: transportState.bpm)
+
+        // Push per-node FX chains
+        var nodes: [Node] = []
+        collectNodes(from: tree.rootNode, into: &nodes)
+        for node in nodes {
+            if !node.effects.isEmpty {
+                projectState.syncNodeFXToEngine(nodeID: node.id)
+            }
+        }
+        projectState.syncModulationToEngine()
+        projectState.syncMasterBusToEngine()
+
+        // Restart sequencers
+        AudioEngine.shared.startAllSequencers(bpm: transportState.bpm)
+    }
+
+    // MARK: - Private Helpers
+
+    private func collectNodes(from node: Node, into result: inout [Node]) {
+        result.append(node)
+        for child in node.children {
+            collectNodes(from: child, into: &result)
+        }
+    }
+}
+
+// MARK: - ForestAdvancePoller
+
+/// Hidden TimelineView that polls the audio clock and triggers tree advances
+/// when a cycle completes during multi-tree sequential playback.
+private struct ForestAdvancePoller: View {
+    @ObservedObject var projectState: ProjectState
+    var transportState: TransportState
+    @ObservedObject var forestPlayback: ForestPlaybackState
+    let onTreeAdvance: (NodeTree) -> Void
+
+    var body: some View {
+        if transportState.isPlaying && projectState.project.trees.count >= 2 && forestPlayback.activeTreeID != nil {
+            TimelineView(.animation) { timeline in
+                let _ = checkAdvance()
+                Color.clear
+            }
+        }
+    }
+
+    private func checkAdvance() {
+        let clockSamples = AudioEngine.shared.graph.clockSamplePosition.pointee
+        let sampleRate = AudioEngine.shared.sampleRate
+        guard sampleRate > 0 else { return }
+
+        // Compute cycle length for the active tree
+        let trees = projectState.project.trees
+        guard let activeID = forestPlayback.activeTreeID,
+              let activeTree = trees.first(where: { $0.id == activeID }) else { return }
+
+        let cycleLength = computeCycleLength(tree: activeTree)
+
+        if let newTree = forestPlayback.checkAndAdvance(
+            clockSamples: clockSamples,
+            sampleRate: sampleRate,
+            bpm: transportState.bpm,
+            cycleLengthInBeats: cycleLength,
+            trees: trees
+        ) {
+            onTreeAdvance(newTree)
+        }
+    }
+
+    private func computeCycleLength(tree: NodeTree) -> Double {
+        var nodes: [Node] = []
+        collectNodes(from: tree.rootNode, into: &nodes)
+        guard !nodes.isEmpty else { return 1 }
+        let sd = NoteSequence.stepDuration
+        let stepCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats / sd))) }
+        let lcmSteps = stepCounts.reduce(1) { lcm($0, $1) }
+        return Double(lcmSteps) * sd
+    }
+
+    private func collectNodes(from node: Node, into result: inout [Node]) {
+        result.append(node)
+        for child in node.children {
+            collectNodes(from: child, into: &result)
+        }
+    }
+
+    private func gcd(_ a: Int, _ b: Int) -> Int {
+        var a = abs(a)
+        var b = abs(b)
+        while b != 0 {
+            let t = b
+            b = a % b
+            a = t
+        }
+        return a
+    }
+
+    private func lcm(_ a: Int, _ b: Int) -> Int {
+        guard a != 0 && b != 0 else { return 1 }
+        return abs(a * b) / gcd(a, b)
+    }
 }

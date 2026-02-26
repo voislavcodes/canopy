@@ -3,9 +3,11 @@ import SwiftUI
 struct ToolbarView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
+    @ObservedObject var forestPlayback: ForestPlaybackState
 
     @State private var showRootPicker = false
     @State private var showModePicker = false
+    @State private var showTreesPopover = false
 
     private var globalKey: MusicalKey {
         get { projectState.project.globalKey }
@@ -31,6 +33,21 @@ struct ToolbarView: View {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
                 )
+
+                // Trees icon — visible with 2+ trees
+                if projectState.project.trees.count >= 2 {
+                    Button(action: { showTreesPopover.toggle() }) {
+                        TreesIconView()
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showTreesPopover) {
+                        TreesPopoverView(
+                            projectState: projectState,
+                            forestPlayback: forestPlayback
+                        )
+                    }
+                    .help("Trees & playback mode")
+                }
 
                 Spacer()
 
@@ -257,6 +274,135 @@ struct ToolbarView: View {
         case .inSen: return "In Sen"
         case .diminished: return "Dim"
         }
+    }
+}
+
+// MARK: - Trees Icon (●─●)
+
+private struct TreesIconView: View {
+    var body: some View {
+        Canvas { context, size in
+            let y = size.height / 2
+            let leftX: CGFloat = 6
+            let rightX = size.width - 6
+            let r: CGFloat = 3.5
+
+            // Line
+            var line = Path()
+            line.move(to: CGPoint(x: leftX + r, y: y))
+            line.addLine(to: CGPoint(x: rightX - r, y: y))
+            context.stroke(line, with: .color(CanopyColors.glowColor.opacity(0.6)), lineWidth: 1.5)
+
+            // Left dot
+            let leftRect = CGRect(x: leftX - r, y: y - r, width: r * 2, height: r * 2)
+            context.fill(Path(ellipseIn: leftRect), with: .color(CanopyColors.glowColor))
+
+            // Right dot
+            let rightRect = CGRect(x: rightX - r, y: y - r, width: r * 2, height: r * 2)
+            context.fill(Path(ellipseIn: rightRect), with: .color(CanopyColors.glowColor))
+        }
+        .frame(width: 30, height: 22)
+    }
+}
+
+// MARK: - Trees Popover
+
+private struct TreesPopoverView: View {
+    @ObservedObject var projectState: ProjectState
+    @ObservedObject var forestPlayback: ForestPlaybackState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            Text("TREES")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+            // Tree list
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(projectState.project.trees.enumerated()), id: \.element.id) { index, tree in
+                    treeRow(tree: tree, index: index)
+                }
+            }
+
+            Divider()
+                .background(CanopyColors.chromeBorder)
+
+            // Playback mode
+            Text("PLAYBACK")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+            // Sequential mode pill (only mode for now)
+            HStack(spacing: 6) {
+                Text("→")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                Text("Sequential")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+            }
+            .foregroundColor(CanopyColors.glowColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(CanopyColors.glowColor.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(CanopyColors.glowColor.opacity(0.4), lineWidth: 0.5)
+            )
+        }
+        .padding(14)
+        .frame(width: 200)
+        .background(CanopyColors.bloomPanelBackground)
+    }
+
+    private func treeRow(tree: NodeTree, index: Int) -> some View {
+        let isSelected = projectState.selectedTreeID == tree.id
+        let isActive = forestPlayback.activeTreeID == tree.id
+        let treeColor = treeColorFor(tree)
+
+        return Button(action: { projectState.selectTree(tree.id) }) {
+            HStack(spacing: 8) {
+                Text("\(index + 1).")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                    .frame(width: 18, alignment: .trailing)
+
+                // Color dot
+                Circle()
+                    .fill(treeColor)
+                    .frame(width: 8, height: 8)
+
+                // Active indicator
+                if isActive {
+                    Circle()
+                        .fill(CanopyColors.glowColor)
+                        .frame(width: 5, height: 5)
+                }
+
+                Text(tree.name.lowercased())
+                    .font(.system(size: 12, weight: isSelected ? .bold : .regular, design: .monospaced))
+                    .foregroundColor(isSelected ? CanopyColors.glowColor : CanopyColors.chromeTextBright)
+                    .lineLimit(1)
+
+                Spacer()
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .background(
+                isSelected
+                    ? CanopyColors.glowColor.opacity(0.08)
+                    : Color.clear
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func treeColorFor(_ tree: NodeTree) -> Color {
+        if let pid = tree.rootNode.presetID, let preset = NodePreset.find(pid) {
+            return CanopyColors.presetColor(preset.color)
+        }
+        return CanopyColors.nodeSeed
     }
 }
 

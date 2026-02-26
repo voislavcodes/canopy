@@ -46,6 +46,22 @@ final class TreeAudioGraph {
         units.removeAll()
     }
 
+    /// Fade all units to silence, then tear down. Click-free.
+    func teardownGraphWithFade(engine: AVAudioEngine) {
+        for (_, unit) in units {
+            unit.requestFadeOut()
+        }
+        for _ in 0..<30 {
+            if units.values.allSatisfy({ $0.isFadedOut }) { break }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        for (_, unit) in units {
+            engine.disconnectNodeOutput(unit.sourceNode)
+            engine.detach(unit.sourceNode)
+        }
+        units.removeAll()
+    }
+
     // MARK: - Incremental Add/Remove
 
     /// Attach a single new node to the live graph without touching existing nodes.
@@ -96,6 +112,23 @@ final class TreeAudioGraph {
         engine.detach(unit.sourceNode)
         units.removeValue(forKey: nodeID)
         logger.info("Removed audio unit for node \(nodeID)")
+    }
+
+    /// Fade multiple nodes to silence in parallel, then detach all. Click-free.
+    func muteAndRemoveUnits(for nodeIDs: [UUID], engine: AVAudioEngine) {
+        for id in nodeIDs {
+            units[id]?.requestFadeOut()
+        }
+        for _ in 0..<30 {
+            if nodeIDs.allSatisfy({ units[$0]?.isFadedOut ?? true }) { break }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        for id in nodeIDs {
+            guard let unit = units[id] else { continue }
+            engine.disconnectNodeOutput(unit.sourceNode)
+            engine.detach(unit.sourceNode)
+            units.removeValue(forKey: id)
+        }
     }
 
     /// Fade a node to silence over one audio buffer, then detach it.

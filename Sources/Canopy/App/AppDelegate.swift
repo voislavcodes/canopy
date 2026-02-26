@@ -123,6 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         projectState.project = migrated
         projectState.selectedNodeID = nil
+        projectState.selectedTreeID = migrated.trees.first?.id
         projectState.currentFilePath = url
         projectState.isDirty = false
         transportState.bpm = migrated.bpm
@@ -357,7 +358,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func resolvedKey() -> MusicalKey {
         guard let node = projectState.selectedNode else { return projectState.project.globalKey }
         if let override = node.scaleOverride { return override }
-        if let tree = projectState.project.trees.first, let treeScale = tree.scale { return treeScale }
+        if let found = projectState.treeContainingNode(node.id), let treeScale = found.tree.scale { return treeScale }
         return projectState.project.globalKey
     }
 
@@ -369,7 +370,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Audio Graph
 
     private func rebuildAudioGraph() {
-        guard let tree = projectState.project.trees.first else { return }
+        guard let tree = projectState.selectedTree ?? projectState.project.trees.first else { return }
         AudioEngine.shared.buildGraph(from: tree)
         AudioEngine.shared.configureAllPatches(from: tree)
         AudioEngine.shared.loadAllSequences(from: tree, bpm: transportState.bpm)

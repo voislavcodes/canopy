@@ -9,6 +9,7 @@ class ProjectState: ObservableObject {
         }
     }
     @Published var selectedNodeID: UUID?
+    @Published var selectedTreeID: UUID?
     @Published var selectedLFOID: UUID?
     @Published var currentFilePath: URL?
     @Published var isDirty: Bool = false
@@ -103,7 +104,7 @@ class ProjectState: ObservableObject {
     /// Resolve the musical key for a node (node override → tree scale → global key).
     private func resolveKeyForNode(_ node: Node) -> MusicalKey {
         if let override = node.scaleOverride { return override }
-        if let tree = project.trees.first, let treeScale = tree.scale { return treeScale }
+        if let tree = treeContainingNode(node.id)?.tree, let treeScale = tree.scale { return treeScale }
         return project.globalKey
     }
 
@@ -114,6 +115,123 @@ class ProjectState: ObservableObject {
 
     init(project: CanopyProject = ProjectFactory.newProject()) {
         self.project = project
+        self.selectedTreeID = project.trees.first?.id
+    }
+
+    // MARK: - Tree Selection & CRUD
+
+    /// The currently selected tree, if any.
+    var selectedTree: NodeTree? {
+        guard let id = selectedTreeID else { return nil }
+        return project.trees.first { $0.id == id }
+    }
+
+    /// Select a tree by ID. Auto-selects the tree's root node.
+    func selectTree(_ id: UUID?) {
+        selectedTreeID = id
+        if let id, let tree = project.trees.first(where: { $0.id == id }) {
+            selectedNodeID = tree.rootNode.id
+        } else {
+            selectedNodeID = nil
+        }
+    }
+
+    /// Find the tree containing a given node ID.
+    func treeContainingNode(_ nodeID: UUID) -> (index: Int, tree: NodeTree)? {
+        for (i, tree) in project.trees.enumerated() {
+            if findNodeRecursive(id: nodeID, in: tree.rootNode) != nil {
+                return (i, tree)
+            }
+        }
+        return nil
+    }
+
+    /// Index of the tree containing a node, for mutation via project.trees[i].
+    private func treeIndexContaining(_ nodeID: UUID) -> Int? {
+        treeContainingNode(nodeID)?.index
+    }
+
+    /// Add a new tree with a fresh seed node. Enforces max 8 trees.
+    @discardableResult
+    func addTree(name: String? = nil) -> NodeTree? {
+        guard project.trees.count < 8 else { return nil }
+        let treeName = name ?? "Tree \(project.trees.count + 1)"
+        let seedNode = Node(
+            name: "Seed",
+            type: .seed,
+            key: project.globalKey,
+            sequence: NoteSequence(lengthInBeats: 4),
+            patch: SoundPatch(
+                name: "Sine Seed",
+                soundType: .oscillator(OscillatorConfig(waveform: .sine))
+            ),
+            position: NodePosition(x: 0, y: 0)
+        )
+        let tree = NodeTree(name: treeName, rootNode: seedNode)
+        project.trees.append(tree)
+        markDirty()
+        return tree
+    }
+
+    /// Remove a tree by ID. Enforces min 1 tree. Selects adjacent after removal.
+    func removeTree(id: UUID) {
+        guard project.trees.count > 1 else { return }
+        guard let idx = project.trees.firstIndex(where: { $0.id == id }) else { return }
+        project.trees.remove(at: idx)
+        // Select adjacent tree
+        let newIdx = min(idx, project.trees.count - 1)
+        selectTree(project.trees[newIdx].id)
+        markDirty()
+    }
+
+    /// Rename a tree.
+    func renameTree(id: UUID, name: String) {
+        guard let idx = project.trees.firstIndex(where: { $0.id == id }) else { return }
+        project.trees[idx].name = name
+        markDirty()
+    }
+
+    /// Deep-copy a tree with new UUIDs. Enforces max 8 trees.
+    @discardableResult
+    func duplicateTree(id: UUID) -> NodeTree? {
+        guard project.trees.count < 8,
+              let source = project.trees.first(where: { $0.id == id }) else { return nil }
+        let newTree = NodeTree(
+            name: source.name + " copy",
+            rootNode: deepCopyNode(source.rootNode),
+            transition: source.transition,
+            scale: source.scale
+        )
+        project.trees.append(newTree)
+        markDirty()
+        return newTree
+    }
+
+    /// Recursively copy a node subtree with fresh UUIDs.
+    private func deepCopyNode(_ node: Node) -> Node {
+        var copy = node
+        copy.id = UUID()
+        copy.children = node.children.map { deepCopyNode($0) }
+        return copy
+    }
+
+    /// All nodes for the selected tree (for canvas rendering).
+    /// Falls back to first tree if no tree is selected.
+    func allNodesForSelectedTree() -> [Node] {
+        guard let tree = selectedTree ?? project.trees.first else { return [] }
+        var result: [Node] = []
+        collectNodes(from: tree.rootNode, into: &result)
+        return result
+    }
+
+    /// Cycle length for the selected tree (falls back to first tree).
+    func cycleLengthForSelectedTree() -> Double {
+        let nodes = allNodesForSelectedTree()
+        guard !nodes.isEmpty else { return 1 }
+        let sd = NoteSequence.stepDuration
+        let stepCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats / sd))) }
+        let lcmSteps = stepCounts.reduce(1) { lcm($0, $1) }
+        return Double(lcmSteps) * sd
     }
 
     // MARK: - Dirty Tracking & Auto-Save
@@ -219,9 +337,9 @@ class ProjectState: ObservableObject {
             parent.children.append(newNode)
         }
 
-        // Recompute layout for the entire tree
-        if project.trees.count > 0 {
-            recomputeLayout(root: &project.trees[0].rootNode, x: 0, y: 0, depth: 0)
+        // Recompute layout for the tree containing the parent
+        if let treeIdx = treeIndexContaining(parentID) {
+            recomputeLayout(root: &project.trees[treeIdx].rootNode, x: 0, y: 0, depth: 0)
         }
 
         markDirty()
@@ -250,22 +368,22 @@ class ProjectState: ObservableObject {
             parent.children.append(newNode)
         }
 
-        if project.trees.count > 0 {
-            recomputeLayout(root: &project.trees[0].rootNode, x: 0, y: 0, depth: 0)
+        if let treeIdx = treeIndexContaining(parentID) {
+            recomputeLayout(root: &project.trees[treeIdx].rootNode, x: 0, y: 0, depth: 0)
         }
 
         markDirty()
         return newNode
     }
 
-    /// Remove a node by ID. Cannot remove the root node.
+    /// Remove a node by ID. Cannot remove any tree's root node.
     func removeNode(id: UUID) {
-        guard project.trees.count > 0 else { return }
-        let rootID = project.trees[0].rootNode.id
+        guard let treeIdx = treeIndexContaining(id) else { return }
+        let rootID = project.trees[treeIdx].rootNode.id
         guard id != rootID else { return }
 
-        removeNodeRecursive(id: id, from: &project.trees[0].rootNode)
-        recomputeLayout(root: &project.trees[0].rootNode, x: 0, y: 0, depth: 0)
+        removeNodeRecursive(id: id, from: &project.trees[treeIdx].rootNode)
+        recomputeLayout(root: &project.trees[treeIdx].rootNode, x: 0, y: 0, depth: 0)
         markDirty()
     }
 

@@ -35,6 +35,7 @@ struct CanopyCanvasView: View {
             let viewSize = geometry.size
 
             // Pre-compute values from projectState once per body evaluation
+            // Scope to the selected tree only (not all trees)
             let allNodes = projectState.allNodes()
             let selectedNode = projectState.selectedNode
             let selectedNodeID = projectState.selectedNodeID
@@ -413,8 +414,8 @@ struct CanopyCanvasView: View {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak viewModeManager, weak projectState] event in
             guard let viewModeManager = viewModeManager else { return event }
 
-            // Enter — enter focus mode when a node is selected (only from Forest)
-            if event.keyCode == 36, viewModeManager.isForest {
+            // Enter — enter focus mode when a node is selected (from tree detail)
+            if event.keyCode == 36, viewModeManager.isTreeDetail {
                 guard let nodeID = projectState?.selectedNodeID else { return event }
                 DispatchQueue.main.async {
                     withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
@@ -424,12 +425,24 @@ struct CanopyCanvasView: View {
                 return nil
             }
 
+            // Escape — exit tree detail back to forest (only with 2+ trees)
+            if event.keyCode == 53, viewModeManager.isTreeDetail,
+               let projectState = projectState, projectState.project.trees.count >= 2 {
+                DispatchQueue.main.async {
+                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                        viewModeManager.exitTreeDetail()
+                    }
+                }
+                return nil
+            }
+
             // Delete/Backspace — remove selected node (not root)
             if event.keyCode == 51 || event.keyCode == 117 {
                 guard let projectState = projectState,
                       let nodeID = projectState.selectedNodeID else { return event }
-                // Don't delete the root node
-                let rootID = projectState.project.trees.first?.rootNode.id
+                // Don't delete the root node of the selected tree
+                let rootID = projectState.selectedTree?.rootNode.id
+                    ?? projectState.project.trees.first?.rootNode.id
                 guard nodeID != rootID else { return event }
                 DispatchQueue.main.async {
                     // Collect all descendant IDs to remove from audio graph
@@ -442,9 +455,7 @@ struct CanopyCanvasView: View {
                     withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
                         projectState.removeNode(id: nodeID)
                     }
-                    for id in idsToRemove {
-                        AudioEngine.shared.removeNode(id)
-                    }
+                    AudioEngine.shared.muteAndRemoveNodes(idsToRemove)
                 }
                 return nil
             }
