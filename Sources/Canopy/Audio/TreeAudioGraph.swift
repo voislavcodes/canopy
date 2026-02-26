@@ -80,10 +80,10 @@ final class TreeAudioGraph {
             units[id]?.startSequencer(bpm: bpm)
         }
 
-        // 5. Stop old sequencers — voices ring out through natural ADSR release.
-        //    No hard fade — old audio decays naturally while new tree plays.
+        // 5. Soft-stop old sequencers — prevents new note triggers but lets
+        //    active voices ring out through their natural ADSR release.
         for id in oldIDs {
-            units[id]?.stopSequencer()
+            units[id]?.stopSequencerSoft()
         }
 
         // 6. Remove old units from tracking, keep connected for release tails
@@ -160,12 +160,11 @@ final class TreeAudioGraph {
             units[id]?.startSequencer(bpm: bpm)
         }
 
-        // Stop old sequencers — prevents new note triggers after clock reset.
-        // voices.allNotesOff() in the stop handler is a no-op here since voices
-        // are already in release from handleLoopWrap at the cycle boundary.
-        // Crucially: NO requestFadeOut — let voices ring out through natural ADSR release.
+        // Soft-stop old sequencers — prevents new note triggers after clock reset
+        // but lets active voices ring out through their natural ADSR release.
+        // No allNotesOff, no filter reset — voices decay naturally while new tree plays.
         for id in oldIDs {
-            units[id]?.stopSequencer()
+            units[id]?.stopSequencerSoft()
         }
 
         // Remove old units from tracking (transport/BPM ops won't touch them)

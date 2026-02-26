@@ -198,6 +198,9 @@ final class NodeAudioUnit {
                     voices.allNotesOff()
                     filter.reset()
 
+                case .sequencerStopSoft:
+                    seq.stop()
+
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     fxChain.updateBPM(bpm)
@@ -412,6 +415,9 @@ final class NodeAudioUnit {
                     seq.stop()
                     drumKit.allNotesOff()
                     filter.reset()
+
+                case .sequencerStopSoft:
+                    seq.stop()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -633,6 +639,10 @@ final class NodeAudioUnit {
                     orbit.stop()
                     quake.allNotesOff()
                     filter.reset()
+
+                case .sequencerStopSoft:
+                    seq.stop()
+                    orbit.stop()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -861,6 +871,9 @@ final class NodeAudioUnit {
                     westCoast.allNotesOff()
                     filter.reset()
 
+                case .sequencerStopSoft:
+                    seq.stop()
+
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     fxChain.updateBPM(bpm)
@@ -1083,6 +1096,9 @@ final class NodeAudioUnit {
                     seq.stop()
                     flow.allNotesOff()
                     filter.reset()
+
+                case .sequencerStopSoft:
+                    seq.stop()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1313,6 +1329,9 @@ final class NodeAudioUnit {
                     swarm.allNotesOff()
                     filter.reset()
 
+                case .sequencerStopSoft:
+                    seq.stop()
+
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     fxChain.updateBPM(bpm)
@@ -1537,6 +1556,9 @@ final class NodeAudioUnit {
                     seq.stop()
                     tide.allNotesOff()
                     filter.reset()
+
+                case .sequencerStopSoft:
+                    seq.stop()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1773,6 +1795,10 @@ final class NodeAudioUnit {
                     sporeSeq.stop()
                     spore.allNotesOff()
                     filter.reset()
+
+                case .sequencerStopSoft:
+                    seq.stop()
+                    sporeSeq.stop()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -2100,6 +2126,12 @@ final class NodeAudioUnit {
         commandBuffer.push(.sequencerStop)
     }
 
+    /// Stop sequencer without killing voices — lets active notes ring out
+    /// through their natural ADSR release. Used during forest transitions.
+    func stopSequencerSoft() {
+        commandBuffer.push(.sequencerStopSoft)
+    }
+
     func setSequencerBPM(_ bpm: Double) {
         commandBuffer.push(.sequencerSetBPM(bpm))
     }
@@ -2407,6 +2439,9 @@ final class NodeAudioUnit {
                     schmynth.allNotesOff()
                     filter.reset()
 
+                case .sequencerStopSoft:
+                    seq.stop()
+
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     fxChain.updateBPM(bpm)
@@ -2596,6 +2631,9 @@ final class NodeAudioUnit {
                     fuse.allNotesOff()
                     filter.reset()
 
+                case .sequencerStopSoft:
+                    seq.stop()
+
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     fxChain.updateBPM(bpm)
@@ -2783,6 +2821,9 @@ final class NodeAudioUnit {
                     seq.stop()
                     volt.allNotesOff()
                     filter.reset()
+
+                case .sequencerStopSoft:
+                    seq.stop()
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)

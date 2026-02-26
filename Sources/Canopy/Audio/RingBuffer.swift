@@ -11,6 +11,7 @@ enum AudioCommand {
     // Sequencer control
     case sequencerStart(bpm: Double)
     case sequencerStop
+    case sequencerStopSoft   // Stop sequencer without killing voices (forest transitions)
     case sequencerSetBPM(Double)
     case sequencerLoad(events: [SequencerEvent], lengthInBeats: Double,
                        direction: PlaybackDirection,
