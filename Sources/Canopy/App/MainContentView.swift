@@ -360,13 +360,11 @@ struct MainContentView: View {
         // Track that we've synced this tree so handleTreeSelectionChange doesn't double-rebuild
         lastSyncedTreeID = tree.id
 
-        AudioEngine.shared.stopAllSequencersWithFade()
-        AudioEngine.shared.teardownGraph()
-        AudioEngine.shared.buildGraph(from: tree)
-        AudioEngine.shared.configureAllPatches(from: tree)
-        AudioEngine.shared.loadAllSequences(from: tree, bpm: transportState.bpm)
+        // Crossfade swap: builds new graph alongside old, starts new sequencers,
+        // fades out old units, then detaches them. Zero-gap, click-free.
+        AudioEngine.shared.crossfadeSwap(to: tree, bpm: transportState.bpm)
 
-        // Push per-node FX chains
+        // Push per-node FX chains for new tree
         var nodes: [Node] = []
         collectNodes(from: tree.rootNode, into: &nodes)
         for node in nodes {
@@ -379,9 +377,6 @@ struct MainContentView: View {
 
         // Update selected tree to match the playing tree (highlights in forest UI)
         projectState.selectedTreeID = tree.id
-
-        // Restart sequencers
-        AudioEngine.shared.startAllSequencers(bpm: transportState.bpm)
     }
 
     // MARK: - Private Helpers

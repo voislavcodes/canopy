@@ -46,6 +46,50 @@ final class TreeAudioGraph {
         units.removeAll()
     }
 
+    /// Crossfade swap: build new tree's graph alongside old one, start new sequencers,
+    /// then fade out and remove old units. Zero-gap, click-free.
+    func crossfadeSwap(to tree: NodeTree, engine: AVAudioEngine, sampleRate: Double, bpm: Double) {
+        // 1. Capture old unit IDs
+        let oldIDs = Array(units.keys)
+
+        // 2. Request fade-out on old units (audio thread processes this ~12ms)
+        for id in oldIDs {
+            units[id]?.requestFadeOut()
+        }
+
+        // 3. Build new units alongside old ones (new tree has fresh UUIDs)
+        buildNodeRecursive(tree.rootNode, engine: engine, sampleRate: sampleRate)
+        logger.info("Crossfade swap: built \(self.units.count - oldIDs.count) new unit(s)")
+
+        // 4. Configure patches and load sequences for new nodes
+        configureNodePatchRecursive(tree.rootNode)
+        loadNodeSequenceRecursive(tree.rootNode, bpm: bpm)
+
+        // 5. Reset fade on new units and start sequencers (resets clock to 0)
+        let newIDs = Set(units.keys).subtracting(oldIDs)
+        for id in newIDs {
+            units[id]?.resetFade()
+        }
+        clockSamplePosition.pointee = 0
+        clockIsRunning.pointee = true
+        for id in newIDs {
+            units[id]?.startSequencer(bpm: bpm)
+        }
+
+        // 6. Wait for old units to finish fading, then detach them
+        for _ in 0..<30 {
+            if oldIDs.allSatisfy({ units[$0]?.isFadedOut ?? true }) { break }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        for id in oldIDs {
+            if let unit = units[id] {
+                engine.disconnectNodeOutput(unit.sourceNode)
+                engine.detach(unit.sourceNode)
+            }
+            units.removeValue(forKey: id)
+        }
+    }
+
     /// Fade all units to silence, then tear down. Click-free.
     func teardownGraphWithFade(engine: AVAudioEngine) {
         for (_, unit) in units {

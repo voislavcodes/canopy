@@ -138,6 +138,12 @@ final class AudioEngine {
         graph.teardownGraphWithFade(engine: engine)
     }
 
+    /// Crossfade swap: build new tree alongside old, start new, fade+remove old. Zero-gap.
+    func crossfadeSwap(to tree: NodeTree, bpm: Double) {
+        guard sampleRate > 0 else { return }
+        graph.crossfadeSwap(to: tree, engine: engine, sampleRate: sampleRate, bpm: bpm)
+    }
+
     /// Configure the full sound patch for a single node (all sound types, pan, filter, FX).
     func configureSingleNodePatch(_ node: Node) {
         graph.configureSingleNodePatch(node)
