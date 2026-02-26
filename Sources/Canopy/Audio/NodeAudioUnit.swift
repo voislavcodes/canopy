@@ -2005,9 +2005,14 @@ final class NodeAudioUnit {
         _fadeState.pointee = 1
     }
 
-    /// Whether the fade-out has completed (safe to disconnect).
+    /// Whether the fade-out has completed (safe to disconnect or stop).
     var isFadedOut: Bool {
         _fadeState.pointee == 2
+    }
+
+    /// Reset fade state to normal after a faded stop, so next play outputs audio.
+    func resetFade() {
+        _fadeState.pointee = 0
     }
 
     /// Apply buffer-level fade for click-free removal. Called at the end of

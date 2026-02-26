@@ -29,10 +29,10 @@ class TransportState: ObservableObject {
         AudioEngine.shared.startAllSequencers(bpm: bpm)
     }
 
-    /// Stop all sequencers and reset.
+    /// Stop all sequencers with a click-free fade-out.
     func stopPlayback() {
         isPlaying = false
-        AudioEngine.shared.stopAllSequencers()
+        AudioEngine.shared.stopAllSequencersWithFade()
     }
 
     /// Update BPM (live, while playing).

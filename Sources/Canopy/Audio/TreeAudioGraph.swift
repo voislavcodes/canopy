@@ -132,6 +132,10 @@ final class TreeAudioGraph {
 
     /// Start all sequencers simultaneously at the given BPM.
     func startAll(bpm: Double) {
+        // Reset fade state from any previous stopAllWithFade()
+        for (_, unit) in units {
+            unit.resetFade()
+        }
         clockSamplePosition.pointee = 0
         clockIsRunning.pointee = true
         for (_, unit) in units {
@@ -144,8 +148,31 @@ final class TreeAudioGraph {
         units[nodeID]?.startSequencer(bpm: bpm)
     }
 
-    /// Stop all sequencers and silence all notes.
+    /// Stop all sequencers and silence all notes (instant — may click).
     func stopAll() {
+        clockIsRunning.pointee = false
+        for (_, unit) in units {
+            unit.stopSequencer()
+        }
+    }
+
+    /// Fade all units to silence, then stop sequencers. Click-free.
+    /// Units stay in faded state (outputting zeros) until the next startAll().
+    func stopAllWithFade() {
+        // Request fade-out on every unit
+        for (_, unit) in units {
+            unit.requestFadeOut()
+        }
+        // Wait for all to finish (typically < 12ms)
+        for _ in 0..<30 {
+            let allDone = units.values.allSatisfy { $0.isFadedOut }
+            if allDone { break }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        // Now safe to stop — output is already zero.
+        // Do NOT resetFade() here — leave units outputting zeros so the
+        // .sequencerStop command can process without any audible transient.
+        // Fade is reset in startAll() before the next playback begins.
         clockIsRunning.pointee = false
         for (_, unit) in units {
             unit.stopSequencer()

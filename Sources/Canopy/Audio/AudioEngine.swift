@@ -376,9 +376,14 @@ final class AudioEngine {
         graph.startAll(bpm: bpm)
     }
 
-    /// Stop all sequencers and silence all notes.
+    /// Stop all sequencers and silence all notes (instant — may click).
     func stopAllSequencers() {
         graph.stopAll()
+    }
+
+    /// Fade all units to silence then stop. Click-free.
+    func stopAllSequencersWithFade() {
+        graph.stopAllWithFade()
     }
 
     /// Update BPM on all running sequencers.
