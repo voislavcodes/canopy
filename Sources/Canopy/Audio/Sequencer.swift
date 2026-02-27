@@ -157,6 +157,12 @@ struct Sequencer {
     var regionEndSample: Int64 = Int64.max
     var isArmed: Bool = false
 
+    // Transient per-callback flags for forest region transitions.
+    // Set inside tick(), read-and-cleared by the render callback after the per-frame loop.
+    // NOT added to resetFlags() — they must survive loop wraps within the same callback.
+    var didAutoStartFromArm: Bool = false
+    var didAutoStopFromRegion: Bool = false
+
     // MARK: - Arp state (pre-allocated, zero-alloc on audio thread)
 
     private var arpActive: Bool = false
@@ -484,6 +490,7 @@ struct Sequencer {
             isPlaying = true
             isArmed = false
             needsClockSync = true
+            didAutoStartFromArm = true
         }
 
         guard isPlaying else { return }
@@ -491,6 +498,7 @@ struct Sequencer {
         // Auto-stop: sequencer stops at region end (sample-accurate)
         if globalSample >= regionEndSample {
             stopSoft(receiver: &receiver, detune: detune)
+            didAutoStopFromRegion = true
             return
         }
 
@@ -523,6 +531,20 @@ struct Sequencer {
             let loopDelta = newLoopCount - loopCount
             handleLoopWrap(receiver: &receiver, detune: detune, loopDelta: loopDelta)
             loopCount = newLoopCount
+
+            // Guard: if the region ends before this new loop can complete,
+            // stop immediately. Prevents brief beat-0 re-triggers when
+            // floating-point edge cases let the wrap fire before auto-stop.
+            if regionEndSample < Int64.max {
+                let nextWrapBeat = Double(newLoopCount + 1) * lengthInBeats
+                let nextWrapSample = regionStartSample
+                    + Int64(nextWrapBeat * 60.0 * sampleRate / bpm)
+                if nextWrapSample > regionEndSample {
+                    isPlaying = false
+                    didAutoStopFromRegion = true
+                    return
+                }
+            }
         }
 
         currentBeat = localBeat

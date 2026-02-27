@@ -465,6 +465,16 @@ final class NodeAudioUnit {
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
             // Voice-tail rendering for post-deactivation frames (release envelopes)
             for frame in range.activeEnd..<Int(frameCount) {
                 volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -741,6 +751,16 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &drumKit, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 
@@ -1043,6 +1063,16 @@ final class NodeAudioUnit {
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
             // Voice-tail rendering for post-deactivation frames
             for frame in range.activeEnd..<Int(frameCount) {
                 volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -1337,6 +1367,16 @@ final class NodeAudioUnit {
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
             for frame in range.activeEnd..<Int(frameCount) {
                 volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                 let raw = westCoast.renderSample(sampleRate: sr) * Float(volumeSmoothed)
@@ -1625,6 +1665,16 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &flow, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 
@@ -1919,6 +1969,16 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &swarm, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 
@@ -2219,6 +2279,16 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &tide, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 
@@ -2561,6 +2631,16 @@ final class NodeAudioUnit {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &spore, detune: 0)
                 sporeSeq.stop()
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 
@@ -3365,6 +3445,16 @@ final class NodeAudioUnit {
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
             // Voice-tail rendering for post-deactivation frames (release envelopes)
             for frame in range.activeEnd..<Int(frameCount) {
                 volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -3619,6 +3709,16 @@ final class NodeAudioUnit {
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
             // Voice-tail rendering for post-deactivation frames (release envelopes)
             for frame in range.activeEnd..<Int(frameCount) {
                 volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -3852,6 +3952,16 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &volt, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Forest timeline region transitions — fade in/out for click-free audio
+            if seq.didAutoStartFromArm {
+                seq.didAutoStartFromArm = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+            }
+            if seq.didAutoStopFromRegion {
+                seq.didAutoStopFromRegion = false
                 if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
             }
 

@@ -453,7 +453,7 @@ struct MainContentView: View {
                 lengthInBeats: cycle2
             ))
             AudioEngine.shared.stageNextTree(nextTree, bpm: bpm)
-            AudioEngine.shared.armStagedUnits(regionStart: len1, regionEnd: len1 + len2)
+            AudioEngine.shared.armStagedUnits(regionStart: len1, regionEnd: len1 + len2, bpm: bpm)
         }
 
         forestPlayback.timeline = timeline
@@ -581,6 +581,6 @@ private struct ForestTimelinePoller: View {
         ))
 
         AudioEngine.shared.stageNextTree(nextTree, bpm: bpm)
-        AudioEngine.shared.armStagedUnits(regionStart: boundary, regionEnd: boundary + regionLen)
+        AudioEngine.shared.armStagedUnits(regionStart: boundary, regionEnd: boundary + regionLen, bpm: bpm)
     }
 }

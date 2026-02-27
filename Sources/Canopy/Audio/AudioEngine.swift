@@ -183,8 +183,8 @@ final class AudioEngine {
     }
 
     /// Arm staged units for auto-start at the given region bounds.
-    func armStagedUnits(regionStart: Int64, regionEnd: Int64) {
-        graph.armStagedUnits(regionStart: regionStart, regionEnd: regionEnd)
+    func armStagedUnits(regionStart: Int64, regionEnd: Int64, bpm: Double) {
+        graph.armStagedUnits(regionStart: regionStart, regionEnd: regionEnd, bpm: bpm)
     }
 
     /// Promote staged units to active tracking (timeline mode).

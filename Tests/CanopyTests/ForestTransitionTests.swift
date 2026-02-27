@@ -103,6 +103,20 @@ final class ForestTransitionTests: XCTestCase {
         for child in node.children { collectNodes(from: child, into: &result) }
     }
 
+    /// Collect all node IDs from a tree recursively. Used with drainUnits(for:engine:).
+    private func collectNodeIDs(from tree: NodeTree) -> [UUID] {
+        var ids: [UUID] = []
+        collectNodeIDsRecursive(from: tree.rootNode, into: &ids)
+        return ids
+    }
+
+    private func collectNodeIDsRecursive(from node: Node, into ids: inout [UUID]) {
+        ids.append(node.id)
+        for child in node.children {
+            collectNodeIDsRecursive(from: child, into: &ids)
+        }
+    }
+
     private func gcd(_ a: Int, _ b: Int) -> Int {
         var a = abs(a); var b = abs(b)
         while b != 0 { let t = b; b = a % b; a = t }
@@ -352,6 +366,97 @@ final class ForestTransitionTests: XCTestCase {
 
         engine.stop()
         return (allSamples, transitionIndex)
+    }
+
+    // MARK: - Arm Transition Runner
+
+    /// Mirrors the production forest timeline flow exactly:
+    /// 1. Build tree 1, configure, load, startAll(bpm:, resetClock: true)
+    /// 2. setActiveRegionBounds — region-gate tree 1
+    /// 3. stageNextTree — WITHOUT currentCycleLengthInBeats (skips timestamps)
+    /// 4. armStagedUnits — arm tree 2 with region bounds
+    /// 5. Render through tree 1's full region + past boundary
+    /// 6. Optional bookkeeping delay (simulates main-thread lag)
+    /// 7. promoteStagedToActive + drainUnits — bookkeeping
+    /// 8. Render remainder of tree 2
+    /// Returns (samples, transitionIndex) where transitionIndex = region1End in samples.
+    private func runArmTransitionTest(
+        tree1: NodeTree, tree2: NodeTree,
+        config: TestConfig,
+        tree1CycleLengthInBeats: Double,
+        tree2CycleLengthInBeats: Double? = nil,
+        tree1Cycles: Int = 2,
+        bookkeepingDelayBuffers: Int = 0,
+        label: String
+    ) throws -> (samples: [Float], transitionIndex: Int) {
+        let engine = AVAudioEngine()
+        let format = AVAudioFormat(standardFormatWithSampleRate: config.sampleRate, channels: 2)!
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: config.bufferSize)
+
+        let graph = TreeAudioGraph()
+
+        // 1. Build tree 1, configure, load, start
+        graph.buildGraph(from: tree1, engine: engine, sampleRate: config.sampleRate)
+        graph.configureAllPatches(from: tree1)
+        graph.loadAllSequences(from: tree1, bpm: config.bpm)
+
+        try engine.start()
+        graph.startAll(bpm: config.bpm, resetClock: true)
+
+        // 2. Region-gate tree 1
+        let samplesPerBeat = 60.0 * config.sampleRate / config.bpm
+        let region1End = Int64(Double(tree1Cycles) * tree1CycleLengthInBeats * samplesPerBeat)
+        graph.setActiveRegionBounds(start: 0, end: region1End)
+
+        // Compute tree 2 region
+        let tree2Cycle = tree2CycleLengthInBeats ?? tree1CycleLengthInBeats
+        let tree2CycleSamples = Int64(tree2Cycle * samplesPerBeat)
+        let region2End = region1End + tree2CycleSamples * 2  // 2 cycles of tree 2
+
+        // 3. Stage tree 2 WITHOUT currentCycleLengthInBeats (no timestamps)
+        //    This mirrors the arm-based path where stageNextTree is called with default 0.
+        graph.stageNextTree(tree2, engine: engine, sampleRate: config.sampleRate, bpm: config.bpm)
+
+        // 4. Arm staged units with region bounds
+        graph.armStagedUnits(regionStart: region1End, regionEnd: region2End, bpm: config.bpm)
+
+        // Capture tree 1 IDs for draining later
+        let tree1IDs = collectNodeIDs(from: tree1)
+
+        // 5. Render through tree 1's full region + 1 buffer past boundary
+        let tree1TotalSamples = Int(region1End)
+        let tree1Buffers = tree1TotalSamples / Int(config.bufferSize) + 1
+        var allSamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: tree1Buffers, format: format,
+            bufferSize: config.bufferSize
+        )
+
+        // 6. Optional bookkeeping delay (simulates main-thread lag)
+        if bookkeepingDelayBuffers > 0 {
+            let delaySamples = try renderSamples(
+                engine: engine, graph: graph,
+                bufferCount: bookkeepingDelayBuffers, format: format,
+                bufferSize: config.bufferSize
+            )
+            allSamples.append(contentsOf: delaySamples)
+        }
+
+        // 7. Bookkeeping: promote staged → active, drain old tree
+        graph.promoteStagedToActive()
+        graph.drainUnits(for: tree1IDs, engine: engine)
+
+        // 8. Render remainder of tree 2 (2 cycles worth)
+        let tree2Buffers = Int(tree2CycleSamples) * 2 / Int(config.bufferSize)
+        let tree2Samples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: max(tree2Buffers, 10), format: format,
+            bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: tree2Samples)
+
+        engine.stop()
+        return (allSamples, Int(region1End))
     }
 
     // =========================================================================
@@ -1338,5 +1443,242 @@ final class ForestTransitionTests: XCTestCase {
                              "Tree 2 should produce audio after crossfade swap")
 
         engine.stop()
+    }
+
+    // =========================================================================
+    // MARK: - Forest Timeline Arm-Based Transitions
+    // =========================================================================
+
+    /// Fundamental arm mechanism — tree 1 auto-stops at region end, tree 2
+    /// auto-starts when clock reaches region start. No clicks.
+    func testArmTransition_Basic4x4() throws {
+        let config = defaultConfig
+        let tree1 = makeTestTree(pitch: 48, name: "ArmTree1")
+        let tree2 = makeTestTree(pitch: 52, name: "ArmTree2")
+
+        let (samples, transitionIndex) = try runArmTransitionTest(
+            tree1: tree1, tree2: tree2, config: config,
+            tree1CycleLengthInBeats: 4,
+            tree1Cycles: 2,
+            label: "Arm basic 4×4"
+        )
+
+        assertCleanTransition(
+            samples: samples, transitionSampleIndex: transitionIndex,
+            config: config, cycleBeats: 4,
+            label: "Arm basic 4×4"
+        )
+
+        // Verify tree 2 is producing audio after the transition
+        let tree2Start = transitionIndex + Int(config.samplesPerBeat)
+        let tree2End = min(samples.count, tree2Start + Int(4 * config.samplesPerBeat))
+        let tree2RMS = rms(of: samples, range: tree2Start..<tree2End)
+        XCTAssertGreaterThan(tree2RMS, 0.001,
+                             "Arm: Tree 2 should produce audio after region boundary")
+    }
+
+    /// 10-buffer delay before promote/drain — verifies audio is independent of
+    /// main-thread bookkeeping timing. The arm mechanism handles start/stop on
+    /// the audio thread; bookkeeping is just cleanup.
+    func testArmTransition_LateBookkeeping() throws {
+        let config = defaultConfig
+        let tree1 = makeTestTree(pitch: 48, name: "ArmTree1")
+        let tree2 = makeTestTree(pitch: 52, name: "ArmTree2")
+
+        let (samples, transitionIndex) = try runArmTransitionTest(
+            tree1: tree1, tree2: tree2, config: config,
+            tree1CycleLengthInBeats: 4,
+            tree1Cycles: 2,
+            bookkeepingDelayBuffers: 10,
+            label: "Arm late bookkeeping"
+        )
+
+        assertCleanTransition(
+            samples: samples, transitionSampleIndex: transitionIndex,
+            config: config, cycleBeats: 4,
+            label: "Arm late bookkeeping (10 buffers)"
+        )
+    }
+
+    /// tree1→tree2→tree3 — two consecutive arm transitions with staging/draining
+    /// between. Verifies the full lifecycle works back-to-back.
+    func testArmTransition_BackToBack() throws {
+        let config = defaultConfig
+        let tree1 = makeTestTree(pitch: 48, name: "ArmTree1")
+        let tree2 = makeTestTree(pitch: 52, name: "ArmTree2")
+        let tree3 = makeTestTree(pitch: 55, name: "ArmTree3")
+
+        let engine = AVAudioEngine()
+        let format = AVAudioFormat(standardFormatWithSampleRate: config.sampleRate, channels: 2)!
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: config.bufferSize)
+
+        let graph = TreeAudioGraph()
+        let samplesPerBeat = 60.0 * config.sampleRate / config.bpm
+        let cycleLengthInBeats: Double = 4
+        let cycleSamples = Int64(cycleLengthInBeats * samplesPerBeat)
+
+        // --- Phase 1: Tree 1 ---
+        graph.buildGraph(from: tree1, engine: engine, sampleRate: config.sampleRate)
+        graph.configureAllPatches(from: tree1)
+        graph.loadAllSequences(from: tree1, bpm: config.bpm)
+
+        try engine.start()
+        graph.startAll(bpm: config.bpm, resetClock: true)
+
+        let region1End = cycleSamples * 2  // 2 cycles of tree 1
+        let region2End = region1End + cycleSamples * 2  // 2 cycles of tree 2
+        let region3End = region2End + cycleSamples * 2  // 2 cycles of tree 3
+
+        graph.setActiveRegionBounds(start: 0, end: region1End)
+
+        // Stage and arm tree 2
+        graph.stageNextTree(tree2, engine: engine, sampleRate: config.sampleRate, bpm: config.bpm)
+        graph.armStagedUnits(regionStart: region1End, regionEnd: region2End, bpm: config.bpm)
+
+        let tree1IDs = collectNodeIDs(from: tree1)
+
+        // Render through tree 1 + 1 buffer past boundary
+        let tree1Buffers = Int(region1End) / Int(config.bufferSize) + 1
+        var allSamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: tree1Buffers, format: format,
+            bufferSize: config.bufferSize
+        )
+
+        // Bookkeeping: promote tree 2, drain tree 1
+        graph.promoteStagedToActive()
+        graph.drainUnits(for: tree1IDs, engine: engine)
+
+        let transition1Index = Int(region1End)
+
+        // --- Phase 2: Tree 2 playing, stage tree 3 ---
+        // Render 1 cycle of tree 2 before staging tree 3
+        let preStageSamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: Int(cycleSamples) / Int(config.bufferSize), format: format,
+            bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: preStageSamples)
+
+        // Stage and arm tree 3
+        graph.stageNextTree(tree3, engine: engine, sampleRate: config.sampleRate, bpm: config.bpm)
+        graph.armStagedUnits(regionStart: region2End, regionEnd: region3End, bpm: config.bpm)
+
+        let tree2IDs = collectNodeIDs(from: tree2)
+
+        // Render through tree 2's region end + 1 buffer past
+        let tree2RemainingBuffers = (Int(region2End) - allSamples.count) / Int(config.bufferSize) + 1
+        let tree2RemainingSamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: max(tree2RemainingBuffers, 1), format: format,
+            bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: tree2RemainingSamples)
+
+        // Bookkeeping: promote tree 3, drain tree 2
+        graph.promoteStagedToActive()
+        graph.drainUnits(for: tree2IDs, engine: engine)
+
+        let transition2Index = Int(region2End)
+
+        // Render 2 cycles of tree 3
+        let tree3Samples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: Int(cycleSamples) * 2 / Int(config.bufferSize), format: format,
+            bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: tree3Samples)
+
+        engine.stop()
+
+        // Check both transitions
+        assertCleanTransition(
+            samples: allSamples, transitionSampleIndex: transition1Index,
+            config: config, cycleBeats: cycleLengthInBeats,
+            label: "Arm back-to-back transition 1 (tree1→tree2)"
+        )
+        assertCleanTransition(
+            samples: allSamples, transitionSampleIndex: transition2Index,
+            config: config, cycleBeats: cycleLengthInBeats,
+            label: "Arm back-to-back transition 2 (tree2→tree3)"
+        )
+    }
+
+    /// 97 BPM (27278.35 samples/beat) — tests rounding at region boundaries.
+    /// Non-integer samples/beat forces the arm mechanism to handle fractional alignment.
+    func testArmTransition_FractionalBPM_97() throws {
+        var config = TestConfig()
+        config.bpm = 97
+
+        let tree1 = makeTestTree(pitch: 48, name: "ArmTree1")
+        let tree2 = makeTestTree(pitch: 52, name: "ArmTree2")
+
+        let (samples, transitionIndex) = try runArmTransitionTest(
+            tree1: tree1, tree2: tree2, config: config,
+            tree1CycleLengthInBeats: 4,
+            tree1Cycles: 2,
+            label: "Arm fractional BPM 97"
+        )
+
+        assertCleanTransition(
+            samples: samples, transitionSampleIndex: transitionIndex,
+            config: config, cycleBeats: 4,
+            label: "Arm fractional BPM (97)"
+        )
+    }
+
+    /// 3-beat cycle (66150 samples at 120 BPM, not divisible by 512) — boundary
+    /// falls mid-buffer, testing the arm mechanism's sample-level precision.
+    func testArmTransition_MisalignedCycle_3Beat() throws {
+        let config = defaultConfig
+        let tree1 = makeTestTree(pitch: 48, name: "ArmTree1", lengthInBeats: 3)
+        let tree2 = makeTestTree(pitch: 52, name: "ArmTree2", lengthInBeats: 3)
+
+        let (samples, transitionIndex) = try runArmTransitionTest(
+            tree1: tree1, tree2: tree2, config: config,
+            tree1CycleLengthInBeats: 3,
+            tree1Cycles: 2,
+            label: "Arm misaligned 3-beat"
+        )
+
+        assertCleanTransition(
+            samples: samples, transitionSampleIndex: transitionIndex,
+            config: config, cycleBeats: 3,
+            label: "Arm misaligned cycle (3-beat)"
+        )
+    }
+
+    /// Note at beat 3.75 of 4-beat cycle — release tail overlaps with tree 2's onset.
+    /// The arm mechanism's fade-in/fade-out must handle the overlap cleanly.
+    func testArmTransition_NoteNearCycleEnd() throws {
+        let config = defaultConfig
+
+        // Tree 1: note at beat 0 AND beat 3.75 (near region boundary)
+        let note1 = NoteEvent(pitch: 48, velocity: 0.8, startBeat: 0.0, duration: 0.25)
+        let note2 = NoteEvent(pitch: 48, velocity: 0.8, startBeat: 3.75, duration: 0.25)
+        let seq1 = NoteSequence(notes: [note1, note2], lengthInBeats: 4)
+        let patch1 = SoundPatch(
+            name: "ArmT1",
+            soundType: .oscillator(OscillatorConfig(waveform: .sawtooth)),
+            envelope: EnvelopeConfig(attack: 0.001, decay: 0.05, sustain: 0.0, release: 0.01),
+            volume: 0.8
+        )
+        let root1 = Node(name: "ArmT1", sequence: seq1, patch: patch1)
+        let tree1 = NodeTree(name: "ArmTree1", rootNode: root1)
+
+        let tree2 = makeTestTree(pitch: 52, name: "ArmTree2")
+
+        let (samples, transitionIndex) = try runArmTransitionTest(
+            tree1: tree1, tree2: tree2, config: config,
+            tree1CycleLengthInBeats: 4,
+            tree1Cycles: 2,
+            label: "Arm note near cycle end"
+        )
+
+        assertCleanTransition(
+            samples: samples, transitionSampleIndex: transitionIndex,
+            config: config, cycleBeats: 4,
+            label: "Arm note near cycle end (beat 3.75)"
+        )
     }
 }

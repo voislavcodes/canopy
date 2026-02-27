@@ -430,9 +430,10 @@ final class TreeAudioGraph {
     /// This REPLACES activateStagedTree() in forest timeline mode.
     /// Sequencers auto-start when the clock reaches regionStart — no
     /// startSequencer() call, no clock reset, no needsClockSync race.
-    func armStagedUnits(regionStart: Int64, regionEnd: Int64) {
+    func armStagedUnits(regionStart: Int64, regionEnd: Int64, bpm: Double) {
         for id in stagedIDs {
             guard let unit = units[id] else { continue }
+            unit.setSequencerBPM(bpm)
             unit.setSequencerRegion(start: regionStart, end: regionEnd)
             unit.armSequencer()
         }
@@ -451,7 +452,10 @@ final class TreeAudioGraph {
     /// They stay connected for release tails, then get cleaned up.
     func drainUnits(for nodeIDs: [UUID], engine: AVAudioEngine) {
         let drainingUnits = nodeIDs.compactMap { units.removeValue(forKey: $0) }
-        for unit in drainingUnits { unit.stopSequencerSoft() }
+        for unit in drainingUnits {
+            unit.stopSequencerSoft()
+            unit.requestFadeOut()
+        }
         scheduleDrainingCleanup(drainingUnits, engine: engine)
     }
 
