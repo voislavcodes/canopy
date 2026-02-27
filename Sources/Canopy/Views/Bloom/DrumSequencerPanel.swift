@@ -18,7 +18,8 @@ struct DrumSequencerPanel: View {
 
     private var columns: Int {
         let beats = node?.sequence.lengthInBeats ?? 4.0
-        return max(1, Int(round(beats / NoteSequence.stepDuration)))
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
+        return max(1, Int(round(beats / sd)))
     }
 
     private var displayColumns: Int { 32 }
@@ -151,7 +152,7 @@ struct DrumSequencerPanel: View {
         var dict = [Int: NoteEvent]()
         dict.reserveCapacity(sequence.notes.count)
         for event in sequence.notes {
-            let step = Int(round(event.startBeat / NoteSequence.stepDuration))
+            let step = Int(round(event.startBeat / (node?.stepDurationInBeats ?? NoteSequence.stepDuration)))
             let key = event.pitch &* 1000 &+ step
             dict[key] = event
         }
@@ -225,7 +226,7 @@ struct DrumSequencerPanel: View {
     private func velocityBars(sequence: NoteSequence) -> some View {
         var stepVelocities = [Int: Double]()
         for event in sequence.notes {
-            let step = Int(round(event.startBeat / NoteSequence.stepDuration))
+            let step = Int(round(event.startBeat / (node?.stepDurationInBeats ?? NoteSequence.stepDuration)))
             if let existing = stepVelocities[step] {
                 if event.velocity > existing { stepVelocities[step] = event.velocity }
             } else {
@@ -428,7 +429,7 @@ struct DrumSequencerPanel: View {
 
     private func toggleNote(pitch: Int, step: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let sd = NoteSequence.stepDuration
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
         let stepBeat = Double(step) * sd
 
         projectState.updateNode(id: nodeID) { node in
@@ -439,7 +440,7 @@ struct DrumSequencerPanel: View {
             } else {
                 node.sequence.notes.append(NoteEvent(
                     pitch: pitch, velocity: 0.8,
-                    startBeat: stepBeat, duration: NoteSequence.stepDuration
+                    startBeat: stepBeat, duration: sd
                 ))
             }
             node.sequence.euclidean = nil
@@ -449,7 +450,7 @@ struct DrumSequencerPanel: View {
 
     private func changeLength(to newStepCount: Int) {
         guard let nodeID = projectState.selectedNodeID else { return }
-        let sd = NoteSequence.stepDuration
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
         let newLengthBeats = Double(newStepCount) * sd
         projectState.updateNode(id: nodeID) { node in
             node.sequence.notes.removeAll { $0.startBeat >= newLengthBeats }
@@ -473,7 +474,8 @@ struct DrumSequencerPanel: View {
                 sequence: &node.sequence,
                 config: config,
                 key: MusicalKey(root: .C, mode: .chromatic),
-                pitchRange: PitchRange(low: 36, high: 36)
+                pitchRange: PitchRange(low: 36, high: 36),
+                stepRate: node.stepRate
             )
         }
         reloadSequence()

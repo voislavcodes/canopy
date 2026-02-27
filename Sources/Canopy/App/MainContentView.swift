@@ -498,10 +498,10 @@ private struct ForestAdvancePoller: View {
         var nodes: [Node] = []
         collectNodes(from: tree.rootNode, into: &nodes)
         guard !nodes.isEmpty else { return 1 }
-        let sd = NoteSequence.stepDuration
-        let stepCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats / sd))) }
-        let lcmSteps = stepCounts.reduce(1) { lcm($0, $1) }
-        return Double(lcmSteps) * sd
+        let ticksPerBeat = 96.0
+        let tickCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats * ticksPerBeat))) }
+        let lcmTicks = tickCounts.reduce(1) { lcm($0, $1) }
+        return Double(lcmTicks) / ticksPerBeat
     }
 
     private func collectNodes(from node: Node, into result: inout [Node]) {

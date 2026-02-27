@@ -47,6 +47,11 @@ struct Node: Codable, Equatable, Identifiable {
     var orbitConfig: OrbitConfig?
     /// SPORE probabilistic sequencer configuration. nil = not using SPORE SEQ.
     var sporeSeqConfig: SporeSeqConfig?
+    /// Step resolution for this branch. Determines grid granularity and playback speed.
+    var stepRate: StepRate
+
+    /// Convenience: step duration in beats derived from stepRate.
+    var stepDurationInBeats: Double { stepRate.beatsPerStep }
 
     init(
         id: UUID = UUID(),
@@ -65,7 +70,8 @@ struct Node: Codable, Equatable, Identifiable {
         sequencerType: SequencerType? = nil,
         inputMode: InputMode? = nil,
         orbitConfig: OrbitConfig? = nil,
-        sporeSeqConfig: SporeSeqConfig? = nil
+        sporeSeqConfig: SporeSeqConfig? = nil,
+        stepRate: StepRate = .sixteenth
     ) {
         self.id = id
         self.name = name
@@ -84,6 +90,7 @@ struct Node: Codable, Equatable, Identifiable {
         self.inputMode = inputMode
         self.orbitConfig = orbitConfig
         self.sporeSeqConfig = sporeSeqConfig
+        self.stepRate = stepRate
     }
 
     // Backward-compatible decoding — old files lack presetID
@@ -106,6 +113,7 @@ struct Node: Codable, Equatable, Identifiable {
         inputMode = try container.decodeIfPresent(InputMode.self, forKey: .inputMode)
         orbitConfig = try container.decodeIfPresent(OrbitConfig.self, forKey: .orbitConfig)
         sporeSeqConfig = try container.decodeIfPresent(SporeSeqConfig.self, forKey: .sporeSeqConfig)
+        stepRate = try container.decodeIfPresent(StepRate.self, forKey: .stepRate) ?? .sixteenth
     }
 }
 

@@ -7,7 +7,7 @@ enum SequenceTransforms {
 
     /// Build raw SequencerEvents from a NoteSequence's notes, then apply all
     /// configured transforms (octave, fifth, invert, bloom, density, mirror, gate, swing).
-    static func transformedEvents(from seq: NoteSequence, key: MusicalKey) -> [SequencerEvent] {
+    static func transformedEvents(from seq: NoteSequence, key: MusicalKey, stepRate: StepRate = .sixteenth) -> [SequencerEvent] {
         // Start with raw note events
         var events = seq.notes.map { event in
             SequencerEvent(
@@ -47,7 +47,7 @@ enum SequenceTransforms {
 
         // BLOOM: extend note durations
         if let bloom = seq.bloomAmount, bloom > 0 {
-            events = applyBloom(events, amount: bloom, lengthInBeats: seq.lengthInBeats)
+            events = applyBloom(events, amount: bloom, lengthInBeats: seq.lengthInBeats, stepRate: stepRate)
         }
 
         // DENSITY: deterministically remove notes
@@ -64,12 +64,12 @@ enum SequenceTransforms {
 
         // GATE: scale note durations
         if let gate = seq.gateLength, gate < 1.0 {
-            events = applyGate(events, gateLength: gate)
+            events = applyGate(events, gateLength: gate, stepRate: stepRate)
         }
 
         // SWING: offset odd steps
         if let swing = seq.swing, swing > 0 {
-            events = applySwing(events, swing: swing)
+            events = applySwing(events, swing: swing, stepRate: stepRate)
         }
 
         return events
@@ -111,8 +111,8 @@ enum SequenceTransforms {
         }
     }
 
-    static func applyBloom(_ events: [SequencerEvent], amount: Double, lengthInBeats: Double) -> [SequencerEvent] {
-        let sd = NoteSequence.stepDuration
+    static func applyBloom(_ events: [SequencerEvent], amount: Double, lengthInBeats: Double, stepRate: StepRate = .sixteenth) -> [SequencerEvent] {
+        let sd = stepRate.beatsPerStep
         let maxExtension = sd * 8
         return events.map { event in
             let baseDuration = event.endBeat - event.startBeat
@@ -143,18 +143,19 @@ enum SequenceTransforms {
         }
     }
 
-    static func applyGate(_ events: [SequencerEvent], gateLength: Double) -> [SequencerEvent] {
+    static func applyGate(_ events: [SequencerEvent], gateLength: Double, stepRate: StepRate = .sixteenth) -> [SequencerEvent] {
+        let sd = stepRate.beatsPerStep
         return events.map { event in
             let duration = event.endBeat - event.startBeat
-            let newDuration = max(NoteSequence.stepDuration * 0.1, duration * gateLength)
+            let newDuration = max(sd * 0.1, duration * gateLength)
             return SequencerEvent(pitch: event.pitch, velocity: event.velocity,
                                   startBeat: event.startBeat, endBeat: event.startBeat + newDuration,
                                   probability: event.probability, ratchetCount: event.ratchetCount)
         }
     }
 
-    static func applySwing(_ events: [SequencerEvent], swing: Double) -> [SequencerEvent] {
-        let sd = NoteSequence.stepDuration
+    static func applySwing(_ events: [SequencerEvent], swing: Double, stepRate: StepRate = .sixteenth) -> [SequencerEvent] {
+        let sd = stepRate.beatsPerStep
         return events.map { event in
             let step = Int(round(event.startBeat / sd))
             if step % 2 == 1 {

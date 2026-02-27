@@ -26,6 +26,8 @@ struct GridRenderContext {
     let spanDragState: SpanDragState?
     let notes: [NoteEvent]
     let showVelocityRow: Bool
+    /// Step duration in beats for this grid (from the node's stepRate).
+    let sd: Double
 }
 
 // MARK: - Grid Core
@@ -106,11 +108,11 @@ enum SequencerGridCore {
     // MARK: Note Helpers
 
     /// Build O(1) lookup: key = pitch * 1000 + step → NoteEvent.
-    static func buildNoteLookup(notes: [NoteEvent]) -> [Int: NoteEvent] {
+    static func buildNoteLookup(notes: [NoteEvent], sd: Double = NoteSequence.stepDuration) -> [Int: NoteEvent] {
         var dict = [Int: NoteEvent]()
         dict.reserveCapacity(notes.count)
         for event in notes {
-            let step = Int(round(event.startBeat / NoteSequence.stepDuration))
+            let step = Int(round(event.startBeat / sd))
             let key = event.pitch &* 1000 &+ step
             dict[key] = event
         }
@@ -118,8 +120,7 @@ enum SequencerGridCore {
     }
 
     /// Build set of (pitch, step) keys that are span continuations (not the note start cell).
-    static func buildSpanContinuationSet(notes: [NoteEvent], spanDragState: SpanDragState?) -> Set<Int> {
-        let sd = NoteSequence.stepDuration
+    static func buildSpanContinuationSet(notes: [NoteEvent], spanDragState: SpanDragState?, sd: Double = NoteSequence.stepDuration) -> Set<Int> {
         var set = Set<Int>()
         for note in notes {
             let startStep = Int(round(note.startBeat / sd))
@@ -137,10 +138,10 @@ enum SequencerGridCore {
     }
 
     /// Pre-compute max velocity per step for the velocity row.
-    static func buildStepVelocities(notes: [NoteEvent]) -> [Int: Double] {
+    static func buildStepVelocities(notes: [NoteEvent], sd: Double = NoteSequence.stepDuration) -> [Int: Double] {
         var dict = [Int: Double]()
         for event in notes {
-            let step = Int(round(event.startBeat / NoteSequence.stepDuration))
+            let step = Int(round(event.startBeat / sd))
             if let existing = dict[step] {
                 if event.velocity > existing { dict[step] = event.velocity }
             } else {
@@ -319,7 +320,7 @@ enum SequencerGridCore {
         }
 
         // === Drag handles on sustained notes ===
-        let sd = NoteSequence.stepDuration
+        let sd = rc.sd
         let handleBaseColor: Color = rc.isArpActive
             ? Color(red: 0.2, green: 0.7, blue: 0.8)
             : CanopyColors.gridCellActive
@@ -364,10 +365,11 @@ enum SequencerActions {
 
     /// Toggle a note on/off at a given pitch and step.
     static func toggleNote(projectState: ProjectState, nodeID: UUID, pitch: Int, step: Int) {
-        let sd = NoteSequence.stepDuration
-        let stepBeat = Double(step) * sd
+        let nodeSd = projectState.findNode(id: nodeID)?.stepDurationInBeats ?? NoteSequence.stepDuration
+        let stepBeat = Double(step) * nodeSd
 
         projectState.updateNode(id: nodeID) { node in
+            let sd = node.stepDurationInBeats
             if let existingIndex = node.sequence.notes.firstIndex(where: {
                 $0.pitch == pitch && Int(round($0.startBeat / sd)) == step
             }) {
@@ -375,7 +377,7 @@ enum SequencerActions {
             } else {
                 let dur = node.sequence.arpConfig != nil
                     ? node.sequence.lengthInBeats - stepBeat
-                    : NoteSequence.stepDuration
+                    : sd
                 let event = NoteEvent(
                     pitch: pitch,
                     velocity: 0.8,
@@ -392,9 +394,8 @@ enum SequencerActions {
 
     /// Commit a span drag: update note duration.
     static func commitSpanDrag(projectState: ProjectState, nodeID: UUID, pitch: Int, startStep: Int, newEndStep: Int) {
-        let sd = NoteSequence.stepDuration
-
         projectState.updateNode(id: nodeID) { node in
+            let sd = node.stepDurationInBeats
             if let idx = node.sequence.notes.firstIndex(where: {
                 $0.pitch == pitch && Int(round($0.startBeat / sd)) == startStep
             }) {
@@ -413,7 +414,7 @@ enum SequencerActions {
         let seq = node.sequence
         let key = resolveKey(projectState: projectState, nodeID: nodeID)
 
-        let events = SequenceTransforms.transformedEvents(from: seq, key: key)
+        let events = SequenceTransforms.transformedEvents(from: seq, key: key, stepRate: node.stepRate)
 
         let mutation = seq.mutation
         AudioEngine.shared.loadSequence(
@@ -460,9 +461,9 @@ enum SequencerActions {
 
     /// Change sequence length (step count).
     static func changeLength(to newStepCount: Int, projectState: ProjectState, nodeID: UUID) {
-        let sd = NoteSequence.stepDuration
-        let newLengthBeats = Double(newStepCount) * sd
         projectState.updateNode(id: nodeID) { node in
+            let sd = node.stepDurationInBeats
+            let newLengthBeats = Double(newStepCount) * sd
             node.sequence.notes.removeAll { $0.startBeat >= newLengthBeats }
             for i in 0..<node.sequence.notes.count {
                 let note = node.sequence.notes[i]
@@ -493,7 +494,8 @@ enum SequencerActions {
                 sequence: &node.sequence,
                 config: config,
                 key: key,
-                pitchRange: node.sequence.pitchRange
+                pitchRange: node.sequence.pitchRange,
+                stepRate: node.stepRate
             )
         }
         reloadSequence(projectState: projectState, nodeID: nodeID)
@@ -521,7 +523,8 @@ enum SequencerActions {
                     sequence: &node.sequence,
                     key: key,
                     pitchRange: node.sequence.pitchRange,
-                    density: 0.5
+                    density: 0.5,
+                    stepRate: node.stepRate
                 )
             }
         }
@@ -699,6 +702,31 @@ enum SequencerActions {
     static func setGateLength(_ length: Double, projectState: ProjectState, nodeID: UUID) {
         projectState.updateNode(id: nodeID) { node in
             node.sequence.gateLength = length < 1.0 ? length : nil
+        }
+        reloadSequence(projectState: projectState, nodeID: nodeID)
+    }
+
+    // MARK: - Step Rate
+
+    /// Change the step rate on a node, rescaling the pattern proportionally.
+    /// 16 steps stays 16 steps — pattern preserved, just stretched/compressed in time.
+    static func setStepRate(_ newRate: StepRate, projectState: ProjectState, nodeID: UUID) {
+        projectState.updateNode(id: nodeID) { node in
+            let oldRate = node.stepRate
+            guard newRate != oldRate else { return }
+            let ratio = newRate.beatsPerStep / oldRate.beatsPerStep
+            // Rescale all events
+            for i in 0..<node.sequence.notes.count {
+                node.sequence.notes[i].startBeat *= ratio
+                node.sequence.notes[i].duration *= ratio
+            }
+            // Rescale sequence length
+            node.sequence.lengthInBeats *= ratio
+            // Rescale micro-timing offsets if present
+            if let offsets = node.sequence.microTimingOffsets {
+                node.sequence.microTimingOffsets = offsets.map { $0 * ratio }
+            }
+            node.stepRate = newRate
         }
         reloadSequence(projectState: projectState, nodeID: nodeID)
     }

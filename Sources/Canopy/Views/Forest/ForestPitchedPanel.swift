@@ -37,6 +37,7 @@ struct ForestPitchedPanel: View {
     @State private var dragInitiated: Bool = false
     @State private var cellDragMode: CircleDragMode? = nil
     @State private var gridCellWidth: CGFloat = 0
+    @State private var showingRatePopover: Bool = false
 
     private enum CircleDragMode { case pulses, rotation, wobble, rngRange, rngOctave }
 
@@ -54,7 +55,8 @@ struct ForestPitchedPanel: View {
 
     private var columns: Int {
         let beats = node?.sequence.lengthInBeats ?? 2.0
-        return max(1, Int(round(beats / NoteSequence.stepDuration)))
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
+        return max(1, Int(round(beats / sd)))
     }
 
     private var currentPulses: Int { node?.sequence.euclidean?.pulses ?? 4 }
@@ -66,7 +68,7 @@ struct ForestPitchedPanel: View {
         if let euc = seq.euclidean {
             return EuclideanRhythm.generate(steps: cols, pulses: euc.pulses, rotation: euc.rotation, wobble: localWobble)
         }
-        let sd = NoteSequence.stepDuration
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
         var occupancy = [Bool](repeating: false, count: cols)
         for note in seq.notes {
             let step = Int(round(note.startBeat / sd))
@@ -127,6 +129,28 @@ struct ForestPitchedPanel: View {
             Text("SEQUENCE")
                 .font(.system(size: 11 * cs, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+            // Step rate selector
+            Button(action: { showingRatePopover.toggle() }) {
+                Text(node?.stepRate.displayLabel ?? "1/16")
+                    .font(.system(size: 11 * cs, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.7))
+                    .padding(.horizontal, 6 * cs)
+                    .padding(.vertical, 2 * cs)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3 * cs)
+                            .fill(CanopyColors.chromeBackground.opacity(0.5))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3 * cs)
+                            .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Step resolution")
+            .popover(isPresented: $showingRatePopover) {
+                ratePopoverContent
+            }
 
             Spacer()
 
@@ -1498,5 +1522,39 @@ struct ForestPitchedPanel: View {
             return projectState.project.globalKey
         }
         return SequencerActions.resolveKey(projectState: projectState, nodeID: nodeID)
+    }
+
+    // MARK: - Step Rate Popover
+
+    private var ratePopoverContent: some View {
+        let currentRate = node?.stepRate ?? .sixteenth
+        let rates: [StepRate] = [.quarter, .eighth, .tripletEighth, .sixteenth, .tripletSixteenth, .thirtySecond]
+        return VStack(alignment: .leading, spacing: 2) {
+            ForEach(rates, id: \.self) { rate in
+                Button(action: {
+                    guard let nodeID = projectState.selectedNodeID else { return }
+                    SequencerActions.setStepRate(rate, projectState: projectState, nodeID: nodeID)
+                    showingRatePopover = false
+                }) {
+                    HStack {
+                        Text(rate.displayLabel)
+                            .font(.system(size: 12, weight: rate == currentRate ? .bold : .regular, design: .monospaced))
+                            .foregroundColor(rate == currentRate ? CanopyColors.glowColor : CanopyColors.chromeText)
+                        Spacer()
+                        if rate == currentRate {
+                            Text("\u{2713}")
+                                .foregroundColor(CanopyColors.glowColor)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(width: 100)
+        .background(CanopyColors.bloomPanelBackground)
     }
 }

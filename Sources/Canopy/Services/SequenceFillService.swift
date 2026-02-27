@@ -18,9 +18,10 @@ enum SequenceFillService {
         sequence: inout NoteSequence,
         config: EuclideanConfig,
         key: MusicalKey,
-        pitchRange: PitchRange?
+        pitchRange: PitchRange?,
+        stepRate: StepRate = .sixteenth
     ) {
-        let sd = NoteSequence.stepDuration
+        let sd = stepRate.beatsPerStep
         let steps = max(1, Int(round(sequence.lengthInBeats / sd)))
         let pattern = EuclideanRhythm.generate(steps: steps, pulses: config.pulses, rotation: config.rotation, wobble: config.wobble)
 
@@ -48,9 +49,10 @@ enum SequenceFillService {
         sequence: inout NoteSequence,
         key: MusicalKey,
         pitchRange: PitchRange?,
-        density: Double = 0.5
+        density: Double = 0.5,
+        stepRate: StepRate = .sixteenth
     ) {
-        let sd = NoteSequence.stepDuration
+        let sd = stepRate.beatsPerStep
         let steps = max(1, Int(round(sequence.lengthInBeats / sd)))
         let range = pitchRange ?? PitchRange()
         let scaleNotes = key.notesInRange(low: range.low, high: range.high)

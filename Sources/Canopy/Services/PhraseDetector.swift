@@ -5,11 +5,11 @@ import Foundation
 enum PhraseDetector {
     /// Compute the appropriate sequence length from the buffer's content span.
     /// Returns a step-aligned length (multiple of 0.25) clamped to 1–maxBeats.
-    static func spanLength(from buffer: MIDICaptureBuffer, maxBeats: Double) -> Double {
+    static func spanLength(from buffer: MIDICaptureBuffer, maxBeats: Double, stepRate: StepRate = .sixteenth) -> Double {
         let events = buffer.events
         guard !events.isEmpty else { return 0 }
 
-        let sd = NoteSequence.stepDuration
+        let sd = stepRate.beatsPerStep
         let minBeats = sd  // at least 1 step
 
         let earliest = events.map(\.startBeat).min()!

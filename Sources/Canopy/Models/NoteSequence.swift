@@ -111,7 +111,7 @@ enum ArpMode: String, Codable, Equatable, CaseIterable {
     case asPlayed
 }
 
-enum ArpRate: String, Codable, Equatable, CaseIterable {
+enum StepRate: String, Codable, Equatable, CaseIterable {
     case whole
     case half
     case quarter
@@ -121,7 +121,7 @@ enum ArpRate: String, Codable, Equatable, CaseIterable {
     case tripletEighth
     case tripletSixteenth
 
-    /// How many beats each arp step lasts.
+    /// How many beats each step lasts.
     var beatsPerStep: Double {
         switch self {
         case .whole: return 4.0
@@ -134,7 +134,24 @@ enum ArpRate: String, Codable, Equatable, CaseIterable {
         case .tripletSixteenth: return 1.0 / 6.0
         }
     }
+
+    /// Display label for UI (e.g. "1/16", "1/8T").
+    var displayLabel: String {
+        switch self {
+        case .whole: return "1/1"
+        case .half: return "1/2"
+        case .quarter: return "1/4"
+        case .eighth: return "1/8"
+        case .sixteenth: return "1/16"
+        case .thirtySecond: return "1/32"
+        case .tripletEighth: return "1/8T"
+        case .tripletSixteenth: return "1/16T"
+        }
+    }
 }
+
+/// Backward-compatible typealias for arp-specific usage.
+typealias ArpRate = StepRate
 
 struct ArpConfig: Codable, Equatable {
     var mode: ArpMode

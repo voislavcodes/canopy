@@ -15,9 +15,10 @@ enum CaptureQuantizer {
         events: [MIDIBufferEvent],
         strength: Double,
         key: MusicalKey,
-        lengthInBeats: Double
+        lengthInBeats: Double,
+        stepRate: StepRate = .sixteenth
     ) -> [NoteEvent] {
-        let grid = NoteSequence.stepDuration
+        let grid = stepRate.beatsPerStep
         let clampedStrength = max(0, min(1, strength))
 
         var result = events.map { event -> NoteEvent in

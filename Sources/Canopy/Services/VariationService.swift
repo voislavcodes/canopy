@@ -34,6 +34,7 @@ enum VariationService {
     // MARK: - Private: Recursive Application
 
     private static func applyToNode(_ node: inout Node, variation: VariationType, scale: MusicalKey) {
+        let sd = node.stepRate.beatsPerStep
         switch variation {
         case .transpose(let semitones):
             applyTranspose(&node.sequence, semitones: semitones, scale: scale)
@@ -42,21 +43,21 @@ enum VariationService {
         case .fifth(let targetRoot):
             applyFifth(&node.sequence, from: scale, targetRoot: targetRoot)
         case .density(let amount):
-            applyDensity(&node.sequence, amount: amount, scale: scale, pitchRange: node.sequence.pitchRange)
+            applyDensity(&node.sequence, amount: amount, scale: scale, pitchRange: node.sequence.pitchRange, sd: sd)
         case .mirror:
             applyMirror(&node.sequence)
         case .rotate(let steps):
-            applyRotate(&node.sequence, steps: steps)
+            applyRotate(&node.sequence, steps: steps, sd: sd)
         case .euclideanRefill(let hits, let steps, let rotation):
-            applyEuclideanRefill(&node.sequence, hits: hits, steps: steps, rotation: rotation)
+            applyEuclideanRefill(&node.sequence, hits: hits, steps: steps, rotation: rotation, sd: sd)
         case .bloom(let amount):
             applyBloom(&node.sequence, amount: amount)
         case .drift(let ticks):
-            applyDrift(&node.sequence, ticks: ticks)
+            applyDrift(&node.sequence, ticks: ticks, sd: sd)
         case .scramble(let seed):
             applyScramble(&node.sequence, seed: seed)
         case .human(let amount):
-            applyHuman(&node.sequence, amount: amount)
+            applyHuman(&node.sequence, amount: amount, sd: sd)
         case .mutate(let amount, let range):
             applyMutate(&node.sequence, amount: amount, range: range, scale: scale)
         case .engineSwap(let soundType):
@@ -112,7 +113,7 @@ enum VariationService {
     }
 
     /// Adjust note density. Below 1.0: remove notes deterministically. Above 1.0: add scale-fill notes.
-    private static func applyDensity(_ seq: inout NoteSequence, amount: Double, scale: MusicalKey, pitchRange: PitchRange?) {
+    private static func applyDensity(_ seq: inout NoteSequence, amount: Double, scale: MusicalKey, pitchRange: PitchRange?, sd: Double = 0.25) {
         guard !seq.notes.isEmpty else { return }
 
         if amount < 1.0 {
@@ -131,7 +132,6 @@ enum VariationService {
             seq.notes = kept
         } else if amount > 1.0 {
             // Add notes at empty beats
-            let sd = NoteSequence.stepDuration
             let steps = max(1, Int(round(seq.lengthInBeats / sd)))
             let occupiedSteps = Set(seq.notes.map { Int(round($0.startBeat / sd)) })
             let range = pitchRange ?? PitchRange()
@@ -164,8 +164,7 @@ enum VariationService {
     }
 
     /// Rotate note start times by steps.
-    private static func applyRotate(_ seq: inout NoteSequence, steps: Int) {
-        let sd = NoteSequence.stepDuration
+    private static func applyRotate(_ seq: inout NoteSequence, steps: Int, sd: Double = 0.25) {
         let length = seq.lengthInBeats
         let offset = Double(steps) * sd
 
@@ -179,9 +178,8 @@ enum VariationService {
     }
 
     /// Generate Euclidean pattern and redistribute original pitches to new hit positions.
-    private static func applyEuclideanRefill(_ seq: inout NoteSequence, hits: Int, steps: Int, rotation: Int) {
+    private static func applyEuclideanRefill(_ seq: inout NoteSequence, hits: Int, steps: Int, rotation: Int, sd: Double = 0.25) {
         let pattern = EuclideanRhythm.generate(steps: steps, pulses: hits, rotation: rotation)
-        let sd = NoteSequence.stepDuration
 
         // Collect original pitches (cycle through if needed)
         let originalPitches = seq.notes.map { $0.pitch }
@@ -226,8 +224,7 @@ enum VariationService {
     }
 
     /// Shift note start times by micro-timing offset, wrapping.
-    private static func applyDrift(_ seq: inout NoteSequence, ticks: Double) {
-        let sd = NoteSequence.stepDuration
+    private static func applyDrift(_ seq: inout NoteSequence, ticks: Double, sd: Double = 0.25) {
         let offset = ticks * sd
         let length = seq.lengthInBeats
 
@@ -258,8 +255,7 @@ enum VariationService {
     }
 
     /// Add random micro-timing + velocity variation (seeded for reproducibility).
-    private static func applyHuman(_ seq: inout NoteSequence, amount: Double) {
-        let sd = NoteSequence.stepDuration
+    private static func applyHuman(_ seq: inout NoteSequence, amount: Double, sd: Double = 0.25) {
         var rng = SeededRNG(seed: 42)
 
         for i in 0..<seq.notes.count {

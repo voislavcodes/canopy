@@ -60,11 +60,11 @@ class ProjectState: ObservableObject {
         }
 
         let key = resolveKeyForNode(node)
-        let sd = NoteSequence.stepDuration
-        let maxBeats = 32.0 * sd  // 8 beats = 32 steps
+        let sd = node.stepRate.beatsPerStep
+        let maxBeats = 32.0 * sd  // 32 steps at node's rate
 
         // Compute target length from the buffer span
-        let targetLength = PhraseDetector.spanLength(from: captureBuffer, maxBeats: maxBeats)
+        let targetLength = PhraseDetector.spanLength(from: captureBuffer, maxBeats: maxBeats, stepRate: node.stepRate)
         guard targetLength > 0 else { return false }
 
         // Extract phrase fitted to the computed length
@@ -76,7 +76,8 @@ class ProjectState: ObservableObject {
             events: phrase,
             strength: captureQuantizeStrength,
             key: key,
-            lengthInBeats: targetLength
+            lengthInBeats: targetLength,
+            stepRate: node.stepRate
         )
         guard !quantized.isEmpty else { return false }
 
@@ -225,13 +226,14 @@ class ProjectState: ObservableObject {
     }
 
     /// Cycle length for the selected tree (falls back to first tree).
+    /// Uses 96 PPQN ticks to handle mixed step rates correctly.
     func cycleLengthForSelectedTree() -> Double {
         let nodes = allNodesForSelectedTree()
         guard !nodes.isEmpty else { return 1 }
-        let sd = NoteSequence.stepDuration
-        let stepCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats / sd))) }
-        let lcmSteps = stepCounts.reduce(1) { lcm($0, $1) }
-        return Double(lcmSteps) * sd
+        let ticksPerBeat = 96.0
+        let tickCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats * ticksPerBeat))) }
+        let lcmTicks = tickCounts.reduce(1) { lcm($0, $1) }
+        return Double(lcmTicks) / ticksPerBeat
     }
 
     // MARK: - Dirty Tracking & Auto-Save
@@ -481,17 +483,17 @@ class ProjectState: ObservableObject {
     }
 
     /// Compute the LCM of all nodes' sequence lengths (the natural polyrhythmic cycle).
-    /// Works in step counts to handle fractional beat lengths correctly.
+    /// Uses 96 PPQN ticks to handle mixed step rates correctly.
     func cycleLengthInBeats() -> Double {
         if let cached = _cachedCycleLength {
             return cached
         }
         let nodes = allNodes()
         guard !nodes.isEmpty else { return 1 }
-        let sd = NoteSequence.stepDuration
-        let stepCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats / sd))) }
-        let lcmSteps = stepCounts.reduce(1) { lcm($0, $1) }
-        let result = Double(lcmSteps) * sd
+        let ticksPerBeat = 96.0
+        let tickCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats * ticksPerBeat))) }
+        let lcmTicks = tickCounts.reduce(1) { lcm($0, $1) }
+        let result = Double(lcmTicks) / ticksPerBeat
         _cachedCycleLength = result
         return result
     }

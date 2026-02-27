@@ -39,7 +39,8 @@ struct FocusSequencerView: View {
     /// Active step count from the sequence length.
     private var columns: Int {
         let beats = node?.sequence.lengthInBeats ?? 2.0
-        return max(1, Int(round(beats / NoteSequence.stepDuration)))
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
+        return max(1, Int(round(beats / sd)))
     }
 
     /// Always display 32 columns — pagination handles longer sequences.
@@ -269,7 +270,7 @@ struct FocusSequencerView: View {
         let charCols = SequencerGridCore.gridCharCols(for: displayColumns)
         let colMap = SequencerGridCore.stepToCharCol(for: displayColumns)
         let reverseMap = SequencerGridCore.charColToStep(displayColumns: displayColumns)
-        let sd = NoteSequence.stepDuration
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
 
         // Build page-local lookup: filter notes to current page, key by local step
         var pageLookup = [Int: NoteEvent]()
@@ -332,7 +333,8 @@ struct FocusSequencerView: View {
             pulse: 0,
             spanDragState: pageLocalSpan,
             notes: pageNotes,
-            showVelocityRow: false
+            showVelocityRow: false,
+            sd: sd
         )
         let canvasSize = SequencerGridCore.canvasSize(for: rc)
 
@@ -479,7 +481,7 @@ struct FocusSequencerView: View {
 
     private func resolveSelectionPaginated(rect: CGRect, pitches: [Int], cw: CGFloat, rh: CGFloat,
                                            colMap: [Int], pageOffset: Int, activeCols: Int, notes: [NoteEvent]) {
-        let sd = NoteSequence.stepDuration
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
         var newSelection = Set<UUID>()
 
         for note in notes {
@@ -528,7 +530,7 @@ struct FocusSequencerView: View {
 
     func moveSelection(steps: Int) {
         guard let nodeID = projectState.selectedNodeID, !selectedNoteIDs.isEmpty else { return }
-        let sd = NoteSequence.stepDuration
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
         let lengthBeats = node?.sequence.lengthInBeats ?? 4.0
         projectState.updateNode(id: nodeID) { node in
             for i in 0..<node.sequence.notes.count {
@@ -608,7 +610,7 @@ struct FocusSequencerView: View {
         let colMap = SequencerGridCore.stepToCharCol(for: displayColumns)
         let reverseMap = SequencerGridCore.charColToStep(displayColumns: displayColumns)
         let canvasWidth = CGFloat(charCols) * cw
-        let sd = NoteSequence.stepDuration
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
 
         var stepVelSum = [Int: (total: Double, count: Int)]()
         for event in sequence.notes {
@@ -716,7 +718,7 @@ struct FocusSequencerView: View {
 
     private func setPerStepProbability(step: Int, probability: Double, nodeID: UUID) {
         projectState.updateNode(id: nodeID) { node in
-            let stepCount = max(1, Int(round(node.sequence.lengthInBeats / NoteSequence.stepDuration)))
+            let stepCount = max(1, Int(round(node.sequence.lengthInBeats / node.stepDurationInBeats)))
             if node.sequence.perStepProbability == nil {
                 node.sequence.perStepProbability = Array(repeating: 1.0, count: stepCount)
             }
@@ -732,7 +734,7 @@ struct FocusSequencerView: View {
     // MARK: - Action Wrappers
 
     private func setVelocityForStep(step: Int, velocity: Double, nodeID: UUID) {
-        let sd = NoteSequence.stepDuration
+        let sd = node?.stepDurationInBeats ?? NoteSequence.stepDuration
         projectState.updateNode(id: nodeID) { node in
             for i in 0..<node.sequence.notes.count {
                 let noteStep = Int(round(node.sequence.notes[i].startBeat / sd))

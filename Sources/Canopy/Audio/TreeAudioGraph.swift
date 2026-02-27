@@ -471,7 +471,7 @@ final class TreeAudioGraph {
         let key = node.scaleOverride ?? node.key
 
         // Apply all sequence transforms (octave, fifth, invert, bloom, etc.)
-        let events = SequenceTransforms.transformedEvents(from: seq, key: key)
+        let events = SequenceTransforms.transformedEvents(from: seq, key: key, stepRate: node.stepRate)
 
         let mutation = seq.mutation
         unit.loadSequence(
