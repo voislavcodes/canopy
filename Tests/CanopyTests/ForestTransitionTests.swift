@@ -447,12 +447,10 @@ final class ForestTransitionTests: XCTestCase {
     // MARK: - Adversarial: Early Activation (Before Cycle Boundary)
     // =========================================================================
 
-    /// Activate tree 2 before the old tree reaches the cycle boundary.
-    /// With percussive notes (sustain=0, decay=0.05s), tree 1's audio has decayed
-    /// to silence by the activation point (~beat 2). The key checks:
-    /// 1. New tree's fade-in starts from near-zero (no pop)
-    /// 2. Old tree is properly faded out (no overlap)
-    /// 3. No double onset near the transition
+    /// Call activateStagedTree BEFORE the cycle boundary (early bookkeeping).
+    /// With the timestamp-based architecture, activateStagedTree is just bookkeeping —
+    /// tree 2 activates at the boundary sample regardless of when the main thread calls it.
+    /// This verifies early bookkeeping is harmless and the transition is clean.
     func testEarlyActivation_1BeatBefore() throws {
         let config = defaultConfig
         let tree1 = makeTestTree(pitch: 48, name: "Tree1")
@@ -475,7 +473,7 @@ final class ForestTransitionTests: XCTestCase {
 
         // Render 1 cycle minus 2 beats
         let earlyBuffers = (samplesPerCycle - Int(2 * config.samplesPerBeat)) / Int(config.bufferSize)
-        _ = try renderSamples(
+        var allSamples = try renderSamples(
             engine: engine, graph: graph,
             bufferCount: earlyBuffers, format: format, bufferSize: config.bufferSize
         )
@@ -484,54 +482,36 @@ final class ForestTransitionTests: XCTestCase {
         graph.stageNextTree(tree2, engine: engine, sampleRate: config.sampleRate,
                             bpm: config.bpm, currentCycleLengthInBeats: cycleLengthInBeats)
 
-        // Render 2 more buffers, then activate (about 1 beat before boundary)
-        _ = try renderSamples(
+        // Render 2 more buffers (still ~1 beat before boundary)
+        let midSamples = try renderSamples(
             engine: engine, graph: graph,
             bufferCount: 2, format: format, bufferSize: config.bufferSize
         )
+        allSamples.append(contentsOf: midSamples)
 
+        // Call activateStagedTree EARLY — about 1 beat before the boundary.
+        // With the timestamp architecture, this is just bookkeeping.
         graph.activateStagedTree(engine: engine, bpm: config.bpm)
 
-        // Render the first buffer of tree 2 — should fade in from near-zero
-        let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: config.bufferSize)!
-        let status = try engine.renderOffline(config.bufferSize, to: outputBuffer)
-        graph.clockSamplePosition.pointee += Int64(config.bufferSize)
-
-        XCTAssertEqual(status, .success)
-
-        if let channelData = outputBuffer.floatChannelData {
-            let leftChannel = channelData[0]
-
-            // First sample should be near zero (fade-in ramp starts at 0)
-            let firstSample = abs(leftChannel[0])
-            XCTAssertLessThan(
-                firstSample, 0.01,
-                "Early activation: first sample should be near zero (fade-in), got \(firstSample)"
-            )
-
-            // Last sample should be larger (ramp goes 0→1)
-            let lastSample = abs(leftChannel[Int(config.bufferSize) - 1])
-            XCTAssertGreaterThan(
-                lastSample, firstSample,
-                "Early activation: fade-in should ramp up: first=\(firstSample), last=\(lastSample)"
-            )
-        }
-
-        // Render one more cycle and check no double onset near the transition
+        // Render through the boundary and one more cycle
+        let renderedSoFar = allSamples.count
+        let remainingToNextCycle = max(0, samplesPerCycle - renderedSoFar)
+        let remainingBuffers = remainingToNextCycle / Int(config.bufferSize)
+        let postCycleBuffers = samplesPerCycle / Int(config.bufferSize)
         let postSamples = try renderSamples(
             engine: engine, graph: graph,
-            bufferCount: samplesPerCycle / Int(config.bufferSize), format: format,
+            bufferCount: remainingBuffers + postCycleBuffers, format: format,
             bufferSize: config.bufferSize
         )
+        allSamples.append(contentsOf: postSamples)
 
-        // Check onsets in post-transition audio — should be exactly 1 per cycle
-        let onsets = detectOnsets(
-            in: postSamples, range: 0..<min(postSamples.count, Int(config.samplesPerBeat * 2)),
-            threshold: 0.01, samplesPerBeat: config.samplesPerBeat
-        )
-        XCTAssertLessThanOrEqual(
-            onsets.count, 1,
-            "Early activation: \(onsets.count) onsets in first 2 beats of tree 2 (expected ≤1)"
+        // Transition happens at the cycle boundary, not at activateStagedTree
+        let transitionIndex = samplesPerCycle
+
+        assertCleanTransition(
+            samples: allSamples, transitionSampleIndex: transitionIndex,
+            config: config, cycleBeats: cycleLengthInBeats,
+            label: "Early activation (bookkeeping 1 beat before boundary)"
         )
 
         engine.stop()
@@ -786,13 +766,14 @@ final class ForestTransitionTests: XCTestCase {
     }
 
     // =========================================================================
-    // MARK: - Adversarial: Fade-In Race Condition
+    // MARK: - Adversarial: Late Bookkeeping (Audio-Thread Independence)
     // =========================================================================
 
-    /// Verifies that activateStagedTree (which uses the atomic startSequencerWithFadeIn
-    /// command) produces a clean fade-in even when extra renders happen between
-    /// staging completion and activation — the window where the race used to occur.
-    func testAtomicFadeInPreventsRace() throws {
+    /// Verifies that rendering past the cycle boundary BEFORE calling activateStagedTree
+    /// produces correct audio. The audio thread handles activation/deactivation via
+    /// sample-precise timestamps set during stageNextTree — main-thread bookkeeping
+    /// timing is irrelevant.
+    func testGapRenderBeforeBookkeeping() throws {
         let config = defaultConfig
         let tree1 = makeTestTree(pitch: 48, name: "Tree1")
         let tree2 = makeTestTree(pitch: 52, name: "Tree2")
@@ -814,7 +795,7 @@ final class ForestTransitionTests: XCTestCase {
         let cycleBuffers = samplesPerCycle / Int(config.bufferSize)
         let stagingBuffers = (samplesPerCycle - Int(config.samplesPerBeat)) / Int(config.bufferSize)
 
-        _ = try renderSamples(
+        var allSamples = try renderSamples(
             engine: engine, graph: graph,
             bufferCount: stagingBuffers, format: format, bufferSize: config.bufferSize
         )
@@ -823,145 +804,48 @@ final class ForestTransitionTests: XCTestCase {
                             bpm: config.bpm, currentCycleLengthInBeats: cycleLengthInBeats)
 
         let remaining = cycleBuffers - stagingBuffers
-        _ = try renderSamples(
+        let boundarySamples = try renderSamples(
             engine: engine, graph: graph,
             bufferCount: remaining, format: format, bufferSize: config.bufferSize
         )
+        allSamples.append(contentsOf: boundarySamples)
 
-        // Simulate extra renders in the gap (audio thread running while main thread
-        // is about to call activateStagedTree). Before the fix, requestFadeIn was a
-        // pointer write that could be consumed here on silence. Now activateStagedTree
-        // uses the atomic command, so these gap renders are harmless.
-        _ = try renderSamples(
+        // Render 3 buffers PAST the boundary before calling activateStagedTree.
+        // The audio thread already activated tree 2 at the boundary sample.
+        let gapSamples = try renderSamples(
             engine: engine, graph: graph,
             bufferCount: 3, format: format, bufferSize: config.bufferSize
         )
+        allSamples.append(contentsOf: gapSamples)
 
-        // Activate using the fixed path (atomic fade-in + sequencer start)
+        // Late bookkeeping — audio is already correct
         graph.activateStagedTree(engine: engine, bpm: config.bpm)
 
-        // Render the first buffer of tree 2
-        let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: config.bufferSize)!
-        let status = try engine.renderOffline(config.bufferSize, to: outputBuffer)
-        graph.clockSamplePosition.pointee += Int64(config.bufferSize)
+        // Render tree 2 for 1 cycle
+        let tree2Samples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: max(cycleBuffers, 10), format: format, bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: tree2Samples)
 
-        XCTAssertEqual(status, .success)
+        let transitionIndex = samplesPerCycle
 
-        if let channelData = outputBuffer.floatChannelData {
-            let leftChannel = channelData[0]
+        assertCleanTransition(
+            samples: allSamples, transitionSampleIndex: transitionIndex,
+            config: config, cycleBeats: cycleLengthInBeats,
+            label: "Gap render (3 buffers past boundary before bookkeeping)"
+        )
 
-            // First few samples must be near zero — the atomic fade-in ramp starts
-            // at gain 0/511. With the old race, the fade-in would have been wasted
-            // on a silent gap buffer, and this sample would be at full amplitude.
-            let earlySample = abs(leftChannel[2])
-            XCTAssertLessThan(
-                earlySample, 0.02,
-                "Atomic fade-in: early sample = \(earlySample). " +
-                "Expected near-zero (fade-in ramp starts at 0)."
-            )
-
-            // Late samples should have significant amplitude (ramp reaches ~1)
-            let lateSample = abs(leftChannel[Int(config.bufferSize) - 1])
-            XCTAssertGreaterThan(
-                lateSample, earlySample,
-                "Atomic fade-in should ramp up: early=\(earlySample), late=\(lateSample)"
-            )
-        }
+        // Verify gap buffers contain audio (tree 2 activated at boundary by audio thread)
+        let gapStartIndex = (stagingBuffers + remaining) * Int(config.bufferSize)
+        let gapEndIndex = gapStartIndex + 3 * Int(config.bufferSize)
+        let gapRMS = rms(of: allSamples, range: gapStartIndex..<min(gapEndIndex, allSamples.count))
+        XCTAssertGreaterThan(gapRMS, 0.001,
+                             "Gap buffers should contain tree 2 audio (audio-thread activation)")
 
         engine.stop()
     }
 
-    /// Regression guard: verifies that the OLD separate requestFadeIn + startSequencer
-    /// path still exhibits the race when a render happens between them.
-    /// The race wastes the fade-in on silence, so subsequent audio starts without
-    /// attenuation. This documents the bug that the atomic command fixed.
-    func testSeparateFadeInStartStillRaces() throws {
-        let config = defaultConfig
-        let tree1 = makeTestTree(pitch: 48, name: "Tree1")
-        let tree2 = makeTestTree(pitch: 52, name: "Tree2")
-
-        let engine = AVAudioEngine()
-        let format = AVAudioFormat(standardFormatWithSampleRate: config.sampleRate, channels: 2)!
-        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: config.bufferSize)
-
-        let graph = TreeAudioGraph()
-        graph.buildGraph(from: tree1, engine: engine, sampleRate: config.sampleRate)
-        graph.configureAllPatches(from: tree1)
-        graph.loadAllSequences(from: tree1, bpm: config.bpm)
-
-        try engine.start()
-        graph.startAll(bpm: config.bpm)
-
-        let cycleLengthInBeats: Double = 4
-        let samplesPerCycle = Int(cycleLengthInBeats * config.samplesPerBeat)
-        let cycleBuffers = samplesPerCycle / Int(config.bufferSize)
-        let stagingBuffers = (samplesPerCycle - Int(config.samplesPerBeat)) / Int(config.bufferSize)
-
-        _ = try renderSamples(
-            engine: engine, graph: graph,
-            bufferCount: stagingBuffers, format: format, bufferSize: config.bufferSize
-        )
-
-        graph.stageNextTree(tree2, engine: engine, sampleRate: config.sampleRate,
-                            bpm: config.bpm, currentCycleLengthInBeats: cycleLengthInBeats)
-
-        let remaining = cycleBuffers - stagingBuffers
-        _ = try renderSamples(
-            engine: engine, graph: graph,
-            bufferCount: remaining, format: format, bufferSize: config.bufferSize
-        )
-
-        // OLD PATH: separate pointer-write fade-in + ring-buffer sequencer start
-        let tree2NodeID = tree2.rootNode.id
-        let currentClock = graph.clockSamplePosition.pointee
-        if let newUnit = graph.unit(for: tree2NodeID) {
-            newUnit.setClockStartOffset(currentClock)
-            newUnit.requestFadeIn()   // pointer write — immediate
-        }
-        graph.clockIsRunning.pointee = true
-
-        // Render consumes the fade-in ramp on silence (the race!)
-        _ = try renderSamples(
-            engine: engine, graph: graph,
-            bufferCount: 1, format: format, bufferSize: config.bufferSize
-        )
-
-        // NOW push sequencer start — too late, fade already consumed
-        if let newUnit = graph.unit(for: tree2NodeID) {
-            newUnit.startSequencer(bpm: config.bpm)
-        }
-
-        // Render: sequencer starts, but fadeState is 0 (consumed). No fade applied.
-        let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: config.bufferSize)!
-        let status = try engine.renderOffline(config.bufferSize, to: outputBuffer)
-        graph.clockSamplePosition.pointee += Int64(config.bufferSize)
-
-        XCTAssertEqual(status, .success)
-
-        if let channelData = outputBuffer.floatChannelData {
-            let leftChannel = channelData[0]
-            // Frame 0 is silent (needsClockSync skips first tick). Frame ~10+ has
-            // audio at full amplitude (no fade). Check a sample in the middle of
-            // the buffer where the note is active and the fade-in ramp SHOULD have
-            // attenuated it (but didn't, because fade was consumed on silence).
-            let midSample = abs(leftChannel[Int(config.bufferSize) / 2])
-            let fadedMidGain = Float(config.bufferSize / 2) / Float(config.bufferSize - 1)
-            // If fade were applied, midSample would be roughly midSample * fadedMidGain.
-            // Without fade (race), it's at full amplitude.
-            // We check that the sample is significantly above what a faded version would be,
-            // proving the fade was NOT applied (the race happened).
-            // With a sawtooth at ~0.5 peak and 0.8 volume, mid-buffer should be ~0.2+
-            // A properly faded mid-buffer sample would be ~0.1 (gain ≈ 0.5)
-            // This test EXPECTS the race to produce unfaded audio.
-            XCTAssertGreaterThan(
-                midSample, 0.05,
-                "Regression: separate path should produce audible audio without fade. " +
-                "mid-buffer sample = \(midSample)"
-            )
-        }
-
-        engine.stop()
-    }
 
     // =========================================================================
     // MARK: - Adversarial: Misaligned Cycle Boundary
@@ -1061,7 +945,10 @@ final class ForestTransitionTests: XCTestCase {
     // MARK: - Focused Tests (from original)
     // =========================================================================
 
-    func testAutoStopPreventsBeatZeroRetrigger() throws {
+    /// Verifies that tree 1's sequencer is stopped after rendering past the
+    /// cycle boundary. The deactivateAtSample timestamp fires on the audio thread,
+    /// calling stopSoft which sets isPlaying = false.
+    func testDeactivationStopsSequencer() throws {
         let config = defaultConfig
         let tree1 = makeTestTree(pitch: 48, name: "Tree1")
         let tree2 = makeTestTree(pitch: 52, name: "Tree2")
@@ -1093,13 +980,16 @@ final class ForestTransitionTests: XCTestCase {
 
         let tree1NodeID = tree1.rootNode.id
         if let unit = graph.unit(for: tree1NodeID) {
-            XCTAssertTrue(unit.isFadedOut,
-                          "Tree 1 unit should be faded out after passing cycle boundary")
+            XCTAssertFalse(unit.isPlaying,
+                           "Tree 1 sequencer should have stopped after passing cycle boundary")
         }
 
         engine.stop()
     }
 
+    /// Verifies that tree 2's fade-in produces a smooth ramp at the cycle boundary.
+    /// The audio thread activates tree 2 at the exact boundary sample (set during
+    /// stageNextTree), triggering a 1-buffer fade-in ramp from 0→1.
     func testFadeInSmoothsNewTreeOnset() throws {
         let config = defaultConfig
         let tree1 = makeTestTree(pitch: 48, name: "Tree1")
@@ -1148,6 +1038,304 @@ final class ForestTransitionTests: XCTestCase {
             XCTAssertGreaterThan(lastSample, firstSample,
                                  "Fade-in should ramp up: first=\(firstSample), last=\(lastSample)")
         }
+
+        engine.stop()
+    }
+
+    // =========================================================================
+    // MARK: - Stress: Consecutive Transitions
+    // =========================================================================
+
+    /// 100 consecutive tree transitions, each verified for clean audio.
+    /// Stresses the activate/deactivate timestamp mechanism under rapid cycling.
+    func testConsecutiveTransitions_100() throws {
+        let config = defaultConfig
+        let cycleLengthInBeats: Double = 2
+        let samplesPerCycle = Int(cycleLengthInBeats * config.samplesPerBeat)
+        let cycleBuffers = samplesPerCycle / Int(config.bufferSize)
+
+        let engine = AVAudioEngine()
+        let format = AVAudioFormat(standardFormatWithSampleRate: config.sampleRate, channels: 2)!
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: config.bufferSize)
+
+        let graph = TreeAudioGraph()
+
+        // Create 101 trees with different pitches
+        let trees = (0...100).map { i in
+            makeTestTree(pitch: 48 + (i % 12), name: "Tree\(i)", lengthInBeats: cycleLengthInBeats)
+        }
+
+        graph.buildGraph(from: trees[0], engine: engine, sampleRate: config.sampleRate)
+        graph.configureAllPatches(from: trees[0])
+        graph.loadAllSequences(from: trees[0], bpm: config.bpm)
+
+        try engine.start()
+        graph.startAll(bpm: config.bpm)
+
+        // Render 1 cycle of the first tree
+        var allSamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: cycleBuffers, format: format, bufferSize: config.bufferSize
+        )
+
+        for i in 1...100 {
+            let stagingPoint = max(1, cycleBuffers - Int(config.samplesPerBeat) / Int(config.bufferSize))
+
+            // Render to staging point
+            let preStageSamples = try renderSamples(
+                engine: engine, graph: graph,
+                bufferCount: stagingPoint, format: format, bufferSize: config.bufferSize
+            )
+            allSamples.append(contentsOf: preStageSamples)
+
+            // Stage next tree
+            graph.stageNextTree(trees[i], engine: engine, sampleRate: config.sampleRate,
+                                bpm: config.bpm, currentCycleLengthInBeats: cycleLengthInBeats)
+
+            // Render to boundary
+            let remaining = cycleBuffers - stagingPoint
+            let boundarySamples = try renderSamples(
+                engine: engine, graph: graph,
+                bufferCount: remaining, format: format, bufferSize: config.bufferSize
+            )
+            allSamples.append(contentsOf: boundarySamples)
+
+            let transitionIndex = allSamples.count
+
+            // Activate (bookkeeping)
+            graph.activateStagedTree(engine: engine, bpm: config.bpm)
+
+            // Render 1 cycle of new tree
+            let newTreeSamples = try renderSamples(
+                engine: engine, graph: graph,
+                bufferCount: cycleBuffers, format: format, bufferSize: config.bufferSize
+            )
+            allSamples.append(contentsOf: newTreeSamples)
+
+            // Check every 10th transition to keep test time reasonable
+            if i % 10 == 0 {
+                assertCleanTransition(
+                    samples: allSamples, transitionSampleIndex: transitionIndex,
+                    config: config, cycleBeats: cycleLengthInBeats,
+                    label: "Consecutive transition \(i)"
+                )
+            }
+        }
+
+        engine.stop()
+    }
+
+    // =========================================================================
+    // MARK: - Adversarial: BPM Change at Transition
+    // =========================================================================
+
+    /// Tree 1 at 120 BPM transitions to tree 2 at 90 BPM.
+    /// Verifies the activation uses the correct BPM stored during staging.
+    func testBPMChangeAtTransition() throws {
+        let bpm1: Double = 120
+        let bpm2: Double = 90
+        var config = TestConfig()
+        config.bpm = bpm1
+
+        let tree1 = makeTestTree(pitch: 48, name: "Tree1")
+        let tree2 = makeTestTree(pitch: 52, name: "Tree2")
+
+        let engine = AVAudioEngine()
+        let format = AVAudioFormat(standardFormatWithSampleRate: config.sampleRate, channels: 2)!
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: config.bufferSize)
+
+        let graph = TreeAudioGraph()
+        graph.buildGraph(from: tree1, engine: engine, sampleRate: config.sampleRate)
+        graph.configureAllPatches(from: tree1)
+        graph.loadAllSequences(from: tree1, bpm: bpm1)
+
+        try engine.start()
+        graph.startAll(bpm: bpm1)
+
+        let cycleLengthInBeats: Double = 4
+        let samplesPerCycle1 = Int(cycleLengthInBeats * 60.0 * config.sampleRate / bpm1)
+        let cycleBuffers1 = samplesPerCycle1 / Int(config.bufferSize)
+        let stagingBuffers = (samplesPerCycle1 - Int(60.0 * config.sampleRate / bpm1)) / Int(config.bufferSize)
+
+        var allSamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: stagingBuffers, format: format, bufferSize: config.bufferSize
+        )
+
+        // Stage tree 2 at different BPM
+        graph.stageNextTree(tree2, engine: engine, sampleRate: config.sampleRate,
+                            bpm: bpm2, currentCycleLengthInBeats: cycleLengthInBeats)
+
+        let remaining = cycleBuffers1 - stagingBuffers
+        let boundarySamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: remaining, format: format, bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: boundarySamples)
+
+        let transitionIndex = allSamples.count
+        graph.activateStagedTree(engine: engine, bpm: bpm2)
+
+        // Render 2 cycles of tree 2 at 90 BPM
+        let samplesPerCycle2 = Int(cycleLengthInBeats * 60.0 * config.sampleRate / bpm2)
+        let tree2Buffers = 2 * samplesPerCycle2 / Int(config.bufferSize)
+        let tree2Samples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: max(tree2Buffers, 10), format: format, bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: tree2Samples)
+
+        assertCleanTransition(
+            samples: allSamples, transitionSampleIndex: transitionIndex,
+            config: config, cycleBeats: cycleLengthInBeats,
+            label: "BPM change (120→90)"
+        )
+
+        // Verify tree 2 has audio (BPM was set correctly during activation)
+        let tree2Start = transitionIndex
+        let tree2End = min(allSamples.count, tree2Start + samplesPerCycle2)
+        let tree2RMS = rms(of: allSamples, range: tree2Start..<tree2End)
+        XCTAssertGreaterThan(tree2RMS, 0.001,
+                             "Tree 2 should produce audio with BPM=\(bpm2)")
+
+        engine.stop()
+    }
+
+    // =========================================================================
+    // MARK: - Adversarial: Very Late Bookkeeping
+    // =========================================================================
+
+    /// Render 10 full cycles past the boundary before calling activateStagedTree.
+    /// The audio thread handled the transition at the boundary — late bookkeeping
+    /// has zero audible consequence.
+    func testVeryLateBookkeeping() throws {
+        let config = defaultConfig
+        let tree1 = makeTestTree(pitch: 48, name: "Tree1")
+        let tree2 = makeTestTree(pitch: 52, name: "Tree2")
+
+        let engine = AVAudioEngine()
+        let format = AVAudioFormat(standardFormatWithSampleRate: config.sampleRate, channels: 2)!
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: config.bufferSize)
+
+        let graph = TreeAudioGraph()
+        graph.buildGraph(from: tree1, engine: engine, sampleRate: config.sampleRate)
+        graph.configureAllPatches(from: tree1)
+        graph.loadAllSequences(from: tree1, bpm: config.bpm)
+
+        try engine.start()
+        graph.startAll(bpm: config.bpm)
+
+        let cycleLengthInBeats: Double = 4
+        let samplesPerCycle = Int(cycleLengthInBeats * config.samplesPerBeat)
+        let cycleBuffers = samplesPerCycle / Int(config.bufferSize)
+        let stagingBuffers = (samplesPerCycle - Int(config.samplesPerBeat)) / Int(config.bufferSize)
+
+        var allSamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: stagingBuffers, format: format, bufferSize: config.bufferSize
+        )
+
+        graph.stageNextTree(tree2, engine: engine, sampleRate: config.sampleRate,
+                            bpm: config.bpm, currentCycleLengthInBeats: cycleLengthInBeats)
+
+        let remaining = cycleBuffers - stagingBuffers
+        let boundarySamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: remaining, format: format, bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: boundarySamples)
+
+        // Render 10 full cycles past the boundary WITHOUT calling activateStagedTree.
+        // Audio thread already handled the transition.
+        let lateSamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: 10 * cycleBuffers, format: format, bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: lateSamples)
+
+        // Finally do bookkeeping (very late — 10 cycles late!)
+        graph.activateStagedTree(engine: engine, bpm: config.bpm)
+
+        // Render 1 more cycle
+        let postSamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: cycleBuffers, format: format, bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: postSamples)
+
+        let transitionIndex = samplesPerCycle
+
+        assertCleanTransition(
+            samples: allSamples, transitionSampleIndex: transitionIndex,
+            config: config, cycleBeats: cycleLengthInBeats,
+            label: "Very late bookkeeping (10 cycles late)"
+        )
+
+        // Verify the late region has audio (tree 2 was playing all along)
+        let lateStart = samplesPerCycle + Int(config.samplesPerBeat)
+        let lateEnd = min(allSamples.count, lateStart + samplesPerCycle)
+        let lateRMS = rms(of: allSamples, range: lateStart..<lateEnd)
+        XCTAssertGreaterThan(lateRMS, 0.001,
+                             "Tree 2 should be playing during late bookkeeping period")
+
+        engine.stop()
+    }
+
+    // =========================================================================
+    // MARK: - Adversarial: Immediate Crossfade Swap
+    // =========================================================================
+
+    /// Tests the fallback crossfadeSwap path which uses immediate timestamps
+    /// (no pre-staging). Verifies clean transition with instant activation/deactivation.
+    func testImmediateCrossfadeSwap() throws {
+        let config = defaultConfig
+        let tree1 = makeTestTree(pitch: 48, name: "Tree1")
+        let tree2 = makeTestTree(pitch: 52, name: "Tree2")
+
+        let engine = AVAudioEngine()
+        let format = AVAudioFormat(standardFormatWithSampleRate: config.sampleRate, channels: 2)!
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: config.bufferSize)
+
+        let graph = TreeAudioGraph()
+        graph.buildGraph(from: tree1, engine: engine, sampleRate: config.sampleRate)
+        graph.configureAllPatches(from: tree1)
+        graph.loadAllSequences(from: tree1, bpm: config.bpm)
+
+        try engine.start()
+        graph.startAll(bpm: config.bpm)
+
+        // Render 2 cycles of tree 1
+        let cycleLengthInBeats: Double = 4
+        let samplesPerCycle = Int(cycleLengthInBeats * config.samplesPerBeat)
+        let cycleBuffers = samplesPerCycle / Int(config.bufferSize)
+        var allSamples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: 2 * cycleBuffers, format: format, bufferSize: config.bufferSize
+        )
+
+        let transitionIndex = allSamples.count
+
+        // Use crossfadeSwap (no pre-staging, immediate timestamps)
+        graph.crossfadeSwap(to: tree2, engine: engine, sampleRate: config.sampleRate, bpm: config.bpm)
+
+        // Render 2 cycles of tree 2
+        let tree2Samples = try renderSamples(
+            engine: engine, graph: graph,
+            bufferCount: 2 * cycleBuffers, format: format, bufferSize: config.bufferSize
+        )
+        allSamples.append(contentsOf: tree2Samples)
+
+        assertCleanTransition(
+            samples: allSamples, transitionSampleIndex: transitionIndex,
+            config: config, cycleBeats: cycleLengthInBeats,
+            label: "Immediate crossfade swap"
+        )
+
+        // Verify tree 2 has audio
+        let tree2RMS = rms(of: allSamples,
+                           range: (transitionIndex + samplesPerCycle)..<min(allSamples.count, transitionIndex + 2 * samplesPerCycle))
+        XCTAssertGreaterThan(tree2RMS, 0.001,
+                             "Tree 2 should produce audio after crossfade swap")
 
         engine.stop()
     }

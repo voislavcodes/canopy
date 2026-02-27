@@ -29,10 +29,17 @@ final class NodeAudioUnit {
     /// Set on transitions so new units see beat 0 without resetting the global clock.
     private let _startOffset = UnsafeMutablePointer<Int64>.allocate(capacity: 1)
 
-    /// Target local sample at which to auto-stop + auto-fade (0 = disabled).
+    /// Global sample at which to auto-stop + auto-fade (0 = disabled).
     /// Set during stageNextTree so the audio thread stops at the LCM boundary
     /// without waiting for the main thread. Prevents beat-0 re-triggers.
-    private let _stopAtSample = UnsafeMutablePointer<Int64>.allocate(capacity: 1)
+    private let _deactivateAtSample = UnsafeMutablePointer<Int64>.allocate(capacity: 1)
+
+    /// Global sample at which to start sequencer + fade-in (Int64.max = no pending activation).
+    /// Set during stageNextTree so the audio thread activates at the exact sample.
+    private let _activateAtSample = UnsafeMutablePointer<Int64>.allocate(capacity: 1)
+
+    /// BPM to use when activation fires (0 = not set).
+    private let _activateBPM = UnsafeMutablePointer<Double>.allocate(capacity: 1)
 
     var currentBeat: Double { _currentBeat.pointee }
     var isPlaying: Bool { _isPlaying.pointee }
@@ -55,7 +62,9 @@ final class NodeAudioUnit {
         _orbitBodyAngles.initialize(to: (0, 0, 0, 0, 0, 0))
         _fadeState.initialize(to: 0)
         _startOffset.initialize(to: 0)
-        _stopAtSample.initialize(to: 0)
+        _deactivateAtSample.initialize(to: 0)
+        _activateAtSample.initialize(to: Int64.max)
+        _activateBPM.initialize(to: 0)
 
         let cmdBuffer = self.commandBuffer
         let beatPtr = self._currentBeat
@@ -64,7 +73,9 @@ final class NodeAudioUnit {
         let orbitAnglesPtr = self._orbitBodyAngles
         let fadeStatePtr = self._fadeState
         let startOffsetPtr = self._startOffset
-        let stopAtSamplePtr = self._stopAtSample
+        let deactivateAtSamplePtr = self._deactivateAtSample
+        let activateAtSamplePtr = self._activateAtSample
+        let activateBPMPtr = self._activateBPM
 
         if isSchmynth {
             self.sourceNode = Self.makeSchmynthSourceNode(
@@ -72,7 +83,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         } else if isVolt {
             self.sourceNode = Self.makeVoltSourceNode(
@@ -80,7 +93,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         } else if isFuse {
             self.sourceNode = Self.makeFuseSourceNode(
@@ -88,7 +103,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         } else if isSpore {
             self.sourceNode = Self.makeSporeSourceNode(
@@ -96,7 +113,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         } else if isQuake {
             self.sourceNode = Self.makeQuakeSourceNode(
@@ -104,7 +123,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, orbitAnglesPtr: orbitAnglesPtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         } else if isSwarm {
             self.sourceNode = Self.makeSwarmSourceNode(
@@ -112,7 +133,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         } else if isTide {
             self.sourceNode = Self.makeTideSourceNode(
@@ -120,7 +143,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         } else if isFlow {
             self.sourceNode = Self.makeFlowSourceNode(
@@ -128,7 +153,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         } else if isWestCoast {
             self.sourceNode = Self.makeWestCoastSourceNode(
@@ -136,7 +163,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         } else if isDrumKit {
             self.sourceNode = Self.makeDrumKitSourceNode(
@@ -144,7 +173,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         } else {
             self.sourceNode = Self.makeOscillatorSourceNode(
@@ -152,7 +183,9 @@ final class NodeAudioUnit {
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
                 clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
                 startOffsetPtr: startOffsetPtr,
-                stopAtSamplePtr: stopAtSamplePtr
+                deactivateAtSamplePtr: deactivateAtSamplePtr,
+                activateAtSamplePtr: activateAtSamplePtr,
+                activateBPMPtr: activateBPMPtr
             )
         }
     }
@@ -169,7 +202,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var voices = VoiceManager(voiceCount: 8)
         var seq = Sequencer()
@@ -226,10 +261,9 @@ final class NodeAudioUnit {
                         sampleRate: sr
                     )
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -239,10 +273,7 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &voices, detune: detune)
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -334,24 +365,38 @@ final class NodeAudioUnit {
 
             let srF = Float(sr)
 
-            // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+            // Compute active frame range from activation/deactivation timestamps
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                beatPtr.pointee = seq.currentBeat
+                playingPtr.pointee = seq.isPlaying
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
+
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2  // fade-in
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
 
             // Branch once before the loop: modulated vs unmodulated path.
             // Zero overhead when no LFOs are routed to this node.
             if lfoBank.slotCount > 0 {
-                // MODULATED PATH
-                for frame in 0..<Int(frameCount) {
+                // MODULATED PATH — active range only
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &voices, detune: detune)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod // reserved for future per-sample resonance modulation
@@ -367,7 +412,6 @@ final class NodeAudioUnit {
                         sample = filter.process(raw)
                     }
 
-                    // Per-node FX chain — stereo so Ghost/Nebula can produce width
                     let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     let modPan = max(-1.0, min(1.0, Double(pan) + panMod))
@@ -385,15 +429,14 @@ final class NodeAudioUnit {
                     }
                 }
             } else {
-                // UNMODIFIED PATH (existing behavior, zero LFO overhead)
-                for frame in 0..<Int(frameCount) {
+                // UNMODIFIED PATH — active range only
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &voices, detune: detune)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
                     let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
                     let sample = filter.process(raw)
 
-                    // Per-node FX chain — stereo so Ghost/Nebula can produce width
                     let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
@@ -407,16 +450,31 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &voices, detune: detune)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Voice-tail rendering for post-deactivation frames (release envelopes)
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+                let sample = filter.process(raw)
+                let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                    }
+                }
+            }
+
             // Update shared state for UI polling
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
-            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
@@ -435,7 +493,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var drumKit = FMDrumKit.defaultKit()
         var seq = Sequencer()
@@ -469,10 +529,9 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -482,10 +541,7 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &drumKit, detune: 0)
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -583,22 +639,35 @@ final class NodeAudioUnit {
 
             let srF = Float(sr)
 
-            // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+            // Compute active frame range from activation/deactivation timestamps
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                beatPtr.pointee = seq.currentBeat
+                playingPtr.pointee = seq.isPlaying
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
 
-            // Render loop — same LFO branching as oscillator path
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
+
             if lfoBank.slotCount > 0 {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &drumKit, detune: 0)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
@@ -631,7 +700,7 @@ final class NodeAudioUnit {
                     }
                 }
             } else {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &drumKit, detune: 0)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -651,15 +720,30 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &drumKit, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Voice-tail rendering for post-deactivation frames
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let raw = drumKit.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+                let sample = filter.process(raw)
+                let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                    }
+                }
+            }
+
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
-            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
@@ -679,7 +763,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var quake = QuakeVoiceManager.defaultKit()
         var seq = Sequencer()
@@ -716,11 +802,10 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     orbit.start(bpm: bpm, lengthInBeats: orbitLengthInBeats)
                     fxChain.updateBPM(bpm)
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -732,10 +817,7 @@ final class NodeAudioUnit {
                     seq.stopSoft(receiver: &quake, detune: 0)
                     orbit.stop()
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -831,25 +913,45 @@ final class NodeAudioUnit {
             }
 
             let srF = Float(sr)
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                if useOrbit {
+                    playingPtr.pointee = orbit.isPlaying
+                    beatPtr.pointee = orbit.currentBeat
+                } else {
+                    beatPtr.pointee = seq.currentBeat
+                    playingPtr.pointee = seq.isPlaying
+                }
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
 
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                orbit.start(bpm: bpm, lengthInBeats: orbitLengthInBeats)
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
+
             if lfoBank.slotCount > 0 {
-                for frame in 0..<Int(frameCount) {
-                    let globalSample = baseSample + Int64(frame)
+                for frame in range.activeStart..<range.activeEnd {
+                    let frameSample = baseSample + Int64(frame)
                     if useOrbit {
-                        orbit.tickQuake(globalSample: globalSample, sampleRate: sr, receiver: &quake)
+                        orbit.tickQuake(globalSample: frameSample, sampleRate: sr, receiver: &quake)
                     } else {
-                        seq.tick(globalSample: globalSample, sampleRate: sr, receiver: &quake, detune: 0)
+                        seq.tick(globalSample: frameSample, sampleRate: sr, receiver: &quake, detune: 0)
                     }
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
@@ -882,12 +984,12 @@ final class NodeAudioUnit {
                     }
                 }
             } else {
-                for frame in 0..<Int(frameCount) {
-                    let globalSample = baseSample + Int64(frame)
+                for frame in range.activeStart..<range.activeEnd {
+                    let frameSample = baseSample + Int64(frame)
                     if useOrbit {
-                        orbit.tickQuake(globalSample: globalSample, sampleRate: sr, receiver: &quake)
+                        orbit.tickQuake(globalSample: frameSample, sampleRate: sr, receiver: &quake)
                     } else {
-                        seq.tick(globalSample: globalSample, sampleRate: sr, receiver: &quake, detune: 0)
+                        seq.tick(globalSample: frameSample, sampleRate: sr, receiver: &quake, detune: 0)
                     }
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -907,6 +1009,29 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &quake, detune: 0)
+                orbit.stop()
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Voice-tail rendering for post-deactivation frames
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let raw = quake.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+                let sample = filter.process(raw)
+                let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                    }
+                }
+            }
+
             if useOrbit {
                 playingPtr.pointee = orbit.isPlaying
                 beatPtr.pointee = orbit.currentBeat
@@ -914,13 +1039,6 @@ final class NodeAudioUnit {
             } else {
                 playingPtr.pointee = seq.isPlaying
                 beatPtr.pointee = seq.currentBeat
-            }
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
             }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
@@ -940,7 +1058,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var westCoast = WestCoastVoiceManager()
         var seq = Sequencer()
@@ -974,10 +1094,9 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -987,10 +1106,7 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &westCoast, detune: 0)
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1099,22 +1215,34 @@ final class NodeAudioUnit {
             westCoast.sampleRate = sr
             let srF = Float(sr)
 
-            // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                beatPtr.pointee = seq.currentBeat
+                playingPtr.pointee = seq.isPlaying
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
 
-            // Render loop — same LFO branching as other paths
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
+
             if lfoBank.slotCount > 0 {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &westCoast, detune: 0)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
@@ -1147,7 +1275,7 @@ final class NodeAudioUnit {
                     }
                 }
             } else {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &westCoast, detune: 0)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -1167,15 +1295,29 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &westCoast, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let raw = westCoast.renderSample(sampleRate: sr) * Float(volumeSmoothed)
+                let sample = filter.process(raw)
+                let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                    }
+                }
+            }
+
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
-            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
@@ -1194,7 +1336,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var flow = FlowVoiceManager()
         var seq = Sequencer()
@@ -1225,10 +1369,9 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -1238,10 +1381,7 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &flow, detune: 0)
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1343,22 +1483,36 @@ final class NodeAudioUnit {
             flow.sampleRate = sr
             let srF = Float(sr)
 
-            // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+            // Compute active frame range from activation/deactivation timestamps
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                beatPtr.pointee = seq.currentBeat
+                playingPtr.pointee = seq.isPlaying
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
+
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
 
             // FLOW is natively stereo — same pattern as SWARM/TIDE
             if lfoBank.slotCount > 0 {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &flow, detune: 0)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
@@ -1401,7 +1555,7 @@ final class NodeAudioUnit {
                 let gainL = Float(cos(angle))
                 let gainR = Float(sin(angle))
 
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &flow, detune: 0)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -1423,15 +1577,35 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &flow, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Voice-tail rendering for post-deactivation frames (release envelopes)
+            let tailAngle = Double((pan + 1) * 0.5) * .pi * 0.5
+            let tailGainL = Float(cos(tailAngle))
+            let tailGainR = Float(sin(tailAngle))
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let (rawL, rawR) = flow.renderStereoSample(sampleRate: sr)
+                let volF = Float(volumeSmoothed)
+                var sampleL = filter.process(rawL * volF)
+                var sampleR = filter.process(rawR * volF)
+                (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                    }
+                }
+            }
+
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
-            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
@@ -1450,7 +1624,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var swarm = SwarmVoiceManager()
         var seq = Sequencer()
@@ -1482,10 +1658,9 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -1495,10 +1670,7 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &swarm, detune: 0)
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1596,22 +1768,36 @@ final class NodeAudioUnit {
 
             swarm.sampleRate = srF
 
-            // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+            // Compute active frame range from activation/deactivation timestamps
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                beatPtr.pointee = seq.currentBeat
+                playingPtr.pointee = seq.isPlaying
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
+
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
 
             // Swarm is natively stereo — same pattern as TIDE
             if lfoBank.slotCount > 0 {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &swarm, detune: 0)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
@@ -1654,7 +1840,7 @@ final class NodeAudioUnit {
                 let gainL = Float(cos(angle))
                 let gainR = Float(sin(angle))
 
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &swarm, detune: 0)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -1676,15 +1862,35 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &swarm, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Voice-tail rendering for post-deactivation frames (release envelopes)
+            let tailAngle = Double((pan + 1) * 0.5) * .pi * 0.5
+            let tailGainL = Float(cos(tailAngle))
+            let tailGainR = Float(sin(tailAngle))
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let (rawL, rawR) = swarm.renderStereoSample(sampleRate: srF)
+                let volF = Float(volumeSmoothed)
+                var sampleL = filter.process(rawL * volF)
+                var sampleR = filter.process(rawR * volF)
+                (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                    }
+                }
+            }
+
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
-            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
@@ -1703,7 +1909,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var tide = TideVoiceManager()
         var seq = Sequencer()
@@ -1734,11 +1942,10 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     tide.setBPM(bpm)
                     fxChain.updateBPM(bpm)
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -1748,10 +1955,7 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &tide, detune: 0)
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1855,22 +2059,37 @@ final class NodeAudioUnit {
             tide.sampleRate = sr
             let srF = Float(sr)
 
-            // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+            // Compute active frame range from activation/deactivation timestamps
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                beatPtr.pointee = seq.currentBeat
+                playingPtr.pointee = seq.isPlaying
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
+
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                tide.setBPM(bpm)
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
 
             // Tide is natively stereo — render stereo directly
             if lfoBank.slotCount > 0 {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &tide, detune: 0)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
@@ -1912,7 +2131,7 @@ final class NodeAudioUnit {
                 let gainL = Float(cos(angle))
                 let gainR = Float(sin(angle))
 
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &tide, detune: 0)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -1934,15 +2153,35 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &tide, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Voice-tail rendering for post-deactivation frames (release envelopes)
+            let tailAngle = Double((pan + 1) * 0.5) * .pi * 0.5
+            let tailGainL = Float(cos(tailAngle))
+            let tailGainR = Float(sin(tailAngle))
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let (rawL, rawR) = tide.renderStereoSample(sampleRate: sr)
+                let volF = Float(volumeSmoothed)
+                var sampleL = filter.process(rawL * volF)
+                var sampleR = filter.process(rawR * volF)
+                (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                    }
+                }
+            }
+
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
-            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
@@ -1961,7 +2200,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var spore = SporeVoiceManager()
         var seq = Sequencer()
@@ -1994,14 +2235,13 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     spore.setBPM(bpm)
                     fxChain.updateBPM(bpm)
                     if useSporeSeq {
                         sporeSeq.start(bpm: bpm)
                     }
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -2013,10 +2253,7 @@ final class NodeAudioUnit {
                     seq.stopSoft(receiver: &spore, detune: 0)
                     sporeSeq.stop()
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -2135,24 +2372,40 @@ final class NodeAudioUnit {
             spore.sampleRate = sr
             let srF = Float(sr)
 
-            // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+            // Compute active frame range from activation/deactivation timestamps
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                beatPtr.pointee = seq.currentBeat
+                playingPtr.pointee = seq.isPlaying || sporeSeq.isRunning
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
+
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                spore.setBPM(bpm)
+                if useSporeSeq { sporeSeq.start(bpm: bpm) }
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
 
             // SPORE is natively stereo
             if lfoBank.slotCount > 0 {
-                for frame in 0..<Int(frameCount) {
-                    let globalSample = baseSample + Int64(frame)
-                    seq.tick(globalSample: globalSample, sampleRate: sr, receiver: &spore, detune: 0)
+                for frame in range.activeStart..<range.activeEnd {
+                    let frameSample = baseSample + Int64(frame)
+                    seq.tick(globalSample: frameSample, sampleRate: sr, receiver: &spore, detune: 0)
 
                     // SPORE SEQ: generate probabilistic events
                     if useSporeSeq {
@@ -2202,9 +2455,9 @@ final class NodeAudioUnit {
                 let gainL = Float(cos(angle))
                 let gainR = Float(sin(angle))
 
-                for frame in 0..<Int(frameCount) {
-                    let globalSample = baseSample + Int64(frame)
-                    seq.tick(globalSample: globalSample, sampleRate: sr, receiver: &spore, detune: 0)
+                for frame in range.activeStart..<range.activeEnd {
+                    let frameSample = baseSample + Int64(frame)
+                    seq.tick(globalSample: frameSample, sampleRate: sr, receiver: &spore, detune: 0)
 
                     // SPORE SEQ: generate probabilistic events
                     if useSporeSeq {
@@ -2232,15 +2485,36 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &spore, detune: 0)
+                sporeSeq.stop()
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Voice-tail rendering for post-deactivation frames (release envelopes)
+            let tailAngle = Double((pan + 1) * 0.5) * .pi * 0.5
+            let tailGainL = Float(cos(tailAngle))
+            let tailGainR = Float(sin(tailAngle))
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let (rawL, rawR) = spore.renderStereoSample(sampleRate: sr)
+                let volF = Float(volumeSmoothed)
+                var sampleL = filter.process(rawL * volF)
+                var sampleR = filter.process(rawR * volF)
+                (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                    }
+                }
+            }
+
             playingPtr.pointee = seq.isPlaying || sporeSeq.isRunning
             beatPtr.pointee = seq.currentBeat
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
-            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
@@ -2260,24 +2534,106 @@ final class NodeAudioUnit {
         _fadeState.deallocate()
         _startOffset.deinitialize(count: 1)
         _startOffset.deallocate()
-        _stopAtSample.deinitialize(count: 1)
-        _stopAtSample.deallocate()
+        _deactivateAtSample.deinitialize(count: 1)
+        _deactivateAtSample.deallocate()
+        _activateAtSample.deinitialize(count: 1)
+        _activateAtSample.deallocate()
+        _activateBPM.deinitialize(count: 1)
+        _activateBPM.deallocate()
     }
 
-    /// Request a one-buffer fade-out. The render callback will ramp to zero
-    /// over the next buffer and then output silence until removed.
+    /// Number of buffers over which to fade out (~185ms at 512/44100).
+    /// Long enough to avoid clicks, short enough to prevent audible chord overlap.
+    static let fadeOutBuffers: Int32 = 16
+
+    // MARK: - Sample-Precise Activation/Deactivation
+
+    /// Compute the active frame range within a render buffer based on
+    /// activation/deactivation timestamps. Returns frame bounds and flags
+    /// indicating whether activation or deactivation should fire this buffer.
+    ///
+    /// Uses global time (not local) to avoid negative-baseSample confusion.
+    @inline(__always)
+    static func computeActiveRange(
+        frameCount: Int,
+        globalSample: Int64,
+        activateAtSample: Int64,
+        deactivateAtSample: Int64
+    ) -> (activeStart: Int, activeEnd: Int,
+          shouldActivate: Bool, shouldDeactivate: Bool,
+          earlyReturn: Bool) {
+        let bufferEnd = globalSample + Int64(frameCount)
+
+        // Determine activation frame
+        let activeStart: Int
+        let shouldActivate: Bool
+        if activateAtSample == Int64.max {
+            // No pending activation — already active from frame 0
+            activeStart = 0
+            shouldActivate = false
+        } else if activateAtSample >= bufferEnd {
+            // Not yet — silence entire buffer
+            return (0, 0, false, false, true)
+        } else if activateAtSample <= globalSample {
+            // Late staging — activate at frame 0
+            activeStart = 0
+            shouldActivate = true
+        } else {
+            // Activation within this buffer
+            activeStart = Int(activateAtSample - globalSample)
+            shouldActivate = true
+        }
+
+        // Determine deactivation frame
+        let activeEnd: Int
+        let shouldDeactivate: Bool
+        if deactivateAtSample <= 0 {
+            // No pending deactivation — active through entire buffer
+            activeEnd = frameCount
+            shouldDeactivate = false
+        } else if deactivateAtSample <= globalSample {
+            // Already past deactivation — silence
+            return (0, 0, false, false, true)
+        } else if deactivateAtSample < bufferEnd {
+            // Deactivation within this buffer
+            activeEnd = Int(deactivateAtSample - globalSample)
+            shouldDeactivate = true
+        } else {
+            // Deactivation is beyond this buffer
+            activeEnd = frameCount
+            shouldDeactivate = false
+        }
+
+        // Ensure activeStart <= activeEnd
+        let clampedEnd = max(activeStart, activeEnd)
+        return (activeStart, clampedEnd, shouldActivate, shouldDeactivate, false)
+    }
+
+    /// Zero a range of frames in all channels of an audio buffer list.
+    @inline(__always)
+    static func zeroFrames(_ abl: UnsafeMutableAudioBufferListPointer, range: Range<Int>) {
+        guard !range.isEmpty else { return }
+        for buf in 0..<abl.count {
+            guard let data = abl[buf].mData?.assumingMemoryBound(to: Float.self) else { continue }
+            for frame in range {
+                data[frame] = 0
+            }
+        }
+    }
+
+    /// Request a multi-buffer fade-out. The render callback will ramp to zero
+    /// over ~185ms (16 buffers) then output silence until removed.
     func requestFadeOut() {
-        // Don't regress from state 2 (already silent via auto-stop) back to
-        // state 1 (fade-out ramp). That would let the still-running sequencer's
-        // audio leak through during the 1→0 ramp.
-        if _fadeState.pointee != 2 {
-            _fadeState.pointee = 1
+        let current = _fadeState.pointee
+        // Don't re-trigger if already fading (>0) or faded out (-1)
+        if current == 0 {
+            _fadeState.pointee = Self.fadeOutBuffers
         }
     }
 
     /// Whether the fade-out has completed (safe to disconnect or stop).
     var isFadedOut: Bool {
-        _fadeState.pointee == 2
+        _fadeState.pointee == -1
     }
 
     /// Reset fade state to normal after a faded stop, so next play outputs audio.
@@ -2289,13 +2645,17 @@ final class NodeAudioUnit {
     /// to full volume over the next buffer, then switch to normal output.
     /// Used during forest transitions so new units don't pop in at full volume.
     func requestFadeIn() {
-        _fadeState.pointee = 3
+        _fadeState.pointee = -2
     }
 
     /// Apply buffer-level fade for click-free transitions. Called at the end of
     /// every render callback, after all synthesis and FX processing.
-    /// State 0 = normal (no-op), 1 = ramp 1→0 (fade-out), 2 = output zeros,
-    /// 3 = ramp 0→1 (fade-in, then → 0).
+    ///
+    /// Fade state encoding:
+    ///   0  = normal (no-op)
+    ///  >0  = fade-out in progress (value = remaining buffers, counts down)
+    ///  -1  = faded out (output zeros)
+    ///  -2  = fade-in (ramp 0→1 over one buffer, then → 0)
     @inline(__always)
     static func applyFade(
         _ abl: UnsafeMutableAudioBufferListPointer,
@@ -2305,17 +2665,22 @@ final class NodeAudioUnit {
         let state = fadeState.pointee
         guard state != 0 else { return }
         let frames = Int(frameCount)
-        if state == 1 {
-            // Fade-out: ramp 1→0 over one buffer, then silence
+        if state > 0 {
+            // Multi-buffer fade-out: linear ramp across buffers
+            let total = Float(fadeOutBuffers)
+            let gainStart = Float(state) / total
+            let gainEnd = Float(state - 1) / total
             let divisor = Float(max(1, frames - 1))
             for frame in 0..<frames {
-                let gain = Float(frames - 1 - frame) / divisor
+                let t = Float(frame) / divisor
+                let gain = gainStart + (gainEnd - gainStart) * t
                 for buf in 0..<abl.count {
                     abl[buf].mData?.assumingMemoryBound(to: Float.self)[frame] *= gain
                 }
             }
-            fadeState.pointee = 2
-        } else if state == 3 {
+            let next = state - 1
+            fadeState.pointee = next > 0 ? next : -1
+        } else if state == -2 {
             // Fade-in: ramp 0→1 over one buffer, then normal
             let divisor = Float(max(1, frames - 1))
             for frame in 0..<frames {
@@ -2326,7 +2691,7 @@ final class NodeAudioUnit {
             }
             fadeState.pointee = 0
         } else {
-            // State 2: output zeros
+            // State -1: faded out, output zeros
             for buf in 0..<abl.count {
                 memset(abl[buf].mData, 0, Int(abl[buf].mDataByteSize))
             }
@@ -2339,12 +2704,25 @@ final class NodeAudioUnit {
         _startOffset.pointee = offset
     }
 
-    /// Set the local sample at which to auto-stop + auto-fade.
+    /// Set the global sample at which to auto-deactivate (stop + fade-out).
     /// 0 disables the mechanism. Used by stageNextTree to schedule
     /// a stop at the LCM boundary so the audio thread handles it
     /// without waiting for the main thread.
-    func setStopAtSample(_ sample: Int64) {
-        _stopAtSample.pointee = sample
+    func setDeactivateAtSample(_ sample: Int64) {
+        _deactivateAtSample.pointee = sample
+    }
+
+    /// Schedule activation at a specific global sample with a given BPM.
+    /// Writes BPM first, then sample (ordering for audio-thread read safety).
+    /// Int64.max means no pending activation.
+    func setActivation(atSample sample: Int64, bpm: Double) {
+        _activateBPM.pointee = bpm
+        _activateAtSample.pointee = sample
+    }
+
+    /// Read the clock start offset (needed by simplified activateStagedTree).
+    var clockStartOffset: Int64 {
+        _startOffset.pointee
     }
 
     // MARK: - Public API (main thread)
@@ -2400,12 +2778,6 @@ final class NodeAudioUnit {
         commandBuffer.push(.sequencerStart(bpm: bpm))
     }
 
-    /// Start sequencer AND request fade-in as a single atomic ring buffer command.
-    /// Prevents the race where the audio thread drains requestFadeIn (pointer write)
-    /// on a silent buffer before the sequencerStart command arrives.
-    func startSequencerWithFadeIn(bpm: Double) {
-        commandBuffer.push(.sequencerStartWithFadeIn(bpm: bpm))
-    }
 
     func stopSequencer() {
         commandBuffer.push(.sequencerStop)
@@ -2417,16 +2789,6 @@ final class NodeAudioUnit {
         commandBuffer.push(.sequencerStopSoft)
     }
 
-    /// Tell the sequencer to stop at the next loop wrap point instead of
-    /// re-triggering. Prevents beat-0 overlap during forest transitions.
-    func prepareTransition() {
-        commandBuffer.push(.sequencerPrepareTransition)
-    }
-
-    /// Cancel a pending prepare-transition (e.g., staged tree was cleared).
-    func cancelTransition() {
-        commandBuffer.push(.sequencerCancelTransition)
-    }
 
     func setSequencerBPM(_ bpm: Double) {
         commandBuffer.push(.sequencerSetBPM(bpm))
@@ -2694,7 +3056,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var schmynth = SchmynthVoiceManager()
         var seq = Sequencer()
@@ -2728,10 +3092,9 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -2741,10 +3104,7 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &schmynth, detune: 0)
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -2817,21 +3177,37 @@ final class NodeAudioUnit {
 
             schmynth.sampleRate = Float(sr)
             let srF = Float(sr)
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            // Compute active frame range from activation/deactivation timestamps
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
+
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                beatPtr.pointee = seq.currentBeat
+                playingPtr.pointee = seq.isPlaying
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
+
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
 
             // Render loop
             if lfoBank.slotCount > 0 {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &schmynth, detune: 0)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
@@ -2864,7 +3240,7 @@ final class NodeAudioUnit {
                     }
                 }
             } else {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &schmynth, detune: 0)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -2884,15 +3260,30 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &schmynth, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Voice-tail rendering for post-deactivation frames (release envelopes)
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let raw = schmynth.renderSampleFloat(sampleRate: Float(sr)) * Float(volumeSmoothed)
+                let sample = filter.process(raw)
+                let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                    }
+                }
+            }
+
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
-            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
@@ -2911,7 +3302,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var fuse = FuseVoiceManager()
         var seq = Sequencer()
@@ -2945,10 +3338,9 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -2958,10 +3350,7 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &fuse, detune: 0)
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -3033,21 +3422,37 @@ final class NodeAudioUnit {
 
             fuse.sampleRate = Float(sr)
             let srF = Float(sr)
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            // Compute active frame range from activation/deactivation timestamps
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
+
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                beatPtr.pointee = seq.currentBeat
+                playingPtr.pointee = seq.isPlaying
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
+
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
 
             // Render loop
             if lfoBank.slotCount > 0 {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &fuse, detune: 0)
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
@@ -3080,7 +3485,7 @@ final class NodeAudioUnit {
                     }
                 }
             } else {
-                for frame in 0..<Int(frameCount) {
+                for frame in range.activeStart..<range.activeEnd {
                     seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &fuse, detune: 0)
 
                     volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -3100,15 +3505,30 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &fuse, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Voice-tail rendering for post-deactivation frames (release envelopes)
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let raw = fuse.renderSampleFloat(sampleRate: Float(sr)) * Float(volumeSmoothed)
+                let sample = filter.process(raw)
+                let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                    }
+                }
+            }
+
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
-            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
@@ -3127,7 +3547,9 @@ final class NodeAudioUnit {
         clockPtr: UnsafeMutablePointer<Int64>,
         clockRunning: UnsafeMutablePointer<Bool>,
         startOffsetPtr: UnsafeMutablePointer<Int64>,
-        stopAtSamplePtr: UnsafeMutablePointer<Int64>
+        deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateAtSamplePtr: UnsafeMutablePointer<Int64>,
+        activateBPMPtr: UnsafeMutablePointer<Double>
     ) -> AVAudioSourceNode {
         var volt = VoltVoiceManager()
         var seq = Sequencer()
@@ -3161,10 +3583,9 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
+                case .sequencerStart(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
-                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -3174,10 +3595,7 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &volt, detune: 0)
 
-                case .sequencerPrepareTransition:
-                    seq.stopAtNextWrap = true
-                case .sequencerCancelTransition:
-                    seq.stopAtNextWrap = false
+                // sequencerPrepareTransition/CancelTransition removed — audio-thread timestamps handle transitions
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -3266,20 +3684,36 @@ final class NodeAudioUnit {
 
             volt.sampleRate = Float(sr)
             let srF = Float(sr)
-            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
 
-            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
-            // during forest transitions. Triggers one buffer EARLY with a smooth
-            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
-            // The boundary buffer itself arrives with fadeState already at 2 (silent).
-            let stopSample = stopAtSamplePtr.pointee
-            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
-                stopAtSamplePtr.pointee = 0
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            // Compute active frame range from activation/deactivation timestamps
+            let globalSample = clockPtr.pointee
+            let baseSample = globalSample - startOffsetPtr.pointee
+
+            let range = Self.computeActiveRange(
+                frameCount: Int(frameCount), globalSample: globalSample,
+                activateAtSample: activateAtSamplePtr.pointee,
+                deactivateAtSample: deactivateAtSamplePtr.pointee)
+
+            if range.earlyReturn {
+                Self.zeroFrames(ablPointer, range: 0..<Int(frameCount))
+                beatPtr.pointee = seq.currentBeat
+                playingPtr.pointee = seq.isPlaying
+                Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                return noErr
             }
 
+            if range.shouldActivate {
+                activateAtSamplePtr.pointee = Int64.max
+                let bpm = activateBPMPtr.pointee
+                seq.start(bpm: bpm)
+                fxChain.updateBPM(bpm)
+                fadeStatePtr.pointee = -2
+            }
+
+            Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
+
             // Render loop
-            for frame in 0..<Int(frameCount) {
+            for frame in range.activeStart..<range.activeEnd {
                 seq.tick(globalSample: baseSample + Int64(frame), sampleRate: sr, receiver: &volt, detune: 0)
 
                 volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
@@ -3298,15 +3732,30 @@ final class NodeAudioUnit {
                 }
             }
 
+            if range.shouldDeactivate {
+                deactivateAtSamplePtr.pointee = 0
+                seq.stopSoft(receiver: &volt, detune: 0)
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+            }
+
+            // Voice-tail rendering for post-deactivation frames (release envelopes)
+            for frame in range.activeEnd..<Int(frameCount) {
+                volumeSmoothed += (volume - volumeSmoothed) * volumeSmoothCoeff
+                let raw = volt.renderSampleFloat(sampleRate: Float(sr)) * Float(volumeSmoothed)
+                let sample = filter.process(raw)
+                let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
+                if ablPointer.count >= 2 {
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                } else {
+                    for buf in 0..<ablPointer.count {
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                    }
+                }
+            }
+
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
-
-            // Auto-fade when sequencer soft-stops during forest transition.
-            // Ensures fade happens in the same callback as the stop command.
-            if seq.shouldAutoFade {
-                seq.shouldAutoFade = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
-            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr

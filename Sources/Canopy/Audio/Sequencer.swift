@@ -86,11 +86,6 @@ struct Sequencer {
     var bpm: Double = 120
     var currentBeat: Double = 0
     var isPlaying: Bool = false
-    var stopAtNextWrap: Bool = false
-    /// Set when sequencer stops due to stopAtNextWrap. Signals the render
-    /// callback to auto-fade the current buffer (same-callback fade eliminates
-    /// the one-buffer release-tail overlap during forest transitions).
-    var shouldAutoFade: Bool = false
 
     private var events: [SequencerEvent]
     private var eventCount: Int = 0
@@ -370,7 +365,6 @@ struct Sequencer {
             activeRatchetCount = 0
         }
         isPlaying = false
-        shouldAutoFade = true
         currentBeat = 0
     }
 
@@ -494,14 +488,6 @@ struct Sequencer {
             let loopDelta = newLoopCount - loopCount
             handleLoopWrap(receiver: &receiver, detune: detune, loopDelta: loopDelta)
             loopCount = newLoopCount
-
-            // Forest transition: stop at the wrap point so the old tree doesn't
-            // re-trigger beat-0 events and overlap with the new tree.
-            if stopAtNextWrap {
-                stopAtNextWrap = false
-                isPlaying = false
-                return
-            }
         }
 
         currentBeat = localBeat
@@ -627,13 +613,6 @@ struct Sequencer {
             nextOffCursor = 0
 
             resetFlags()
-
-            // Forest transition: stop at wrap, don't re-trigger
-            if stopAtNextWrap {
-                stopAtNextWrap = false
-                isPlaying = false
-                return
-            }
         }
 
         // Branch: arp mode vs normal mode

@@ -62,8 +62,8 @@ final class TreeAudioGraph {
         units.removeAll()
     }
 
-    /// Crossfade swap: build new tree's graph alongside old one, start new sequencers,
-    /// stop old sequencers and let voices ring out through natural ADSR release.
+    /// Crossfade swap: build new tree's graph alongside old one, activate new
+    /// at current sample, deactivate old immediately.
     /// Fallback path when no pre-staged tree is available.
     func crossfadeSwap(to tree: NodeTree, engine: AVAudioEngine, sampleRate: Double, bpm: Double) {
         // 1. Capture old unit IDs
@@ -78,37 +78,27 @@ final class TreeAudioGraph {
         configureNodePatchRecursive(tree.rootNode)
         loadNodeSequenceRecursive(tree.rootNode, bpm: bpm)
 
-        // 4. Prepare new units and start sequencers
+        // 4. Set immediate transition timestamps
         let newIDs = Set(units.keys).subtracting(oldIDs)
-        // Set offset so new units see beat 0 without resetting the global clock.
-        // Old units keep their existing offset and tick naturally until soft-stopped.
         let currentClock = clockSamplePosition.pointee
         treeStartClockSample = currentClock
+        clockIsRunning.pointee = true
+
+        // Deactivate old units at current sample
+        for id in oldIDs {
+            units[id]?.setDeactivateAtSample(currentClock)
+        }
+
+        // Activate new units at current sample
         for id in newIDs {
             units[id]?.setClockStartOffset(currentClock)
-        }
-        // Start sequencer + fade-in as a single atomic ring buffer command.
-        clockIsRunning.pointee = true
-        for id in newIDs {
-            units[id]?.startSequencerWithFadeIn(bpm: bpm)
+            units[id]?.setActivation(atSample: currentClock, bpm: bpm)
         }
 
-        // 5. Soft-stop old sequencers — sends noteOff for sounding notes
-        //    (entering ADSR release) and prevents new triggers.
-        //    No clock jump means old units can't re-trigger beat 0.
-        for id in oldIDs {
-            units[id]?.stopSequencerSoft()
-        }
-
-        // 6. Immediately fade old units to prevent release tail overlap
-        for id in oldIDs {
-            units[id]?.requestFadeOut()
-        }
-
-        // 7. Remove old units from tracking, keep connected until fade completes
+        // 5. Remove old units from tracking, keep connected until fade completes
         let drainingUnits = oldIDs.compactMap { units.removeValue(forKey: $0) }
 
-        // 8. Deferred cleanup after fade completes
+        // 6. Deferred cleanup after fade completes
         scheduleDrainingCleanup(drainingUnits, engine: engine)
     }
 
@@ -117,9 +107,10 @@ final class TreeAudioGraph {
         for (_, unit) in units {
             unit.requestFadeOut()
         }
-        for _ in 0..<30 {
+        // Multi-buffer fade takes ~185ms. Poll with generous timeout.
+        for _ in 0..<60 {
             if units.values.allSatisfy({ $0.isFadedOut }) { break }
-            Thread.sleep(forTimeInterval: 0.001)
+            Thread.sleep(forTimeInterval: 0.005)
         }
         for (_, unit) in units {
             engine.disconnectNodeOutput(unit.sourceNode)
@@ -152,9 +143,9 @@ final class TreeAudioGraph {
         stagedIDs = Set(units.keys).subtracting(beforeIDs)
         stagedTreeID = tree.id
 
-        // Set sample-precise stop target on old units so the audio thread
-        // auto-fades at the LCM boundary BEFORE the sequencer can wrap and
-        // fire beat-0 events. This eliminates the main-thread timing gap.
+        // Set sample-precise dual timestamps: deactivate old units and activate new
+        // units at the exact LCM boundary sample. The audio thread executes both at
+        // the precise sample — main-thread latency is irrelevant.
         if currentCycleLengthInBeats > 0 && !beforeIDs.isEmpty && bpm > 0 {
             let samplesPerBeat = 60.0 * sampleRate / bpm
             let localSamplesElapsed = clockSamplePosition.pointee - treeStartClockSample
@@ -162,65 +153,47 @@ final class TreeAudioGraph {
             let currentCycleNum = max(0, Int(localBeatsElapsed / currentCycleLengthInBeats))
             let nextBoundaryBeats = Double(currentCycleNum + 1) * currentCycleLengthInBeats
             let stopSampleLocal = Int64(nextBoundaryBeats * samplesPerBeat)
+            let transitionGlobalSample = treeStartClockSample + stopSampleLocal
+
+            // Old units: deactivate at boundary (global time)
             for id in beforeIDs {
-                units[id]?.setStopAtSample(stopSampleLocal)
+                units[id]?.setDeactivateAtSample(transitionGlobalSample)
+            }
+
+            // New units: activate at boundary, clock offset so baseSample=0 at transition
+            for id in stagedIDs {
+                units[id]?.setClockStartOffset(transitionGlobalSample)
+                units[id]?.setActivation(atSample: transitionGlobalSample, bpm: bpm)
             }
         }
 
         logger.info("Staged \(self.stagedIDs.count) unit(s) for tree \(tree.id)")
     }
 
-    /// Activate the pre-staged tree. Lightweight — just pushes start commands
-    /// and stops old sequencers. No engine.attach/connect (already done during staging).
-    ///
-    /// Old voices ring out naturally through their ADSR release (no hard fade).
-    /// stopSoft sends noteOff for any currently-sounding notes (so they enter
-    /// ADSR release) and prevents new note triggers. Old units stay connected to
-    /// the engine producing release tail audio, then get cleaned up after a timeout.
+    /// Activate the pre-staged tree. Pure bookkeeping — no ring buffer commands.
+    /// The audio thread already handles activation/deactivation via sample-precise
+    /// timestamps set during stageNextTree(). This can be 0–500ms late with zero
+    /// audible consequence.
     func activateStagedTree(engine: AVAudioEngine, bpm: Double) {
         guard !stagedIDs.isEmpty else { return }
 
         let oldIDs = Set(units.keys).subtracting(stagedIDs)
 
-        // Set offset so staged units see beat 0 without resetting the global clock.
-        // Old units keep their existing offset — no clock jump = no race = no beat-0 overlap.
-        let currentClock = clockSamplePosition.pointee
-        treeStartClockSample = currentClock
-        for id in stagedIDs {
-            units[id]?.setClockStartOffset(currentClock)
-        }
-
-        // Start sequencer + fade-in as a single atomic ring buffer command.
-        // Prevents the race where the audio thread drains a pointer-written
-        // fade-in on a silent buffer before the sequencer start arrives.
-        clockIsRunning.pointee = true
-        for id in stagedIDs {
-            units[id]?.startSequencerWithFadeIn(bpm: bpm)
-        }
-
-        // Soft-stop old sequencers — sends noteOff for any sounding notes (entering
-        // ADSR release) and prevents new triggers. No clock jump means old units
-        // can't re-trigger beat 0 between this and the stop command being drained.
-        for id in oldIDs {
-            units[id]?.stopSequencerSoft()
-        }
-
-        // Immediately fade old units to silence (~11ms one-buffer ramp).
-        // This prevents release tails from overlapping with the new tree's first notes
-        // which would create an audible chord at the transition.
-        for id in oldIDs {
-            units[id]?.requestFadeOut()
+        // Update tree start for polling (use the offset from staged units)
+        if let firstID = stagedIDs.first, let unit = units[firstID] {
+            treeStartClockSample = unit.clockStartOffset
         }
 
         // Remove old units from tracking (transport/BPM ops won't touch them)
-        // but keep them connected to engine until fade completes.
+        // but keep them connected to engine until fade/release tails complete.
+        // The audio thread has already deactivated them (or will at the boundary).
         let drainingUnits = oldIDs.compactMap { units.removeValue(forKey: $0) }
 
         // Clear staging state (staged units are now the active ones)
         stagedIDs.removeAll()
         stagedTreeID = nil
 
-        // Deferred cleanup: detach after fade completes
+        // Deferred cleanup: wait for release tails then detach
         scheduleDrainingCleanup(drainingUnits, engine: engine)
     }
 
@@ -236,9 +209,9 @@ final class TreeAudioGraph {
         stagedIDs.removeAll()
         stagedTreeID = nil
 
-        // Cancel any pending transition flag on current units
+        // Clear any pending deactivation on current units
         for (_, unit) in units {
-            unit.cancelTransition()
+            unit.setDeactivateAtSample(0)
         }
     }
 
@@ -247,13 +220,15 @@ final class TreeAudioGraph {
     /// After a generous timeout, apply an anti-click fade and detach.
     private func scheduleDrainingCleanup(_ drainingUnits: [NodeAudioUnit], engine: AVAudioEngine) {
         guard !drainingUnits.isEmpty else { return }
-        // Fade was already requested in activateStagedTree/crossfadeSwap.
-        // Wait briefly for the one-buffer fade to complete, then detach.
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.1) {
-            // Wait for the one-buffer fade to complete
-            for _ in 0..<30 {
+        // Wait for release tails to ring out naturally (up to 3s for long
+        // releases), then do a gentle fade-out and detach.
+        // Fade was already requested. Multi-buffer fade takes ~185ms.
+        // Wait 300ms then poll for completion before detaching.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.3) {
+            // Wait for multi-buffer fade to complete
+            for _ in 0..<50 {
                 if drainingUnits.allSatisfy({ $0.isFadedOut }) { break }
-                Thread.sleep(forTimeInterval: 0.001)
+                Thread.sleep(forTimeInterval: 0.005)
             }
             // Disconnect and detach (safe from any non-audio thread)
             for unit in drainingUnits {
@@ -376,7 +351,7 @@ final class TreeAudioGraph {
         clockIsRunning.pointee = true
         for (id, unit) in units where !stagedIDs.contains(id) {
             unit.setClockStartOffset(0)
-            unit.setStopAtSample(0)
+            unit.setDeactivateAtSample(0)
             unit.startSequencer(bpm: bpm)
         }
     }
