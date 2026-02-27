@@ -149,9 +149,10 @@ final class AudioEngine {
 
     /// Pre-build the next tree's graph while the current tree plays.
     /// Moves slow engine.attach/connect out of the transition path.
-    func stageNextTree(_ tree: NodeTree, bpm: Double) {
+    func stageNextTree(_ tree: NodeTree, bpm: Double, currentCycleLengthInBeats: Double = 0) {
         guard sampleRate > 0 else { return }
-        graph.stageNextTree(tree, engine: engine, sampleRate: sampleRate, bpm: bpm)
+        graph.stageNextTree(tree, engine: engine, sampleRate: sampleRate, bpm: bpm,
+                            currentCycleLengthInBeats: currentCycleLengthInBeats)
     }
 
     /// Activate the pre-staged tree. Lightweight — just start commands + fade old.

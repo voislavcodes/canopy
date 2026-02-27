@@ -25,6 +25,15 @@ final class NodeAudioUnit {
     /// Fade state for click-free removal. 0 = normal, 1 = fading out, 2 = faded out.
     private let _fadeState = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
 
+    /// Monotonic clock offset — each unit's local time = globalClock - startOffset.
+    /// Set on transitions so new units see beat 0 without resetting the global clock.
+    private let _startOffset = UnsafeMutablePointer<Int64>.allocate(capacity: 1)
+
+    /// Target local sample at which to auto-stop + auto-fade (0 = disabled).
+    /// Set during stageNextTree so the audio thread stops at the LCM boundary
+    /// without waiting for the main thread. Prevents beat-0 re-triggers.
+    private let _stopAtSample = UnsafeMutablePointer<Int64>.allocate(capacity: 1)
+
     var currentBeat: Double { _currentBeat.pointee }
     var isPlaying: Bool { _isPlaying.pointee }
 
@@ -45,6 +54,8 @@ final class NodeAudioUnit {
         _pan.initialize(to: 0)
         _orbitBodyAngles.initialize(to: (0, 0, 0, 0, 0, 0))
         _fadeState.initialize(to: 0)
+        _startOffset.initialize(to: 0)
+        _stopAtSample.initialize(to: 0)
 
         let cmdBuffer = self.commandBuffer
         let beatPtr = self._currentBeat
@@ -52,72 +63,96 @@ final class NodeAudioUnit {
         let panPtr = self._pan
         let orbitAnglesPtr = self._orbitBodyAngles
         let fadeStatePtr = self._fadeState
+        let startOffsetPtr = self._startOffset
+        let stopAtSamplePtr = self._stopAtSample
 
         if isSchmynth {
             self.sourceNode = Self.makeSchmynthSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         } else if isVolt {
             self.sourceNode = Self.makeVoltSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         } else if isFuse {
             self.sourceNode = Self.makeFuseSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         } else if isSpore {
             self.sourceNode = Self.makeSporeSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         } else if isQuake {
             self.sourceNode = Self.makeQuakeSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, orbitAnglesPtr: orbitAnglesPtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         } else if isSwarm {
             self.sourceNode = Self.makeSwarmSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         } else if isTide {
             self.sourceNode = Self.makeTideSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         } else if isFlow {
             self.sourceNode = Self.makeFlowSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         } else if isWestCoast {
             self.sourceNode = Self.makeWestCoastSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         } else if isDrumKit {
             self.sourceNode = Self.makeDrumKitSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         } else {
             self.sourceNode = Self.makeOscillatorSourceNode(
                 cmdBuffer: cmdBuffer, beatPtr: beatPtr, playingPtr: playingPtr,
                 panPtr: panPtr, fadeStatePtr: fadeStatePtr, sampleRate: sampleRate,
-                clockPtr: clockSamplePosition, clockRunning: clockIsRunning
+                clockPtr: clockSamplePosition, clockRunning: clockIsRunning,
+                startOffsetPtr: startOffsetPtr,
+                stopAtSamplePtr: stopAtSamplePtr
             )
         }
     }
@@ -132,7 +167,9 @@ final class NodeAudioUnit {
         fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var voices = VoiceManager(voiceCount: 8)
         var seq = Sequencer()
@@ -189,9 +226,10 @@ final class NodeAudioUnit {
                         sampleRate: sr
                     )
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -297,7 +335,17 @@ final class NodeAudioUnit {
             let srF = Float(sr)
 
             // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             // Branch once before the loop: modulated vs unmodulated path.
             // Zero overhead when no LFOs are routed to this node.
@@ -363,6 +411,13 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
+
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
@@ -378,7 +433,9 @@ final class NodeAudioUnit {
         fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var drumKit = FMDrumKit.defaultKit()
         var seq = Sequencer()
@@ -412,9 +469,10 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -526,7 +584,17 @@ final class NodeAudioUnit {
             let srF = Float(sr)
 
             // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             // Render loop — same LFO branching as oscillator path
             if lfoBank.slotCount > 0 {
@@ -586,6 +654,13 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
+
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
@@ -602,7 +677,9 @@ final class NodeAudioUnit {
         orbitAnglesPtr: UnsafeMutablePointer<(Float, Float, Float, Float, Float, Float)>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var quake = QuakeVoiceManager.defaultKit()
         var seq = Sequencer()
@@ -639,10 +716,11 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     orbit.start(bpm: bpm, lengthInBeats: orbitLengthInBeats)
                     fxChain.updateBPM(bpm)
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -753,7 +831,17 @@ final class NodeAudioUnit {
             }
 
             let srF = Float(sr)
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             if lfoBank.slotCount > 0 {
                 for frame in 0..<Int(frameCount) {
@@ -828,6 +916,13 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
             }
 
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
+
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
@@ -843,7 +938,9 @@ final class NodeAudioUnit {
         fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var westCoast = WestCoastVoiceManager()
         var seq = Sequencer()
@@ -877,9 +974,10 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -1002,7 +1100,17 @@ final class NodeAudioUnit {
             let srF = Float(sr)
 
             // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             // Render loop — same LFO branching as other paths
             if lfoBank.slotCount > 0 {
@@ -1062,6 +1170,13 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
+
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
@@ -1077,7 +1192,9 @@ final class NodeAudioUnit {
         fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var flow = FlowVoiceManager()
         var seq = Sequencer()
@@ -1108,9 +1225,10 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -1226,7 +1344,17 @@ final class NodeAudioUnit {
             let srF = Float(sr)
 
             // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             // FLOW is natively stereo — same pattern as SWARM/TIDE
             if lfoBank.slotCount > 0 {
@@ -1298,6 +1426,13 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
+
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
@@ -1313,7 +1448,9 @@ final class NodeAudioUnit {
         fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var swarm = SwarmVoiceManager()
         var seq = Sequencer()
@@ -1345,9 +1482,10 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -1459,7 +1597,17 @@ final class NodeAudioUnit {
             swarm.sampleRate = srF
 
             // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             // Swarm is natively stereo — same pattern as TIDE
             if lfoBank.slotCount > 0 {
@@ -1531,6 +1679,13 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
+
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
@@ -1546,7 +1701,9 @@ final class NodeAudioUnit {
         fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var tide = TideVoiceManager()
         var seq = Sequencer()
@@ -1577,10 +1734,11 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     tide.setBPM(bpm)
                     fxChain.updateBPM(bpm)
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -1698,7 +1856,17 @@ final class NodeAudioUnit {
             let srF = Float(sr)
 
             // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             // Tide is natively stereo — render stereo directly
             if lfoBank.slotCount > 0 {
@@ -1769,6 +1937,13 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
+
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
@@ -1784,7 +1959,9 @@ final class NodeAudioUnit {
         fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var spore = SporeVoiceManager()
         var seq = Sequencer()
@@ -1817,13 +1994,14 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     spore.setBPM(bpm)
                     fxChain.updateBPM(bpm)
                     if useSporeSeq {
                         sporeSeq.start(bpm: bpm)
                     }
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -1958,7 +2136,17 @@ final class NodeAudioUnit {
             let srF = Float(sr)
 
             // Read tree clock once at top of callback
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             // SPORE is natively stereo
             if lfoBank.slotCount > 0 {
@@ -2047,6 +2235,13 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying || sporeSeq.isRunning
             beatPtr.pointee = seq.currentBeat
 
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
+
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
@@ -2063,12 +2258,21 @@ final class NodeAudioUnit {
         _orbitBodyAngles.deallocate()
         _fadeState.deinitialize(count: 1)
         _fadeState.deallocate()
+        _startOffset.deinitialize(count: 1)
+        _startOffset.deallocate()
+        _stopAtSample.deinitialize(count: 1)
+        _stopAtSample.deallocate()
     }
 
     /// Request a one-buffer fade-out. The render callback will ramp to zero
     /// over the next buffer and then output silence until removed.
     func requestFadeOut() {
-        _fadeState.pointee = 1
+        // Don't regress from state 2 (already silent via auto-stop) back to
+        // state 1 (fade-out ramp). That would let the still-running sequencer's
+        // audio leak through during the 1→0 ramp.
+        if _fadeState.pointee != 2 {
+            _fadeState.pointee = 1
+        }
     }
 
     /// Whether the fade-out has completed (safe to disconnect or stop).
@@ -2081,9 +2285,17 @@ final class NodeAudioUnit {
         _fadeState.pointee = 0
     }
 
-    /// Apply buffer-level fade for click-free removal. Called at the end of
+    /// Request a one-buffer fade-in. The render callback will ramp from zero
+    /// to full volume over the next buffer, then switch to normal output.
+    /// Used during forest transitions so new units don't pop in at full volume.
+    func requestFadeIn() {
+        _fadeState.pointee = 3
+    }
+
+    /// Apply buffer-level fade for click-free transitions. Called at the end of
     /// every render callback, after all synthesis and FX processing.
-    /// State 0 = normal (no-op), 1 = ramp 1→0 this buffer, 2 = output zeros.
+    /// State 0 = normal (no-op), 1 = ramp 1→0 (fade-out), 2 = output zeros,
+    /// 3 = ramp 0→1 (fade-in, then → 0).
     @inline(__always)
     static func applyFade(
         _ abl: UnsafeMutableAudioBufferListPointer,
@@ -2094,6 +2306,7 @@ final class NodeAudioUnit {
         guard state != 0 else { return }
         let frames = Int(frameCount)
         if state == 1 {
+            // Fade-out: ramp 1→0 over one buffer, then silence
             let divisor = Float(max(1, frames - 1))
             for frame in 0..<frames {
                 let gain = Float(frames - 1 - frame) / divisor
@@ -2102,11 +2315,36 @@ final class NodeAudioUnit {
                 }
             }
             fadeState.pointee = 2
+        } else if state == 3 {
+            // Fade-in: ramp 0→1 over one buffer, then normal
+            let divisor = Float(max(1, frames - 1))
+            for frame in 0..<frames {
+                let gain = Float(frame) / divisor
+                for buf in 0..<abl.count {
+                    abl[buf].mData?.assumingMemoryBound(to: Float.self)[frame] *= gain
+                }
+            }
+            fadeState.pointee = 0
         } else {
+            // State 2: output zeros
             for buf in 0..<abl.count {
                 memset(abl[buf].mData, 0, Int(abl[buf].mDataByteSize))
             }
         }
+    }
+
+    /// Set the monotonic clock offset so this unit's local time starts from zero
+    /// at the given global clock sample. Called during tree transitions.
+    func setClockStartOffset(_ offset: Int64) {
+        _startOffset.pointee = offset
+    }
+
+    /// Set the local sample at which to auto-stop + auto-fade.
+    /// 0 disables the mechanism. Used by stageNextTree to schedule
+    /// a stop at the LCM boundary so the audio thread handles it
+    /// without waiting for the main thread.
+    func setStopAtSample(_ sample: Int64) {
+        _stopAtSample.pointee = sample
     }
 
     // MARK: - Public API (main thread)
@@ -2160,6 +2398,13 @@ final class NodeAudioUnit {
 
     func startSequencer(bpm: Double) {
         commandBuffer.push(.sequencerStart(bpm: bpm))
+    }
+
+    /// Start sequencer AND request fade-in as a single atomic ring buffer command.
+    /// Prevents the race where the audio thread drains requestFadeIn (pointer write)
+    /// on a silent buffer before the sequencerStart command arrives.
+    func startSequencerWithFadeIn(bpm: Double) {
+        commandBuffer.push(.sequencerStartWithFadeIn(bpm: bpm))
     }
 
     func stopSequencer() {
@@ -2447,7 +2692,9 @@ final class NodeAudioUnit {
         fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var schmynth = SchmynthVoiceManager()
         var seq = Sequencer()
@@ -2481,9 +2728,10 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -2569,7 +2817,17 @@ final class NodeAudioUnit {
 
             schmynth.sampleRate = Float(sr)
             let srF = Float(sr)
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             // Render loop
             if lfoBank.slotCount > 0 {
@@ -2629,6 +2887,13 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
+
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
@@ -2644,7 +2909,9 @@ final class NodeAudioUnit {
         fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var fuse = FuseVoiceManager()
         var seq = Sequencer()
@@ -2678,9 +2945,10 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -2765,7 +3033,17 @@ final class NodeAudioUnit {
 
             fuse.sampleRate = Float(sr)
             let srF = Float(sr)
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             // Render loop
             if lfoBank.slotCount > 0 {
@@ -2825,6 +3103,13 @@ final class NodeAudioUnit {
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
 
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
+
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr
         }
@@ -2840,7 +3125,9 @@ final class NodeAudioUnit {
         fadeStatePtr: UnsafeMutablePointer<Int32>,
         sampleRate: Double,
         clockPtr: UnsafeMutablePointer<Int64>,
-        clockRunning: UnsafeMutablePointer<Bool>
+        clockRunning: UnsafeMutablePointer<Bool>,
+        startOffsetPtr: UnsafeMutablePointer<Int64>,
+        stopAtSamplePtr: UnsafeMutablePointer<Int64>
     ) -> AVAudioSourceNode {
         var volt = VoltVoiceManager()
         var seq = Sequencer()
@@ -2874,9 +3161,10 @@ final class NodeAudioUnit {
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
 
-                case .sequencerStart(let bpm):
+                case .sequencerStart(let bpm), .sequencerStartWithFadeIn(let bpm):
                     seq.start(bpm: bpm)
                     fxChain.updateBPM(bpm)
+                    if case .sequencerStartWithFadeIn = cmd { fadeStatePtr.pointee = 3 }
 
                 case .sequencerStop:
                     seq.stop()
@@ -2978,7 +3266,17 @@ final class NodeAudioUnit {
 
             volt.sampleRate = Float(sr)
             let srF = Float(sr)
-            let baseSample = clockPtr.pointee
+            let baseSample = clockPtr.pointee - startOffsetPtr.pointee
+
+            // Auto-stop at LCM cycle boundary — prevents beat-0 re-triggers
+            // during forest transitions. Triggers one buffer EARLY with a smooth
+            // ramp (fadeState 1) so there's no hard discontinuity (click-free).
+            // The boundary buffer itself arrives with fadeState already at 2 (silent).
+            let stopSample = stopAtSamplePtr.pointee
+            if stopSample > 0 && baseSample + 2 * Int64(frameCount) >= stopSample {
+                stopAtSamplePtr.pointee = 0
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             // Render loop
             for frame in 0..<Int(frameCount) {
@@ -3002,6 +3300,13 @@ final class NodeAudioUnit {
 
             playingPtr.pointee = seq.isPlaying
             beatPtr.pointee = seq.currentBeat
+
+            // Auto-fade when sequencer soft-stops during forest transition.
+            // Ensures fade happens in the same callback as the stop command.
+            if seq.shouldAutoFade {
+                seq.shouldAutoFade = false
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = 1 }
+            }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
             return noErr

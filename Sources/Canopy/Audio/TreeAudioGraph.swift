@@ -20,6 +20,15 @@ final class TreeAudioGraph {
     let clockSamplePosition: UnsafeMutablePointer<Int64>
     let clockIsRunning: UnsafeMutablePointer<Bool>
 
+    /// The global clock sample at which the current tree started playing.
+    /// Used to compute relative position for forest advance polling.
+    private(set) var treeStartClockSample: Int64 = 0
+
+    /// Samples elapsed since the current tree started (monotonic-safe).
+    var clockSamplesSinceTreeStart: Int64 {
+        clockSamplePosition.pointee - treeStartClockSample
+    }
+
     init() {
         clockSamplePosition = .allocate(capacity: 1)
         clockSamplePosition.initialize(to: 0)
@@ -71,17 +80,22 @@ final class TreeAudioGraph {
 
         // 4. Prepare new units and start sequencers
         let newIDs = Set(units.keys).subtracting(oldIDs)
+        // Set offset so new units see beat 0 without resetting the global clock.
+        // Old units keep their existing offset and tick naturally until soft-stopped.
+        let currentClock = clockSamplePosition.pointee
+        treeStartClockSample = currentClock
         for id in newIDs {
-            units[id]?.resetFade()
+            units[id]?.setClockStartOffset(currentClock)
         }
-        clockSamplePosition.pointee = 0
+        // Start sequencer + fade-in as a single atomic ring buffer command.
         clockIsRunning.pointee = true
         for id in newIDs {
-            units[id]?.startSequencer(bpm: bpm)
+            units[id]?.startSequencerWithFadeIn(bpm: bpm)
         }
 
         // 5. Soft-stop old sequencers — sends noteOff for sounding notes
         //    (entering ADSR release) and prevents new triggers.
+        //    No clock jump means old units can't re-trigger beat 0.
         for id in oldIDs {
             units[id]?.stopSequencerSoft()
         }
@@ -120,7 +134,8 @@ final class TreeAudioGraph {
     /// Units are attached, connected, configured, and loaded — but NOT started.
     /// They output silence (no active voices, sequencer dormant) until activated.
     /// This moves the slow engine.attach/connect work out of the transition path.
-    func stageNextTree(_ tree: NodeTree, engine: AVAudioEngine, sampleRate: Double, bpm: Double) {
+    func stageNextTree(_ tree: NodeTree, engine: AVAudioEngine, sampleRate: Double, bpm: Double,
+                        currentCycleLengthInBeats: Double = 0) {
         clearStagedTree(engine: engine)
 
         let beforeIDs = Set(units.keys)
@@ -137,10 +152,19 @@ final class TreeAudioGraph {
         stagedIDs = Set(units.keys).subtracting(beforeIDs)
         stagedTreeID = tree.id
 
-        // Tell current tree's sequencers to stop at their next loop wrap,
-        // preventing beat-0 re-triggers that overlap with the new tree.
-        for id in beforeIDs {
-            units[id]?.prepareTransition()
+        // Set sample-precise stop target on old units so the audio thread
+        // auto-fades at the LCM boundary BEFORE the sequencer can wrap and
+        // fire beat-0 events. This eliminates the main-thread timing gap.
+        if currentCycleLengthInBeats > 0 && !beforeIDs.isEmpty && bpm > 0 {
+            let samplesPerBeat = 60.0 * sampleRate / bpm
+            let localSamplesElapsed = clockSamplePosition.pointee - treeStartClockSample
+            let localBeatsElapsed = Double(localSamplesElapsed) / samplesPerBeat
+            let currentCycleNum = max(0, Int(localBeatsElapsed / currentCycleLengthInBeats))
+            let nextBoundaryBeats = Double(currentCycleNum + 1) * currentCycleLengthInBeats
+            let stopSampleLocal = Int64(nextBoundaryBeats * samplesPerBeat)
+            for id in beforeIDs {
+                units[id]?.setStopAtSample(stopSampleLocal)
+            }
         }
 
         logger.info("Staged \(self.stagedIDs.count) unit(s) for tree \(tree.id)")
@@ -158,21 +182,25 @@ final class TreeAudioGraph {
 
         let oldIDs = Set(units.keys).subtracting(stagedIDs)
 
-        // Ensure staged units aren't in a faded state
+        // Set offset so staged units see beat 0 without resetting the global clock.
+        // Old units keep their existing offset — no clock jump = no race = no beat-0 overlap.
+        let currentClock = clockSamplePosition.pointee
+        treeStartClockSample = currentClock
         for id in stagedIDs {
-            units[id]?.resetFade()
+            units[id]?.setClockStartOffset(currentClock)
         }
 
-        // Reset clock and start new sequencers — just pointer writes + command pushes
-        clockSamplePosition.pointee = 0
+        // Start sequencer + fade-in as a single atomic ring buffer command.
+        // Prevents the race where the audio thread drains a pointer-written
+        // fade-in on a silent buffer before the sequencer start arrives.
         clockIsRunning.pointee = true
         for id in stagedIDs {
-            units[id]?.startSequencer(bpm: bpm)
+            units[id]?.startSequencerWithFadeIn(bpm: bpm)
         }
 
         // Soft-stop old sequencers — sends noteOff for any sounding notes (entering
-        // ADSR release) and prevents new triggers. No filter reset — voices decay
-        // naturally while new tree plays.
+        // ADSR release) and prevents new triggers. No clock jump means old units
+        // can't re-trigger beat 0 between this and the stop command being drained.
         for id in oldIDs {
             units[id]?.stopSequencerSoft()
         }
@@ -344,8 +372,11 @@ final class TreeAudioGraph {
             unit.resetFade()
         }
         clockSamplePosition.pointee = 0
+        treeStartClockSample = 0
         clockIsRunning.pointee = true
         for (id, unit) in units where !stagedIDs.contains(id) {
+            unit.setClockStartOffset(0)
+            unit.setStopAtSample(0)
             unit.startSequencer(bpm: bpm)
         }
     }

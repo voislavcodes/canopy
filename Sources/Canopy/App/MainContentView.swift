@@ -439,7 +439,38 @@ struct MainContentView: View {
               let nextID = forestPlayback.nextTreeID,
               nextID != AudioEngine.shared.stagedTreeID,
               let nextTree = trees.first(where: { $0.id == nextID }) else { return }
-        AudioEngine.shared.stageNextTree(nextTree, bpm: transportState.bpm)
+
+        // Compute the active tree's LCM cycle length so stageNextTree can set
+        // a sample-precise stop target on the current (old) units.
+        var cycleLength: Double = 0
+        if let activeID = forestPlayback.activeTreeID,
+           let activeTree = trees.first(where: { $0.id == activeID }) {
+            cycleLength = computeCycleLength(tree: activeTree)
+        }
+
+        AudioEngine.shared.stageNextTree(nextTree, bpm: transportState.bpm,
+                                         currentCycleLengthInBeats: cycleLength)
+    }
+
+    private func computeCycleLength(tree: NodeTree) -> Double {
+        var nodes: [Node] = []
+        collectNodes(from: tree.rootNode, into: &nodes)
+        guard !nodes.isEmpty else { return 1 }
+        let ticksPerBeat = 96.0
+        let tickCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats * ticksPerBeat))) }
+        let lcmTicks = tickCounts.reduce(1) { lcm($0, $1) }
+        return Double(lcmTicks) / ticksPerBeat
+    }
+
+    private func gcd(_ a: Int, _ b: Int) -> Int {
+        var a = abs(a); var b = abs(b)
+        while b != 0 { let t = b; b = a % b; a = t }
+        return a
+    }
+
+    private func lcm(_ a: Int, _ b: Int) -> Int {
+        guard a != 0 && b != 0 else { return 1 }
+        return abs(a * b) / gcd(a, b)
     }
 
     // MARK: - Private Helpers
@@ -472,7 +503,7 @@ private struct ForestAdvancePoller: View {
     }
 
     private func checkAdvance() {
-        let clockSamples = AudioEngine.shared.graph.clockSamplePosition.pointee
+        let clockSamples = AudioEngine.shared.graph.clockSamplesSinceTreeStart
         let sampleRate = AudioEngine.shared.sampleRate
         guard sampleRate > 0 else { return }
 

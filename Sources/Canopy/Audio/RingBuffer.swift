@@ -10,6 +10,7 @@ enum AudioCommand {
 
     // Sequencer control
     case sequencerStart(bpm: Double)
+    case sequencerStartWithFadeIn(bpm: Double)  // Atomic start + fade-in (prevents race in forest transitions)
     case sequencerStop
     case sequencerStopSoft   // Stop sequencer without killing voices (forest transitions)
     case sequencerPrepareTransition   // Stop at next loop wrap (prevents re-trigger overlap)
