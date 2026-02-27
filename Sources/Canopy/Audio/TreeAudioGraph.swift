@@ -80,8 +80,8 @@ final class TreeAudioGraph {
             units[id]?.startSequencer(bpm: bpm)
         }
 
-        // 5. Soft-stop old sequencers — prevents new note triggers but lets
-        //    active voices ring out through their natural ADSR release.
+        // 5. Soft-stop old sequencers — sends noteOff for sounding notes
+        //    (entering ADSR release) and prevents new triggers.
         for id in oldIDs {
             units[id]?.stopSequencerSoft()
         }
@@ -139,10 +139,9 @@ final class TreeAudioGraph {
     /// and stops old sequencers. No engine.attach/connect (already done during staging).
     ///
     /// Old voices ring out naturally through their ADSR release (no hard fade).
-    /// At the cycle boundary, handleLoopWrap has already sent noteOff to all active
-    /// voices, so they're already in release. stopSequencer prevents new note triggers
-    /// after the clock reset. Old units stay connected to the engine producing release
-    /// tail audio, then get cleaned up asynchronously after a timeout.
+    /// stopSoft sends noteOff for any currently-sounding notes (so they enter
+    /// ADSR release) and prevents new note triggers. Old units stay connected to
+    /// the engine producing release tail audio, then get cleaned up after a timeout.
     func activateStagedTree(engine: AVAudioEngine, bpm: Double) {
         guard !stagedIDs.isEmpty else { return }
 
@@ -160,9 +159,9 @@ final class TreeAudioGraph {
             units[id]?.startSequencer(bpm: bpm)
         }
 
-        // Soft-stop old sequencers — prevents new note triggers after clock reset
-        // but lets active voices ring out through their natural ADSR release.
-        // No allNotesOff, no filter reset — voices decay naturally while new tree plays.
+        // Soft-stop old sequencers — sends noteOff for any sounding notes (entering
+        // ADSR release) and prevents new triggers. No filter reset — voices decay
+        // naturally while new tree plays.
         for id in oldIDs {
             units[id]?.stopSequencerSoft()
         }

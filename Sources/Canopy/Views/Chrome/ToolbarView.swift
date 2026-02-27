@@ -38,8 +38,16 @@ struct ToolbarView: View {
                 if projectState.project.trees.count >= 2 {
                     Button(action: { showTreesPopover.toggle() }) {
                         TreesIconView()
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 6)
                     }
                     .buttonStyle(.plain)
+                    .background(CanopyColors.bloomPanelBackground.opacity(0.85))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
+                    )
                     .popover(isPresented: $showTreesPopover) {
                         TreesPopoverView(
                             projectState: projectState,

@@ -199,7 +199,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &voices, detune: detune)
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -417,7 +417,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &drumKit, detune: 0)
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -641,7 +641,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &quake, detune: 0)
                     orbit.stop()
 
                 case .sequencerSetBPM(let bpm):
@@ -872,7 +872,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &westCoast, detune: 0)
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1098,7 +1098,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &flow, detune: 0)
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1330,7 +1330,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &swarm, detune: 0)
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1558,7 +1558,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &tide, detune: 0)
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1797,7 +1797,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &spore, detune: 0)
                     sporeSeq.stop()
 
                 case .sequencerSetBPM(let bpm):
@@ -2440,7 +2440,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &schmynth, detune: 0)
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -2632,7 +2632,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &fuse, detune: 0)
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -2823,7 +2823,7 @@ final class NodeAudioUnit {
                     filter.reset()
 
                 case .sequencerStopSoft:
-                    seq.stop()
+                    seq.stopSoft(receiver: &volt, detune: 0)
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)

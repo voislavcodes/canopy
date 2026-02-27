@@ -340,6 +340,34 @@ struct Sequencer {
         currentBeat = 0
     }
 
+    /// Stop playback with note-offs for all sounding notes.
+    /// Used during forest transitions so voices enter ADSR release naturally
+    /// instead of sustaining forever.
+    mutating func stopSoft<R: NoteReceiver>(receiver: inout R, detune: Double) {
+        if arpActive {
+            if arpCurrentNotePitch >= 0 {
+                receiver.noteOff(pitch: arpCurrentNotePitch)
+                arpCurrentNotePitch = -1
+                arpGateSamplesRemaining = 0
+            }
+        } else {
+            for i in 0..<eventCount {
+                if triggeredOnFlags[i] && !triggeredOffFlags[i] {
+                    receiver.noteOff(pitch: applyAccumulatorToPitch(effectivePitch(for: i)))
+                }
+            }
+            for i in 0..<pendingRatchets.count {
+                if pendingRatchets[i].isActive && !pendingRatchets[i].hasTriggeredOff {
+                    receiver.noteOff(pitch: applyAccumulatorToPitch(pendingRatchets[i].pitch))
+                }
+                pendingRatchets[i].isActive = false
+            }
+            activeRatchetCount = 0
+        }
+        isPlaying = false
+        currentBeat = 0
+    }
+
     /// Update BPM and mark for clock resync.
     mutating func setBPM(_ newBPM: Double) {
         self.bpm = newBPM
