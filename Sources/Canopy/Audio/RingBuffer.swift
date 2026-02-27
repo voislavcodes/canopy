@@ -12,6 +12,8 @@ enum AudioCommand {
     case sequencerStart(bpm: Double)
     case sequencerStop
     case sequencerStopSoft   // Stop sequencer without killing voices (forest transitions)
+    case sequencerPrepareTransition   // Stop at next loop wrap (prevents re-trigger overlap)
+    case sequencerCancelTransition    // Clear prepare-transition flag
     case sequencerSetBPM(Double)
     case sequencerLoad(events: [SequencerEvent], lengthInBeats: Double,
                        direction: PlaybackDirection,

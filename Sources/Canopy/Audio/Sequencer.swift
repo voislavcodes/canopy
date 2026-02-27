@@ -86,6 +86,7 @@ struct Sequencer {
     var bpm: Double = 120
     var currentBeat: Double = 0
     var isPlaying: Bool = false
+    var stopAtNextWrap: Bool = false
 
     private var events: [SequencerEvent]
     private var eventCount: Int = 0
@@ -488,6 +489,14 @@ struct Sequencer {
             let loopDelta = newLoopCount - loopCount
             handleLoopWrap(receiver: &receiver, detune: detune, loopDelta: loopDelta)
             loopCount = newLoopCount
+
+            // Forest transition: stop at the wrap point so the old tree doesn't
+            // re-trigger beat-0 events and overlap with the new tree.
+            if stopAtNextWrap {
+                stopAtNextWrap = false
+                isPlaying = false
+                return
+            }
         }
 
         currentBeat = localBeat
@@ -613,6 +622,13 @@ struct Sequencer {
             nextOffCursor = 0
 
             resetFlags()
+
+            // Forest transition: stop at wrap, don't re-trigger
+            if stopAtNextWrap {
+                stopAtNextWrap = false
+                isPlaying = false
+                return
+            }
         }
 
         // Branch: arp mode vs normal mode

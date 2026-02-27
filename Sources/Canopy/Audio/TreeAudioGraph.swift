@@ -86,10 +86,15 @@ final class TreeAudioGraph {
             units[id]?.stopSequencerSoft()
         }
 
-        // 6. Remove old units from tracking, keep connected for release tails
+        // 6. Immediately fade old units to prevent release tail overlap
+        for id in oldIDs {
+            units[id]?.requestFadeOut()
+        }
+
+        // 7. Remove old units from tracking, keep connected until fade completes
         let drainingUnits = oldIDs.compactMap { units.removeValue(forKey: $0) }
 
-        // 7. Deferred cleanup after voices finish releasing
+        // 8. Deferred cleanup after fade completes
         scheduleDrainingCleanup(drainingUnits, engine: engine)
     }
 
@@ -132,6 +137,12 @@ final class TreeAudioGraph {
         stagedIDs = Set(units.keys).subtracting(beforeIDs)
         stagedTreeID = tree.id
 
+        // Tell current tree's sequencers to stop at their next loop wrap,
+        // preventing beat-0 re-triggers that overlap with the new tree.
+        for id in beforeIDs {
+            units[id]?.prepareTransition()
+        }
+
         logger.info("Staged \(self.stagedIDs.count) unit(s) for tree \(tree.id)")
     }
 
@@ -166,15 +177,22 @@ final class TreeAudioGraph {
             units[id]?.stopSequencerSoft()
         }
 
+        // Immediately fade old units to silence (~11ms one-buffer ramp).
+        // This prevents release tails from overlapping with the new tree's first notes
+        // which would create an audible chord at the transition.
+        for id in oldIDs {
+            units[id]?.requestFadeOut()
+        }
+
         // Remove old units from tracking (transport/BPM ops won't touch them)
-        // but keep them connected to engine so release tails are audible.
+        // but keep them connected to engine until fade completes.
         let drainingUnits = oldIDs.compactMap { units.removeValue(forKey: $0) }
 
         // Clear staging state (staged units are now the active ones)
         stagedIDs.removeAll()
         stagedTreeID = nil
 
-        // Deferred cleanup: after voices finish releasing, anti-click fade + detach
+        // Deferred cleanup: detach after fade completes
         scheduleDrainingCleanup(drainingUnits, engine: engine)
     }
 
@@ -189,6 +207,11 @@ final class TreeAudioGraph {
         }
         stagedIDs.removeAll()
         stagedTreeID = nil
+
+        // Cancel any pending transition flag on current units
+        for (_, unit) in units {
+            unit.cancelTransition()
+        }
     }
 
     /// Schedule deferred cleanup for old units whose voices are ringing out.
@@ -196,13 +219,9 @@ final class TreeAudioGraph {
     /// After a generous timeout, apply an anti-click fade and detach.
     private func scheduleDrainingCleanup(_ drainingUnits: [NodeAudioUnit], engine: AVAudioEngine) {
         guard !drainingUnits.isEmpty else { return }
-        // 3 seconds covers even long ADSR releases (typical default is 0.3s).
-        // Units produce release tail audio during this time, then get faded + detached.
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3.0) {
-            // Anti-click fade before disconnecting (catches any lingering signal)
-            for unit in drainingUnits {
-                unit.requestFadeOut()
-            }
+        // Fade was already requested in activateStagedTree/crossfadeSwap.
+        // Wait briefly for the one-buffer fade to complete, then detach.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.1) {
             // Wait for the one-buffer fade to complete
             for _ in 0..<30 {
                 if drainingUnits.allSatisfy({ $0.isFadedOut }) { break }

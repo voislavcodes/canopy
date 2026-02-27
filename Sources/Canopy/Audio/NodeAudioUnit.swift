@@ -201,6 +201,11 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &voices, detune: detune)
 
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
+
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     fxChain.updateBPM(bpm)
@@ -418,6 +423,11 @@ final class NodeAudioUnit {
 
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &drumKit, detune: 0)
+
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -643,6 +653,11 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &quake, detune: 0)
                     orbit.stop()
+
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -874,6 +889,11 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &westCoast, detune: 0)
 
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
+
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     fxChain.updateBPM(bpm)
@@ -1099,6 +1119,11 @@ final class NodeAudioUnit {
 
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &flow, detune: 0)
+
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1332,6 +1357,11 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &swarm, detune: 0)
 
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
+
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     fxChain.updateBPM(bpm)
@@ -1559,6 +1589,11 @@ final class NodeAudioUnit {
 
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &tide, detune: 0)
+
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -1799,6 +1834,11 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &spore, detune: 0)
                     sporeSeq.stop()
+
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
@@ -2132,6 +2172,17 @@ final class NodeAudioUnit {
         commandBuffer.push(.sequencerStopSoft)
     }
 
+    /// Tell the sequencer to stop at the next loop wrap point instead of
+    /// re-triggering. Prevents beat-0 overlap during forest transitions.
+    func prepareTransition() {
+        commandBuffer.push(.sequencerPrepareTransition)
+    }
+
+    /// Cancel a pending prepare-transition (e.g., staged tree was cleared).
+    func cancelTransition() {
+        commandBuffer.push(.sequencerCancelTransition)
+    }
+
     func setSequencerBPM(_ bpm: Double) {
         commandBuffer.push(.sequencerSetBPM(bpm))
     }
@@ -2442,6 +2493,11 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &schmynth, detune: 0)
 
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
+
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     fxChain.updateBPM(bpm)
@@ -2634,6 +2690,11 @@ final class NodeAudioUnit {
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &fuse, detune: 0)
 
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
+
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
                     fxChain.updateBPM(bpm)
@@ -2824,6 +2885,11 @@ final class NodeAudioUnit {
 
                 case .sequencerStopSoft:
                     seq.stopSoft(receiver: &volt, detune: 0)
+
+                case .sequencerPrepareTransition:
+                    seq.stopAtNextWrap = true
+                case .sequencerCancelTransition:
+                    seq.stopAtNextWrap = false
 
                 case .sequencerSetBPM(let bpm):
                     seq.setBPM(bpm)
