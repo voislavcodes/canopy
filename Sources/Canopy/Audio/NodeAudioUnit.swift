@@ -358,6 +358,15 @@ final class NodeAudioUnit {
                 case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in oscillator path
 
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -631,6 +640,15 @@ final class NodeAudioUnit {
 
                 case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in drum kit path
+
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
 
                 case .setFXChain(let chain):
                     fxChain = chain
@@ -906,6 +924,15 @@ final class NodeAudioUnit {
 
                 case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in quake path
+
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
 
                 case .setFXChain(let chain):
                     fxChain = chain
@@ -1207,6 +1234,15 @@ final class NodeAudioUnit {
                 case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in west coast path
 
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
+
                 case .setFXChain(let chain):
                     fxChain = chain
                 }
@@ -1474,6 +1510,15 @@ final class NodeAudioUnit {
 
                 case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in flow path
+
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
 
                 case .setFXChain(let chain):
                     fxChain = chain
@@ -1760,6 +1805,15 @@ final class NodeAudioUnit {
 
                 case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in swarm path
+
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
 
                 case .setFXChain(let chain):
                     fxChain = chain
@@ -2050,6 +2104,15 @@ final class NodeAudioUnit {
 
                 case .setSpore, .setSporeImprint, .setSporeSeq, .setSporeSeqScale, .sporeSeqStart, .sporeSeqStop, .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in tide path
+
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
 
                 case .setFXChain(let chain):
                     fxChain = chain
@@ -2363,6 +2426,15 @@ final class NodeAudioUnit {
 
                 case .setFuse, .setVoltSlot, .setSchmynth:
                     break // ignored in spore path
+
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
 
                 case .setFXChain(let chain):
                     fxChain = chain
@@ -2793,6 +2865,20 @@ final class NodeAudioUnit {
         commandBuffer.push(.sequencerStopSoft)
     }
 
+    /// Set region bounds for forest timeline gating.
+    func setSequencerRegion(start: Int64, end: Int64) {
+        commandBuffer.push(.sequencerSetRegion(startSample: start, endSample: end))
+    }
+
+    /// Change only the region end (lock-to-tree: extend without beat discontinuity).
+    func setSequencerRegionEnd(_ end: Int64) {
+        commandBuffer.push(.sequencerSetRegionEnd(endSample: end))
+    }
+
+    /// Arm sequencer for auto-start when the clock reaches regionStartSample.
+    func armSequencer() {
+        commandBuffer.push(.sequencerArm)
+    }
 
     func setSequencerBPM(_ bpm: Double) {
         commandBuffer.push(.sequencerSetBPM(bpm))
@@ -3167,6 +3253,15 @@ final class NodeAudioUnit {
                         sustain: Float(sustain), release: Float(release), warm: Float(warm)
                     )
 
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
+
                 case .setFXChain(let chain):
                     fxChain = chain
 
@@ -3411,6 +3506,15 @@ final class NodeAudioUnit {
                         body: Float(body), color: Float(color), warm: Float(warm),
                         keyTracking: keyTracking
                     )
+
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
 
                 case .setFXChain(let chain):
                     fxChain = chain
@@ -3673,6 +3777,15 @@ final class NodeAudioUnit {
                         tonShape: Float(tonShape), tonBend: Float(tonBend), tonDecay: Float(tonDecay),
                         warm: Float(warm)
                     )
+
+                case .sequencerSetRegion(let start, let end):
+                    seq.setRegion(start: start, end: end)
+
+                case .sequencerSetRegionEnd(let end):
+                    seq.setRegionEnd(end)
+
+                case .sequencerArm:
+                    seq.arm()
 
                 case .setFXChain(let chain):
                     fxChain = chain

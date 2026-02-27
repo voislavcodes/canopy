@@ -127,6 +127,11 @@ enum AudioCommand {
 
     // FX chain swap (per-node effect chain replacement)
     case setFXChain(EffectChain)
+
+    // Forest timeline region gating
+    case sequencerSetRegion(startSample: Int64, endSample: Int64)
+    case sequencerSetRegionEnd(endSample: Int64)  // change end only (lock-to-tree)
+    case sequencerArm  // arm for auto-start at regionStartSample
 }
 
 /// Lock-free single-producer single-consumer ring buffer for AudioCommands.

@@ -152,6 +152,11 @@ struct Sequencer {
     // Test-only sample counter for backward-compatible advanceOneSample wrapper.
     private var _testSampleCounter: Int64 = 0
 
+    // Forest timeline region gating — defaults preserve single-tree behavior.
+    var regionStartSample: Int64 = 0
+    var regionEndSample: Int64 = Int64.max
+    var isArmed: Bool = false
+
     // MARK: - Arp state (pre-allocated, zero-alloc on audio thread)
 
     private var arpActive: Bool = false
@@ -368,6 +373,22 @@ struct Sequencer {
         currentBeat = 0
     }
 
+    /// Set region bounds for forest timeline gating.
+    mutating func setRegion(start: Int64, end: Int64) {
+        regionStartSample = start
+        regionEndSample = end
+    }
+
+    /// Change only the region end (used by lock-to-tree to extend without beat discontinuity).
+    mutating func setRegionEnd(_ end: Int64) {
+        regionEndSample = end
+    }
+
+    /// Arm for auto-start when the clock reaches regionStartSample.
+    mutating func arm() {
+        isArmed = true
+    }
+
     /// Update BPM and mark for clock resync.
     mutating func setBPM(_ newBPM: Double) {
         self.bpm = newBPM
@@ -458,9 +479,23 @@ struct Sequencer {
         globalSample: Int64, sampleRate: Double,
         receiver: inout R, detune: Double
     ) {
+        // Auto-start: armed sequencer starts when clock reaches region
+        if !isPlaying && isArmed && globalSample >= regionStartSample {
+            isPlaying = true
+            isArmed = false
+            needsClockSync = true
+        }
+
         guard isPlaying else { return }
 
-        let globalBeat = Double(globalSample) * bpm / (60.0 * sampleRate)
+        // Auto-stop: sequencer stops at region end (sample-accurate)
+        if globalSample >= regionEndSample {
+            stopSoft(receiver: &receiver, detune: detune)
+            return
+        }
+
+        // Offset clock by region start (replaces clock-reset-to-zero in forest mode)
+        let globalBeat = Double(globalSample - regionStartSample) * bpm / (60.0 * sampleRate)
         let newLoopCount = lengthInBeats > 0 ? Int(globalBeat / lengthInBeats) : 0
         let localBeat = globalBeat - Double(newLoopCount) * lengthInBeats
 

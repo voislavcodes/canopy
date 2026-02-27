@@ -170,6 +170,33 @@ final class AudioEngine {
         graph.stagedTreeID
     }
 
+    // MARK: - Forest Timeline
+
+    /// Set region bounds on active (non-staged) units.
+    func setActiveRegionBounds(start: Int64, end: Int64) {
+        graph.setActiveRegionBounds(start: start, end: end)
+    }
+
+    /// Change only the region end on active units (lock-to-tree: no beat discontinuity).
+    func setActiveRegionEnd(_ end: Int64) {
+        graph.setActiveRegionEnd(end)
+    }
+
+    /// Arm staged units for auto-start at the given region bounds.
+    func armStagedUnits(regionStart: Int64, regionEnd: Int64) {
+        graph.armStagedUnits(regionStart: regionStart, regionEnd: regionEnd)
+    }
+
+    /// Promote staged units to active tracking (timeline mode).
+    func promoteStagedToActive() {
+        graph.promoteStagedToActive()
+    }
+
+    /// Drain units for the given node IDs (schedule cleanup after release tails).
+    func drainUnits(for nodeIDs: [UUID]) {
+        graph.drainUnits(for: nodeIDs, engine: engine)
+    }
+
     /// Configure the full sound patch for a single node (all sound types, pan, filter, FX).
     func configureSingleNodePatch(_ node: Node) {
         graph.configureSingleNodePatch(node)
@@ -414,8 +441,8 @@ final class AudioEngine {
     // MARK: - Transport (all nodes)
 
     /// Start all sequencers simultaneously at the given BPM.
-    func startAllSequencers(bpm: Double) {
-        graph.startAll(bpm: bpm)
+    func startAllSequencers(bpm: Double, resetClock: Bool = true) {
+        graph.startAll(bpm: bpm, resetClock: resetClock)
     }
 
     /// Stop all sequencers and silence all notes (instant — may click).

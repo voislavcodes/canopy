@@ -348,13 +348,16 @@ final class TreeAudioGraph {
 
     /// Start all active sequencers simultaneously at the given BPM.
     /// Excludes pre-staged units (they start only via activateStagedTree).
-    func startAll(bpm: Double) {
+    /// Pass resetClock: false during forest timeline mode to keep the continuous clock.
+    func startAll(bpm: Double, resetClock: Bool = true) {
         // Reset fade state from any previous stopAllWithFade()
         for (id, unit) in units where !stagedIDs.contains(id) {
             unit.resetFade()
         }
-        clockSamplePosition.pointee = 0
-        treeStartClockSample = 0
+        if resetClock {
+            clockSamplePosition.pointee = 0
+            treeStartClockSample = 0
+        }
         clockIsRunning.pointee = true
         for (id, unit) in units where !stagedIDs.contains(id) {
             unit.setClockStartOffset(0)
@@ -404,6 +407,52 @@ final class TreeAudioGraph {
         for (id, unit) in units where !stagedIDs.contains(id) {
             unit.setSequencerBPM(bpm)
         }
+    }
+
+    // MARK: - Forest Timeline Region Methods
+
+    /// Set region bounds on active (non-staged) units.
+    func setActiveRegionBounds(start: Int64, end: Int64) {
+        for (id, unit) in units where !stagedIDs.contains(id) {
+            unit.setSequencerRegion(start: start, end: end)
+        }
+    }
+
+    /// Change only the region end on active (non-staged) units.
+    /// Used by lock-to-tree to extend without changing regionStart (avoids beat discontinuity).
+    func setActiveRegionEnd(_ end: Int64) {
+        for (id, unit) in units where !stagedIDs.contains(id) {
+            unit.setSequencerRegionEnd(end)
+        }
+    }
+
+    /// Set region bounds on staged units and arm them for auto-start.
+    /// This REPLACES activateStagedTree() in forest timeline mode.
+    /// Sequencers auto-start when the clock reaches regionStart — no
+    /// startSequencer() call, no clock reset, no needsClockSync race.
+    func armStagedUnits(regionStart: Int64, regionEnd: Int64) {
+        for id in stagedIDs {
+            guard let unit = units[id] else { continue }
+            unit.setSequencerRegion(start: regionStart, end: regionEnd)
+            unit.armSequencer()
+        }
+    }
+
+    /// Promote staged units to active (for timeline mode).
+    /// Called by main thread after detecting the audio thread has entered the region.
+    /// Does NOT start/stop anything — just moves units from staged → active tracking
+    /// so that setAllBPM() and other transport commands reach them.
+    func promoteStagedToActive() {
+        stagedIDs.removeAll()
+        stagedTreeID = nil
+    }
+
+    /// Move units for a specific tree to draining state.
+    /// They stay connected for release tails, then get cleaned up.
+    func drainUnits(for nodeIDs: [UUID], engine: AVAudioEngine) {
+        let drainingUnits = nodeIDs.compactMap { units.removeValue(forKey: $0) }
+        for unit in drainingUnits { unit.stopSequencerSoft() }
+        scheduleDrainingCleanup(drainingUnits, engine: engine)
     }
 
     // MARK: - Accessors

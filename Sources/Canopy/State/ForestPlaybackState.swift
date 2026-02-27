@@ -9,6 +9,9 @@ class ForestPlaybackState: ObservableObject {
     @Published var nextTreeID: UUID?      // Next tree (for visual indicator)
     @Published var isLockedToTree: Bool = false  // When true, advance is paused — locked tree loops
 
+    /// Forest timeline — non-nil during forest timeline playback.
+    var timeline: ForestTimeline?
+
     /// Ping-pong direction state. true = forward (→), false = backward (←).
     var pingPongForward: Bool = true
 
@@ -63,20 +66,6 @@ class ForestPlaybackState: ObservableObject {
         nextTreeID = computeNextIndex(current: currentIdx, count: trees.count).map { trees[$0].id }
     }
 
-    /// Check if a cycle has completed and advance to the next tree.
-    /// Returns the new tree if an advance occurred, nil otherwise.
-    @discardableResult
-    func checkAndAdvance(clockSamples: Int64, sampleRate: Double, bpm: Double,
-                         cycleLengthInBeats: Double, trees: [NodeTree]) -> NodeTree? {
-        guard !isLockedToTree else { return nil }
-        guard trees.count >= 2, activeTreeID != nil else { return nil }
-
-        let beat = Double(clockSamples) * bpm / (60.0 * sampleRate)
-        guard beat >= cycleLengthInBeats else { return nil }
-
-        return advanceToNextTree(trees: trees)
-    }
-
     /// Advance to the next tree based on the current playback mode.
     @discardableResult
     func advanceToNextTree(trees: [NodeTree]) -> NodeTree? {
@@ -101,6 +90,42 @@ class ForestPlaybackState: ObservableObject {
         activeTreeID = newTree.id
         computeNextTree(trees: trees)
         return newTree
+    }
+
+    // MARK: - Cycle Length
+
+    /// Compute the cycle length of a tree in beats (LCM of all branch lengths).
+    func computeCycleLength(tree: NodeTree) -> Double {
+        var nodes: [Node] = []
+        collectNodes(from: tree.rootNode, into: &nodes)
+        guard !nodes.isEmpty else { return 1 }
+        let ticksPerBeat = 96.0
+        let tickCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats * ticksPerBeat))) }
+        let lcmTicks = tickCounts.reduce(1) { lcm($0, $1) }
+        return Double(lcmTicks) / ticksPerBeat
+    }
+
+    private func collectNodes(from node: Node, into result: inout [Node]) {
+        result.append(node)
+        for child in node.children {
+            collectNodes(from: child, into: &result)
+        }
+    }
+
+    private func gcd(_ a: Int, _ b: Int) -> Int {
+        var a = abs(a)
+        var b = abs(b)
+        while b != 0 {
+            let t = b
+            b = a % b
+            a = t
+        }
+        return a
+    }
+
+    private func lcm(_ a: Int, _ b: Int) -> Int {
+        guard a != 0 && b != 0 else { return 1 }
+        return abs(a * b) / gcd(a, b)
     }
 
     // MARK: - Private

@@ -48,12 +48,14 @@ struct MainContentView: View {
         .environmentObject(viewModeManager)
         .background(CanopyColors.canvasBackground)
         .overlay {
-            // Forest playback advance polling (hidden, runs during multi-tree playback)
-            ForestAdvancePoller(
+            // Forest timeline polling (hidden, runs during forest timeline playback)
+            ForestTimelinePoller(
                 projectState: projectState,
                 transportState: transportState,
                 forestPlayback: forestPlayback,
-                onTreeAdvance: { newTree in performTreeSwap(to: newTree) }
+                onRegionTransition: { newTreeID, oldTreeID in
+                    handleTimelineRegionTransition(newTreeID: newTreeID, oldTreeID: oldTreeID)
+                }
             )
             .allowsHitTesting(false)
             .frame(width: 0, height: 0)
@@ -215,6 +217,7 @@ struct MainContentView: View {
         forestPlayback.activeTreeID = nil
         forestPlayback.nextTreeID = nil
         forestPlayback.isLockedToTree = false
+        forestPlayback.timeline = nil
         AudioEngine.shared.clearStagedTree()
     }
 
@@ -253,22 +256,27 @@ struct MainContentView: View {
 
         if shouldAdvance {
             forestPlayback.activeTreeID = projectState.selectedTreeID ?? trees.first?.id
-            forestPlayback.computeNextTree(trees: trees)
-            // Pre-stage the next tree so the first transition is also zero-gap
-            stageNextTreeIfNeeded()
+            if forestPlayback.timeline == nil {
+                startForestPlayback()
+            }
         } else if forestPlayback.isLockedToTree && transportState.isPlaying {
-            // Locked: keep activeTreeID set, clear next/staging so no advance occurs
+            // Locked: keep activeTreeID set, clear next/staging so no advance occurs.
+            // Extend region end to Int64.max so locked tree loops forever.
             forestPlayback.activeTreeID = projectState.selectedTreeID ?? trees.first?.id
             forestPlayback.nextTreeID = nil
+            forestPlayback.timeline = nil
             AudioEngine.shared.clearStagedTree()
+            AudioEngine.shared.setActiveRegionEnd(Int64.max)
         } else if !transportState.isPlaying {
             forestPlayback.activeTreeID = nil
             forestPlayback.nextTreeID = nil
             forestPlayback.isLockedToTree = false
+            forestPlayback.timeline = nil
             AudioEngine.shared.clearStagedTree()
         } else if !viewModeManager.isForest {
             forestPlayback.activeTreeID = nil
             forestPlayback.nextTreeID = nil
+            forestPlayback.timeline = nil
             AudioEngine.shared.clearStagedTree()
         }
     }
@@ -399,78 +407,97 @@ struct MainContentView: View {
         AudioEngine.shared.setGlobalProbability(seq.globalProbability, nodeID: node.id)
     }
 
-    // MARK: - Tree Swap (for forest playback advance)
+    // MARK: - Forest Timeline Playback
 
-    private func performTreeSwap(to tree: NodeTree) {
-        // Track that we've synced this tree so handleTreeSelectionChange doesn't double-rebuild
-        lastSyncedTreeID = tree.id
+    /// Create the forest timeline and start forest playback with region-gated sequencers.
+    /// Called when shouldAdvance becomes true and no timeline exists.
+    private func startForestPlayback() {
+        let trees = projectState.project.trees
+        guard trees.count >= 2 else { return }
 
-        // Use pre-staged graph if available (zero-gap: only pushes start + fade commands).
-        // Fall back to crossfade swap (builds graph at transition time — has brief latency).
-        if AudioEngine.shared.stagedTreeID == tree.id {
-            AudioEngine.shared.activateStagedTree(bpm: transportState.bpm)
-        } else {
-            AudioEngine.shared.crossfadeSwap(to: tree, bpm: transportState.bpm)
+        let activeTree: NodeTree
+        if let activeID = forestPlayback.activeTreeID,
+           let tree = trees.first(where: { $0.id == activeID }) {
+            activeTree = tree
+        } else if let tree = projectState.selectedTree ?? trees.first {
+            activeTree = tree
+        } else { return }
+
+        let sampleRate = AudioEngine.shared.sampleRate
+        let bpm = transportState.bpm
+        guard sampleRate > 0 else { return }
+
+        let timeline = ForestTimeline()
+
+        // Region 1: current tree
+        let cycle1 = forestPlayback.computeCycleLength(tree: activeTree)
+        let len1 = Int64(cycle1 * 60.0 * sampleRate / bpm)
+        timeline.appendRegion(TimelineRegion(
+            treeID: activeTree.id,
+            startSample: 0, endSample: len1,
+            lengthInBeats: cycle1
+        ))
+
+        // Set region bounds on active tree's units (already started by TransportState)
+        AudioEngine.shared.setActiveRegionBounds(start: 0, end: len1)
+
+        // Region 2: next tree (pre-stage + arm)
+        forestPlayback.computeNextTree(trees: trees)
+        if let nextID = forestPlayback.nextTreeID,
+           let nextTree = trees.first(where: { $0.id == nextID }) {
+            let cycle2 = forestPlayback.computeCycleLength(tree: nextTree)
+            let len2 = Int64(cycle2 * 60.0 * sampleRate / bpm)
+            timeline.appendRegion(TimelineRegion(
+                treeID: nextTree.id,
+                startSample: len1, endSample: len1 + len2,
+                lengthInBeats: cycle2
+            ))
+            AudioEngine.shared.stageNextTree(nextTree, bpm: bpm)
+            AudioEngine.shared.armStagedUnits(regionStart: len1, regionEnd: len1 + len2)
         }
 
-        // Push per-node FX chains for new tree
-        var nodes: [Node] = []
-        collectNodes(from: tree.rootNode, into: &nodes)
-        for node in nodes {
-            if !node.effects.isEmpty {
-                projectState.syncNodeFXToEngine(nodeID: node.id)
+        forestPlayback.timeline = timeline
+    }
+
+    /// Handle a region transition detected by the timeline poller.
+    /// The audio thread has already auto-started the new tree's sequencers and
+    /// auto-stopped the old tree's sequencers via region gating.
+    private func handleTimelineRegionTransition(newTreeID: UUID, oldTreeID: UUID?) {
+        // Track that we've synced this tree so handleTreeSelectionChange doesn't double-rebuild
+        lastSyncedTreeID = newTreeID
+
+        // 1. Promote staged units → active (so BPM/transport commands reach them)
+        AudioEngine.shared.promoteStagedToActive()
+
+        // 2. Drain old tree's units (already auto-stopped, schedule cleanup)
+        if let oldID = oldTreeID,
+           let oldTree = projectState.project.trees.first(where: { $0.id == oldID }) {
+            var nodes: [Node] = []
+            collectNodes(from: oldTree.rootNode, into: &nodes)
+            AudioEngine.shared.drainUnits(for: nodes.map { $0.id })
+        }
+
+        // 3. Sync FX, modulation, master bus for new tree
+        if let newTree = projectState.project.trees.first(where: { $0.id == newTreeID }) {
+            var nodes: [Node] = []
+            collectNodes(from: newTree.rootNode, into: &nodes)
+            for node in nodes {
+                if !node.effects.isEmpty {
+                    projectState.syncNodeFXToEngine(nodeID: node.id)
+                }
             }
         }
         projectState.syncModulationToEngine()
         projectState.syncMasterBusToEngine()
 
-        // Update selected tree to match the playing tree (highlights in forest UI)
-        projectState.selectedTreeID = tree.id
+        // 4. Update UI state
+        forestPlayback.activeTreeID = newTreeID
+        projectState.selectedTreeID = newTreeID
+        forestPlayback.computeNextTree(trees: projectState.project.trees)
 
-        // Pre-stage the NEXT tree for the following transition
-        stageNextTreeIfNeeded()
-    }
-
-    /// Pre-stage the predicted next tree so the transition is zero-gap.
-    /// Skips if the correct tree is already staged.
-    private func stageNextTreeIfNeeded() {
-        let trees = projectState.project.trees
-        guard trees.count >= 2,
-              let nextID = forestPlayback.nextTreeID,
-              nextID != AudioEngine.shared.stagedTreeID,
-              let nextTree = trees.first(where: { $0.id == nextID }) else { return }
-
-        // Compute the active tree's LCM cycle length so stageNextTree can set
-        // a sample-precise stop target on the current (old) units.
-        var cycleLength: Double = 0
-        if let activeID = forestPlayback.activeTreeID,
-           let activeTree = trees.first(where: { $0.id == activeID }) {
-            cycleLength = computeCycleLength(tree: activeTree)
-        }
-
-        AudioEngine.shared.stageNextTree(nextTree, bpm: transportState.bpm,
-                                         currentCycleLengthInBeats: cycleLength)
-    }
-
-    private func computeCycleLength(tree: NodeTree) -> Double {
-        var nodes: [Node] = []
-        collectNodes(from: tree.rootNode, into: &nodes)
-        guard !nodes.isEmpty else { return 1 }
-        let ticksPerBeat = 96.0
-        let tickCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats * ticksPerBeat))) }
-        let lcmTicks = tickCounts.reduce(1) { lcm($0, $1) }
-        return Double(lcmTicks) / ticksPerBeat
-    }
-
-    private func gcd(_ a: Int, _ b: Int) -> Int {
-        var a = abs(a); var b = abs(b)
-        while b != 0 { let t = b; b = a % b; a = t }
-        return a
-    }
-
-    private func lcm(_ a: Int, _ b: Int) -> Int {
-        guard a != 0 && b != 0 else { return 1 }
-        return abs(a * b) / gcd(a, b)
+        // 5. Prune old timeline regions
+        let currentSample = AudioEngine.shared.graph.clockSamplePosition.pointee
+        forestPlayback.timeline?.pruneRegionsBefore(currentSample)
     }
 
     // MARK: - Private Helpers
@@ -483,78 +510,77 @@ struct MainContentView: View {
     }
 }
 
-// MARK: - ForestAdvancePoller
+// MARK: - ForestTimelinePoller
 
-/// Hidden TimelineView that polls the audio clock and triggers tree advances
-/// when a cycle completes during multi-tree sequential playback.
-private struct ForestAdvancePoller: View {
+/// Hidden TimelineView that polls the continuous forest clock and detects
+/// region transitions. The audio thread handles transitions sample-accurately
+/// via region gating — this poller only updates UI state and pre-stages
+/// upcoming trees.
+private struct ForestTimelinePoller: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
     @ObservedObject var forestPlayback: ForestPlaybackState
-    let onTreeAdvance: (NodeTree) -> Void
+    let onRegionTransition: (_ newTreeID: UUID, _ oldTreeID: UUID?) -> Void
+
+    @State private var lastDetectedTreeID: UUID?
+    @State private var hasStaged: Bool = false
 
     var body: some View {
-        if transportState.isPlaying && projectState.project.trees.count >= 2 && forestPlayback.activeTreeID != nil {
-            TimelineView(.animation) { timeline in
-                let _ = checkAdvance()
+        if transportState.isPlaying && forestPlayback.timeline != nil {
+            TimelineView(.animation) { _ in
+                let _ = pollTimeline()
                 Color.clear
             }
         }
     }
 
-    private func checkAdvance() {
-        let clockSamples = AudioEngine.shared.graph.clockSamplesSinceTreeStart
-        let sampleRate = AudioEngine.shared.sampleRate
-        guard sampleRate > 0 else { return }
+    private func pollTimeline() {
+        guard let timeline = forestPlayback.timeline else { return }
+        let currentSample = AudioEngine.shared.graph.clockSamplePosition.pointee
 
-        // Compute cycle length for the active tree
+        // 1. Detect if we've entered a new region → update UI + trigger transition handling
+        if let currentRegion = timeline.regionForSample(currentSample),
+           currentRegion.treeID != lastDetectedTreeID {
+            let oldTreeID = lastDetectedTreeID
+            lastDetectedTreeID = currentRegion.treeID
+            hasStaged = false
+            onRegionTransition(currentRegion.treeID, oldTreeID)
+        }
+
+        // 2. Pre-stage next tree if approaching boundary (2 sec ahead)
+        if !hasStaged {
+            let margin = Int64(2.0 * AudioEngine.shared.sampleRate)
+            if let nextBoundary = timeline.nextBoundaryAfter(currentSample),
+               currentSample > nextBoundary - margin {
+                stageNextRegion(afterBoundary: nextBoundary)
+                hasStaged = true
+            }
+        }
+    }
+
+    /// Compute the next tree, append a timeline region, and arm the staged units.
+    private func stageNextRegion(afterBoundary boundary: Int64) {
         let trees = projectState.project.trees
-        guard let activeID = forestPlayback.activeTreeID,
-              let activeTree = trees.first(where: { $0.id == activeID }) else { return }
+        guard trees.count >= 2,
+              let nextID = forestPlayback.nextTreeID,
+              nextID != AudioEngine.shared.stagedTreeID,
+              let nextTree = trees.first(where: { $0.id == nextID }),
+              let timeline = forestPlayback.timeline else { return }
 
-        let cycleLength = computeCycleLength(tree: activeTree)
+        let cycleLength = forestPlayback.computeCycleLength(tree: nextTree)
+        let sampleRate = AudioEngine.shared.sampleRate
+        let bpm = transportState.bpm
+        guard sampleRate > 0 else { return }
+        let regionLen = Int64(cycleLength * 60.0 * sampleRate / bpm)
 
-        if let newTree = forestPlayback.checkAndAdvance(
-            clockSamples: clockSamples,
-            sampleRate: sampleRate,
-            bpm: transportState.bpm,
-            cycleLengthInBeats: cycleLength,
-            trees: trees
-        ) {
-            onTreeAdvance(newTree)
-        }
-    }
+        timeline.appendRegion(TimelineRegion(
+            treeID: nextTree.id,
+            startSample: boundary,
+            endSample: boundary + regionLen,
+            lengthInBeats: cycleLength
+        ))
 
-    private func computeCycleLength(tree: NodeTree) -> Double {
-        var nodes: [Node] = []
-        collectNodes(from: tree.rootNode, into: &nodes)
-        guard !nodes.isEmpty else { return 1 }
-        let ticksPerBeat = 96.0
-        let tickCounts = nodes.map { max(1, Int(round($0.sequence.lengthInBeats * ticksPerBeat))) }
-        let lcmTicks = tickCounts.reduce(1) { lcm($0, $1) }
-        return Double(lcmTicks) / ticksPerBeat
-    }
-
-    private func collectNodes(from node: Node, into result: inout [Node]) {
-        result.append(node)
-        for child in node.children {
-            collectNodes(from: child, into: &result)
-        }
-    }
-
-    private func gcd(_ a: Int, _ b: Int) -> Int {
-        var a = abs(a)
-        var b = abs(b)
-        while b != 0 {
-            let t = b
-            b = a % b
-            a = t
-        }
-        return a
-    }
-
-    private func lcm(_ a: Int, _ b: Int) -> Int {
-        guard a != 0 && b != 0 else { return 1 }
-        return abs(a * b) / gcd(a, b)
+        AudioEngine.shared.stageNextTree(nextTree, bpm: bpm)
+        AudioEngine.shared.armStagedUnits(regionStart: boundary, regionEnd: boundary + regionLen)
     }
 }
