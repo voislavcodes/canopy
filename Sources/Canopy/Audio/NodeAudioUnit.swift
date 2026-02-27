@@ -2592,8 +2592,12 @@ final class NodeAudioUnit {
             activeEnd = frameCount
             shouldDeactivate = false
         } else if deactivateAtSample <= globalSample {
-            // Already past deactivation — silence
-            return (0, 0, false, false, true)
+            // Already past deactivation — fire handler so sequencer stops and fade starts.
+            // Without this, the node stays in limbo (seq running, no fade, never isFadedOut).
+            activeEnd = 0
+            shouldDeactivate = true
+            let clampedEnd = max(activeStart, 0)
+            return (activeStart, clampedEnd, shouldActivate, shouldDeactivate, false)
         } else if deactivateAtSample < bufferEnd {
             // Deactivation within this buffer
             activeEnd = Int(deactivateAtSample - globalSample)

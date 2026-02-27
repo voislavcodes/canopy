@@ -186,8 +186,16 @@ final class TreeAudioGraph {
 
         // Remove old units from tracking (transport/BPM ops won't touch them)
         // but keep them connected to engine until fade/release tails complete.
-        // The audio thread has already deactivated them (or will at the boundary).
         let drainingUnits = oldIDs.compactMap { units.removeValue(forKey: $0) }
+
+        // Safety net: if the audio thread hasn't deactivated yet (e.g. the poller
+        // ran before the render callback processed the deactivation timestamp),
+        // explicitly stop the sequencer and request fade-out now. This is idempotent
+        // if the audio thread already handled it.
+        for unit in drainingUnits {
+            unit.stopSequencerSoft()
+            unit.requestFadeOut()
+        }
 
         // Clear staging state (staged units are now the active ones)
         stagedIDs.removeAll()
@@ -220,9 +228,8 @@ final class TreeAudioGraph {
     /// After a generous timeout, apply an anti-click fade and detach.
     private func scheduleDrainingCleanup(_ drainingUnits: [NodeAudioUnit], engine: AVAudioEngine) {
         guard !drainingUnits.isEmpty else { return }
-        // Wait for release tails to ring out naturally (up to 3s for long
-        // releases), then do a gentle fade-out and detach.
-        // Fade was already requested. Multi-buffer fade takes ~185ms.
+        // Fade was requested either by the audio thread (deactivation timestamp)
+        // or by the safety net in activateStagedTree(). Multi-buffer fade takes ~185ms.
         // Wait 300ms then poll for completion before detaching.
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.3) {
             // Wait for multi-buffer fade to complete
