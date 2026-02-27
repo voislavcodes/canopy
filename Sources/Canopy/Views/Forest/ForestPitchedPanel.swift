@@ -12,7 +12,7 @@ struct ForestPitchedPanel: View {
     var layoutMode: LayoutMode = .forest
     @Environment(\.canvasScale) var cs
 
-    private let panelWidth: CGFloat = 420
+    private let panelWidth: CGFloat = 390
 
     // MARK: - Page State
 
