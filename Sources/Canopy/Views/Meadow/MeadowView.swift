@@ -1,35 +1,49 @@
 import SwiftUI
 
-/// Top-level mixer view showing channel strips for the active tree's branches + master strip.
+/// Top-level mixer view showing channel strips for ALL trees + master strip.
 struct MeadowView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
 
     var body: some View {
-        let tree = projectState.selectedTree ?? projectState.project.trees.first
+        let trees = projectState.project.trees
 
         HStack(spacing: 0) {
-            if let tree = tree {
-                let branches = flatBranches(tree: tree)
-                if branches.isEmpty {
+            if trees.isEmpty {
+                emptyState
+            } else {
+                let allBranches = trees.flatMap { flatBranches(tree: $0) }
+                if allBranches.isEmpty {
                     emptyState
                 } else {
-                    // Scrollable branch strips
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 1) {
-                            TreeGroupView(
-                                tree: tree,
-                                branches: branches,
-                                projectState: projectState,
-                                transportState: transportState
-                            )
+                    // Scrollable tree groups (vertical scroll for many trees,
+                    // horizontal scroll within each group for many branches)
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(trees.enumerated()), id: \.element.id) { index, tree in
+                                let branches = flatBranches(tree: tree)
+                                if !branches.isEmpty {
+                                    if index > 0 {
+                                        // Subtle divider between tree groups
+                                        Rectangle()
+                                            .fill(CanopyColors.chromeBorder.opacity(0.4))
+                                            .frame(height: 1)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                    }
+                                    TreeGroupView(
+                                        tree: tree,
+                                        branches: branches,
+                                        projectState: projectState,
+                                        transportState: transportState
+                                    )
+                                }
+                            }
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 8)
                     }
                 }
-            } else {
-                emptyState
             }
 
             // Divider
