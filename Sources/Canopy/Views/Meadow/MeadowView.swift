@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Top-level mixer view showing channel strips for ALL trees + master strip.
+/// All channel strips flow left to right in one horizontal row, grouped by tree.
 struct MeadowView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
@@ -12,24 +13,22 @@ struct MeadowView: View {
             if trees.isEmpty {
                 emptyState
             } else {
-                let allBranches = trees.flatMap { flatBranches(tree: $0) }
-                if allBranches.isEmpty {
+                let hasAnyBranches = trees.contains { !flatBranches(tree: $0).isEmpty }
+                if !hasAnyBranches {
                     emptyState
                 } else {
-                    // Scrollable tree groups (vertical scroll for many trees,
-                    // horizontal scroll within each group for many branches)
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 0) {
+                    // Single horizontal scroll — all trees' strips in one row
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 0) {
                             ForEach(Array(trees.enumerated()), id: \.element.id) { index, tree in
                                 let branches = flatBranches(tree: tree)
                                 if !branches.isEmpty {
                                     if index > 0 {
-                                        // Subtle divider between tree groups
+                                        // Vertical divider between tree groups
                                         Rectangle()
                                             .fill(CanopyColors.chromeBorder.opacity(0.4))
-                                            .frame(height: 1)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
+                                            .frame(width: 1)
+                                            .padding(.vertical, 8)
                                     }
                                     TreeGroupView(
                                         tree: tree,
