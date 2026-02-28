@@ -57,6 +57,20 @@ final class MasterBusAU: AUAudioUnit {
     // Internal render block (captured once, no per-render allocation)
     private var _internalRenderBlock: AUInternalRenderBlock!
 
+    // Click detector state — pre-allocated for audio thread
+    private let prevSamplePtr: UnsafeMutablePointer<Float>
+    private let clickDetectActivePtr: UnsafeMutablePointer<Bool>
+    private let clickCooldownPtr: UnsafeMutablePointer<Int32>
+
+    // Graph-change mute: brief crossfade to silence and back to mask
+    // AVAudioEngine graph mutation clicks (engine.attach/connect during playback).
+    // State: 0 = normal, >0 = fade-out countdown, <0 = fade-in countdown
+    private let graphMuteStatePtr: UnsafeMutablePointer<Int32>
+    private let graphMuteHoldPtr: UnsafeMutablePointer<Int32>
+    /// Buffers for each phase of the graph-change mute.
+    static let graphMuteFadeBuffers: Int32 = 2   // ~23ms fade at 512/44100
+    static let graphMuteHoldBuffers: Int32 = 6   // ~70ms hold at zero
+
     /// Whether Shore limiting is active.
     var shoreEnabled: Bool {
         get { shorePtr.pointee.enabled }
@@ -104,6 +118,18 @@ final class MasterBusAU: AUAudioUnit {
         clockRunningSlot = .allocate(capacity: 1)
         clockRunningSlot.initialize(to: nil)
 
+        prevSamplePtr = .allocate(capacity: 1)
+        prevSamplePtr.initialize(to: 0)
+        clickDetectActivePtr = .allocate(capacity: 1)
+        clickDetectActivePtr.initialize(to: true)
+        clickCooldownPtr = .allocate(capacity: 1)
+        clickCooldownPtr.initialize(to: 0)
+
+        graphMuteStatePtr = .allocate(capacity: 1)
+        graphMuteStatePtr.initialize(to: 0)
+        graphMuteHoldPtr = .allocate(capacity: 1)
+        graphMuteHoldPtr.initialize(to: 0)
+
         try super.init(componentDescription: componentDescription, options: options)
 
         // Create stereo format
@@ -123,6 +149,11 @@ final class MasterBusAU: AUAudioUnit {
         let srPtr = sampleRatePtr
         let posSlot = clockPositionSlot
         let runSlot = clockRunningSlot
+        let prevSamp = prevSamplePtr
+        let clickActive = clickDetectActivePtr
+        let clickCooldown = clickCooldownPtr
+        let gMuteState = graphMuteStatePtr
+        let gMuteHold = graphMuteHoldPtr
 
         _internalRenderBlock = { actionFlags, timestamp, frameCount, outputBusNumber, outputData, renderEvent, pullInputBlock in
             guard let pullInputBlock = pullInputBlock else {
@@ -144,6 +175,24 @@ final class MasterBusAU: AUAudioUnit {
             let sampleRate = srPtr.pointee
             let volume = vol.pointee
 
+            // --- Pre-processing click detector (catches clicks from source nodes/mixer) ---
+            if clickActive.pointee && clickCooldown.pointee <= 0 {
+                var prev = prevSamp.pointee
+                let clockPos = posSlot.pointee?.pointee ?? 0
+                for frame in 0..<Int(frameCount) {
+                    let cur = leftBuf[frame]
+                    let deriv = abs(cur - prev)
+                    if deriv > 0.3 && abs(prev) > 0.001 {
+                        os_log(.error,
+                               "🟡 PRE-FX CLICK at clock=%lld frame=%d deriv=%.4f prev=%.4f cur=%.4f",
+                               clockPos, frame, deriv, prev, cur)
+                        clickCooldown.pointee = Int32(4410 / Int(frameCount))
+                        break
+                    }
+                    prev = cur
+                }
+            }
+
             // Propagate BPM to tempo-synced effects once per buffer
             fxChain.pointee.updateBPM(bpmP.pointee)
 
@@ -158,6 +207,87 @@ final class MasterBusAU: AUAudioUnit {
                 let (limitedL, limitedR) = shore.pointee.process(left: sampleL, right: sampleR)
                 leftBuf[frame] = limitedL
                 rightBuf[frame] = limitedR
+            }
+
+            // --- Graph-change mute: fade out → hold zeros → fade in ---
+            let muteState = gMuteState.pointee
+            if muteState != 0 || gMuteHold.pointee != 0 {
+                let fadeTotal = Float(Self.graphMuteFadeBuffers)
+                let fc = Int(frameCount)
+                if muteState > 0 {
+                    // Fade-out phase: ramp 1→0
+                    let gainStart = Float(muteState) / fadeTotal
+                    let gainEnd = Float(muteState - 1) / fadeTotal
+                    let divisor = Float(max(1, fc - 1))
+                    for frame in 0..<fc {
+                        let t = Float(frame) / divisor
+                        let gain = gainStart + (gainEnd - gainStart) * t
+                        leftBuf[frame] *= gain
+                        rightBuf[frame] *= gain
+                    }
+                    let next = muteState - 1
+                    if next <= 0 {
+                        gMuteState.pointee = 0  // fade-out done, enter hold
+                    } else {
+                        gMuteState.pointee = next
+                    }
+                } else if gMuteHold.pointee > 0 {
+                    // Hold phase: output zeros
+                    for frame in 0..<fc {
+                        leftBuf[frame] = 0
+                        rightBuf[frame] = 0
+                    }
+                    gMuteHold.pointee -= 1
+                    if gMuteHold.pointee <= 0 {
+                        // Start fade-in
+                        gMuteState.pointee = -(Self.graphMuteFadeBuffers)
+                    }
+                } else if muteState < 0 {
+                    // Fade-in phase: ramp 0→1
+                    let remaining = -muteState  // e.g. -2→2, -1→1
+                    let completed = Self.graphMuteFadeBuffers - remaining
+                    let gainStart = Float(completed) / fadeTotal
+                    let gainEnd = Float(completed + 1) / fadeTotal
+                    let divisor = Float(max(1, fc - 1))
+                    for frame in 0..<fc {
+                        let t = Float(frame) / divisor
+                        let gain = gainStart + (gainEnd - gainStart) * t
+                        leftBuf[frame] *= gain
+                        rightBuf[frame] *= gain
+                    }
+                    let next = muteState + 1
+                    gMuteState.pointee = next  // -2→-1→0 (done)
+                }
+                // Reset click detector state during mute to avoid false positives
+                prevSamp.pointee = 0
+            }
+
+            // --- Click detector (audio-thread safe, no allocations) ---
+            if clickActive.pointee {
+                let cooldown = clickCooldown.pointee
+                if cooldown > 0 {
+                    clickCooldown.pointee = cooldown - 1
+                } else {
+                    var prev = prevSamp.pointee
+                    let clockPos = posSlot.pointee?.pointee ?? 0
+                    for frame in 0..<Int(frameCount) {
+                        let cur = leftBuf[frame]
+                        let deriv = abs(cur - prev)
+                        // Threshold: 0.3 is well above any musical transient
+                        if deriv > 0.3 && abs(prev) > 0.001 {
+                            // Log click: sample position, derivative, before/after values
+                            // os_log is audio-thread safe (lock-free, fire-and-forget)
+                            os_log(.error,
+                                   "🔴 CLICK DETECTED at clock=%lld frame=%d deriv=%.4f prev=%.4f cur=%.4f",
+                                   clockPos, frame, deriv, prev, cur)
+                            // Cooldown: skip 4410 samples (100ms) to avoid log spam
+                            clickCooldown.pointee = Int32(4410 / Int(frameCount))
+                            break
+                        }
+                        prev = cur
+                    }
+                    prevSamp.pointee = leftBuf[Int(frameCount) - 1]
+                }
             }
 
             // Advance tree clock AFTER all processing.
@@ -192,6 +322,16 @@ final class MasterBusAU: AUAudioUnit {
         clockPositionSlot.deallocate()
         clockRunningSlot.deinitialize(count: 1)
         clockRunningSlot.deallocate()
+        prevSamplePtr.deinitialize(count: 1)
+        prevSamplePtr.deallocate()
+        clickDetectActivePtr.deinitialize(count: 1)
+        clickDetectActivePtr.deallocate()
+        clickCooldownPtr.deinitialize(count: 1)
+        clickCooldownPtr.deallocate()
+        graphMuteStatePtr.deinitialize(count: 1)
+        graphMuteStatePtr.deallocate()
+        graphMuteHoldPtr.deinitialize(count: 1)
+        graphMuteHoldPtr.deallocate()
     }
 
     // MARK: - AUAudioUnit overrides
@@ -224,6 +364,22 @@ final class MasterBusAU: AUAudioUnit {
     /// The old chain is deallocated on the main thread after the swap.
     func swapFXChain(_ newChain: EffectChain) {
         fxChainPtr.pointee = newChain
+    }
+
+    /// Begin a graph-change mute: fade out → hold silence → fade in.
+    /// Call from the main thread BEFORE engine.attach/connect operations.
+    /// The audio thread handles the entire fade lifecycle automatically.
+    func beginGraphMute() {
+        // Only trigger if not already muting
+        if graphMuteStatePtr.pointee == 0 {
+            graphMuteStatePtr.pointee = Self.graphMuteFadeBuffers  // start fade-out
+            graphMuteHoldPtr.pointee = Self.graphMuteHoldBuffers
+        }
+    }
+
+    /// Whether the graph mute is currently active (fading out, holding, or fading in).
+    var isGraphMuted: Bool {
+        graphMuteStatePtr.pointee != 0 || graphMuteHoldPtr.pointee != 0
     }
 
     /// Reset Shore state (call on transport stop).

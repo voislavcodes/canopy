@@ -65,27 +65,31 @@ struct MainContentView: View {
             syncViewModeToTreeCount()
         }
         .onChange(of: projectState.project.trees.count) { _ in
-            syncViewModeToTreeCount()
-            syncForestAdvanceToState()
+            DispatchQueue.main.async {
+                syncViewModeToTreeCount()
+                syncForestAdvanceToState()
+            }
         }
         .onChange(of: projectState.selectedNodeID) { _ in
-            handleNodeSelectionChange()
+            DispatchQueue.main.async { handleNodeSelectionChange() }
         }
         .onChange(of: projectState.selectedTreeID) { _ in
-            handleTreeSelectionChange()
+            DispatchQueue.main.async { handleTreeSelectionChange() }
         }
         .onChange(of: transportState.isPlaying) { isPlaying in
-            if isPlaying {
-                handlePlaybackStart()
-            } else {
-                handlePlaybackStop()
+            DispatchQueue.main.async {
+                if isPlaying {
+                    handlePlaybackStart()
+                } else {
+                    handlePlaybackStop()
+                }
             }
         }
         .onChange(of: viewModeManager.mode) { _ in
-            handleViewModeChange()
+            DispatchQueue.main.async { handleViewModeChange() }
         }
         .onChange(of: forestPlayback.isLockedToTree) { _ in
-            syncForestAdvanceToState()
+            DispatchQueue.main.async { syncForestAdvanceToState() }
         }
     }
 
@@ -539,12 +543,17 @@ private struct ForestTimelinePoller: View {
         let currentSample = AudioEngine.shared.graph.clockSamplePosition.pointee
 
         // 1. Detect if we've entered a new region → update UI + trigger transition handling
+        // Defer state mutations out of view body to avoid "Publishing changes from
+        // within view updates" warnings.
         if let currentRegion = timeline.regionForSample(currentSample),
            currentRegion.treeID != lastDetectedTreeID {
             let oldTreeID = lastDetectedTreeID
-            lastDetectedTreeID = currentRegion.treeID
-            hasStaged = false
-            onRegionTransition(currentRegion.treeID, oldTreeID)
+            let newTreeID = currentRegion.treeID
+            DispatchQueue.main.async {
+                lastDetectedTreeID = newTreeID
+                hasStaged = false
+                onRegionTransition(newTreeID, oldTreeID)
+            }
         }
 
         // 2. Pre-stage next tree if approaching boundary (2 sec ahead)
@@ -553,7 +562,9 @@ private struct ForestTimelinePoller: View {
             if let nextBoundary = timeline.nextBoundaryAfter(currentSample),
                currentSample > nextBoundary - margin {
                 stageNextRegion(afterBoundary: nextBoundary)
-                hasStaged = true
+                DispatchQueue.main.async {
+                    hasStaged = true
+                }
             }
         }
     }

@@ -149,8 +149,11 @@ final class AudioEngine {
 
     /// Pre-build the next tree's graph while the current tree plays.
     /// Moves slow engine.attach/connect out of the transition path.
+    /// Triggers a brief master-bus mute to mask any AVAudioEngine graph-change clicks.
     func stageNextTree(_ tree: NodeTree, bpm: Double, currentCycleLengthInBeats: Double = 0) {
         guard sampleRate > 0 else { return }
+        // Mute master output to mask engine.attach/connect graph mutation click
+        masterBusAU?.beginGraphMute()
         graph.stageNextTree(tree, engine: engine, sampleRate: sampleRate, bpm: bpm,
                             currentCycleLengthInBeats: currentCycleLengthInBeats)
     }

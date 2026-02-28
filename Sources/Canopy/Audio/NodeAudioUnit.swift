@@ -396,7 +396,7 @@ final class NodeAudioUnit {
                 let bpm = activateBPMPtr.pointee
                 seq.start(bpm: bpm)
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2  // fade-in
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)  // multi-buffer fade-in
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -468,7 +468,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
@@ -689,7 +689,7 @@ final class NodeAudioUnit {
                 let bpm = activateBPMPtr.pointee
                 seq.start(bpm: bpm)
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -757,7 +757,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
@@ -987,7 +987,7 @@ final class NodeAudioUnit {
                 seq.start(bpm: bpm)
                 orbit.start(bpm: bpm, lengthInBeats: orbitLengthInBeats)
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -1066,7 +1066,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
@@ -1302,7 +1302,7 @@ final class NodeAudioUnit {
                 let bpm = activateBPMPtr.pointee
                 seq.start(bpm: bpm)
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -1370,7 +1370,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
@@ -1590,7 +1590,7 @@ final class NodeAudioUnit {
                 let bpm = activateBPMPtr.pointee
                 seq.start(bpm: bpm)
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -1671,7 +1671,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
@@ -1894,7 +1894,7 @@ final class NodeAudioUnit {
                 let bpm = activateBPMPtr.pointee
                 seq.start(bpm: bpm)
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -1975,7 +1975,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
@@ -2205,7 +2205,7 @@ final class NodeAudioUnit {
                 seq.start(bpm: bpm)
                 tide.setBPM(bpm)
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -2285,7 +2285,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
@@ -2538,7 +2538,7 @@ final class NodeAudioUnit {
                 spore.setBPM(bpm)
                 if useSporeSeq { sporeSeq.start(bpm: bpm) }
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -2637,7 +2637,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
@@ -2697,6 +2697,11 @@ final class NodeAudioUnit {
     /// Number of buffers over which to fade out (~185ms at 512/44100).
     /// Long enough to avoid clicks, short enough to prevent audible chord overlap.
     static let fadeOutBuffers: Int32 = 16
+
+    /// Number of buffers over which to fade in (~46ms at 512/44100).
+    /// Multi-buffer ramp creates a gradual crossfade with the old tree's fade-out,
+    /// reducing energy spikes and masking any real-time timing jitter.
+    static let fadeInBuffers: Int32 = 4
 
     // MARK: - Sample-Precise Activation/Deactivation
 
@@ -2797,11 +2802,11 @@ final class NodeAudioUnit {
         _fadeState.pointee = 0
     }
 
-    /// Request a one-buffer fade-in. The render callback will ramp from zero
-    /// to full volume over the next buffer, then switch to normal output.
+    /// Request a multi-buffer fade-in. The render callback will ramp from zero
+    /// to full volume over `fadeInBuffers` buffers, then switch to normal output.
     /// Used during forest transitions so new units don't pop in at full volume.
     func requestFadeIn() {
-        _fadeState.pointee = -2
+        _fadeState.pointee = -(Self.fadeInBuffers + 1)
     }
 
     /// Apply buffer-level fade for click-free transitions. Called at the end of
@@ -2811,7 +2816,8 @@ final class NodeAudioUnit {
     ///   0  = normal (no-op)
     ///  >0  = fade-out in progress (value = remaining buffers, counts down)
     ///  -1  = faded out (output zeros)
-    ///  -2  = fade-in (ramp 0→1 over one buffer, then → 0)
+    ///  < -1 = multi-buffer fade-in (counts up toward -1, skips to 0)
+    ///         Initial value = -(fadeInBuffers + 1), e.g. -5 for 4-buffer fade-in
     @inline(__always)
     static func applyFade(
         _ abl: UnsafeMutableAudioBufferListPointer,
@@ -2836,16 +2842,23 @@ final class NodeAudioUnit {
             }
             let next = state - 1
             fadeState.pointee = next > 0 ? next : -1
-        } else if state == -2 {
-            // Fade-in: ramp 0→1 over one buffer, then normal
+        } else if state < -1 {
+            // Multi-buffer fade-in: ramp from 0→1 over fadeInBuffers buffers
+            let fadeInTotal = Float(fadeInBuffers)
+            let remainingBuffers = Int(-state) - 1  // e.g. -5→4, -4→3, -3→2, -2→1
+            let completedBuffers = Float(fadeInBuffers - Int32(remainingBuffers))
+            let gainStart = completedBuffers / fadeInTotal
+            let gainEnd = (completedBuffers + 1) / fadeInTotal
             let divisor = Float(max(1, frames - 1))
             for frame in 0..<frames {
-                let gain = Float(frame) / divisor
+                let t = Float(frame) / divisor
+                let gain = gainStart + (gainEnd - gainStart) * t
                 for buf in 0..<abl.count {
                     abl[buf].mData?.assumingMemoryBound(to: Float.self)[frame] *= gain
                 }
             }
-            fadeState.pointee = 0
+            let next = state + 1
+            fadeState.pointee = next == -1 ? 0 : next  // skip -1 (faded-out sentinel)
         } else {
             // State -1: faded out, output zeros
             for buf in 0..<abl.count {
@@ -3379,7 +3392,7 @@ final class NodeAudioUnit {
                 let bpm = activateBPMPtr.pointee
                 seq.start(bpm: bpm)
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -3448,7 +3461,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
@@ -3643,7 +3656,7 @@ final class NodeAudioUnit {
                 let bpm = activateBPMPtr.pointee
                 seq.start(bpm: bpm)
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -3712,7 +3725,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
@@ -3924,7 +3937,7 @@ final class NodeAudioUnit {
                 let bpm = activateBPMPtr.pointee
                 seq.start(bpm: bpm)
                 fxChain.updateBPM(bpm)
-                fadeStatePtr.pointee = -2
+                fadeStatePtr.pointee = -(Self.fadeInBuffers + 1)
             }
 
             Self.zeroFrames(ablPointer, range: 0..<range.activeStart)
@@ -3958,7 +3971,7 @@ final class NodeAudioUnit {
             // Forest timeline region transitions — fade in/out for click-free audio
             if seq.didAutoStartFromArm {
                 seq.didAutoStartFromArm = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -2 }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = -(Self.fadeInBuffers + 1) }
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
