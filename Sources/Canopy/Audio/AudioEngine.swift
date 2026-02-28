@@ -150,12 +150,23 @@ final class AudioEngine {
     /// Pre-build the next tree's graph while the current tree plays.
     /// Moves slow engine.attach/connect out of the transition path.
     /// Triggers a brief master-bus mute to mask any AVAudioEngine graph-change clicks.
-    func stageNextTree(_ tree: NodeTree, bpm: Double, currentCycleLengthInBeats: Double = 0) {
+    /// The completion block runs on the main thread after staging finishes.
+    func stageNextTree(_ tree: NodeTree, bpm: Double, currentCycleLengthInBeats: Double = 0,
+                       completion: (() -> Void)? = nil) {
         guard sampleRate > 0 else { return }
-        // Mute master output to mask engine.attach/connect graph mutation click
+        // Mute master output FIRST, then delay graph mutation so the audio thread
+        // has time to fade out before engine.attach/connect corrupts any buffers.
+        // Without the delay, engine.attach() runs before the audio thread renders
+        // even one muted buffer, and the click gets through.
         masterBusAU?.beginGraphMute()
-        graph.stageNextTree(tree, engine: engine, sampleRate: sampleRate, bpm: bpm,
+        let sr = sampleRate
+        let eng = engine
+        let g = graph
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.035) {
+            g.stageNextTree(tree, engine: eng, sampleRate: sr, bpm: bpm,
                             currentCycleLengthInBeats: currentCycleLengthInBeats)
+            completion?()
+        }
     }
 
     /// Activate the pre-staged tree. Lightweight — just start commands + fade old.
