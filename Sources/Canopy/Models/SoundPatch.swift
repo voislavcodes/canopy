@@ -1086,7 +1086,7 @@ struct SoundPatch: Codable, Equatable {
     var name: String
     var soundType: SoundType
     var envelope: EnvelopeConfig
-    var volume: Double  // 0.0-1.0
+    var volume: Double  // 0.0-2.0 (linear; 2.0 = +6dB)
     var pan: Double     // -1.0 (left) to 1.0 (right)
     var filter: FilterConfig
 

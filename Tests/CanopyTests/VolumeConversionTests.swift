@@ -5,7 +5,7 @@ final class VolumeConversionTests: XCTestCase {
     // MARK: - linearToDb / dbToLinear round-trips
 
     func testLinearToDbRoundTrip() {
-        let values: [Double] = [0.001, 0.01, 0.1, 0.25, 0.5, 0.7, 0.8, 1.0]
+        let values: [Double] = [0.001, 0.01, 0.1, 0.25, 0.5, 0.7, 0.8, 1.0, 1.5, 2.0]
         for linear in values {
             let db = VolumeConversion.linearToDb(linear)
             let back = VolumeConversion.dbToLinear(db)
@@ -32,7 +32,7 @@ final class VolumeConversionTests: XCTestCase {
 
     func testFaderToDbRoundTrip() {
         // Start above 0.05 since 0.05 → -60dB → 0.0 (boundary: -60dB maps to silence)
-        let positions: [Double] = [0.1, 0.2, 0.4, 0.5, 0.6, 0.75]
+        let positions: [Double] = [0.1, 0.2, 0.4, 0.5, 0.6, 0.75, 0.85, 0.9, 1.0]
         for pos in positions {
             let db = VolumeConversion.faderToDb(pos)
             let back = VolumeConversion.dbToFader(db)
@@ -53,8 +53,13 @@ final class VolumeConversionTests: XCTestCase {
     }
 
     func testFaderToDbMax() {
-        // Position 1.0 = 0dB (clamped in Phase 1)
-        XCTAssertEqual(VolumeConversion.faderToDb(1.0), 0, accuracy: 1e-10)
+        // Position 1.0 = +6dB
+        XCTAssertEqual(VolumeConversion.faderToDb(1.0), 6.0, accuracy: 1e-10)
+    }
+
+    func testFaderToDbMidHeadroom() {
+        // Position 0.875 (midpoint of [0.75, 1.0]) = +3dB
+        XCTAssertEqual(VolumeConversion.faderToDb(0.875), 3.0, accuracy: 1e-10)
     }
 
     func testDbToFaderSilence() {
@@ -65,6 +70,14 @@ final class VolumeConversionTests: XCTestCase {
 
     func testDbToFaderUnity() {
         XCTAssertEqual(VolumeConversion.dbToFader(0), 0.75, accuracy: 1e-10)
+    }
+
+    func testDbToFaderMax() {
+        XCTAssertEqual(VolumeConversion.dbToFader(6.0), 1.0, accuracy: 1e-10)
+    }
+
+    func testDbToFaderHeadroom() {
+        XCTAssertEqual(VolumeConversion.dbToFader(3.0), 0.875, accuracy: 1e-10)
     }
 
     // MARK: - faderToLinear / linearToFader
@@ -83,6 +96,12 @@ final class VolumeConversionTests: XCTestCase {
         XCTAssertEqual(VolumeConversion.faderToLinear(0), 0)
     }
 
+    func testFaderToLinearMax() {
+        // Position 1.0 = +6dB = linear ~2.0
+        let linear = VolumeConversion.faderToLinear(1.0)
+        XCTAssertEqual(linear, VolumeConversion.dbToLinear(6.0), accuracy: 1e-6)
+    }
+
     // MARK: - formatDb
 
     func testFormatDbSilence() {
@@ -96,5 +115,10 @@ final class VolumeConversionTests: XCTestCase {
 
     func testFormatDbNegative() {
         XCTAssertEqual(VolumeConversion.formatDb(-12.3), "-12.3")
+    }
+
+    func testFormatDbPositive() {
+        XCTAssertEqual(VolumeConversion.formatDb(3.0), "+3.0")
+        XCTAssertEqual(VolumeConversion.formatDb(6.0), "+6.0")
     }
 }

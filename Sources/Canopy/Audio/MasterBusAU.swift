@@ -89,10 +89,10 @@ final class MasterBusAU: AUAudioUnit {
         set { shorePtr.pointee.ceiling = newValue }
     }
 
-    /// Master volume (0.0–1.0).
+    /// Master volume (0.0–2.0, linear; 2.0 = +6dB).
     var masterVolume: Float {
         get { volumePtr.pointee }
-        set { volumePtr.pointee = max(0, min(1, newValue)) }
+        set { volumePtr.pointee = max(0, min(2, newValue)) }
     }
 
     /// BPM for tempo-synced master bus effects.
@@ -265,8 +265,8 @@ final class MasterBusAU: AUAudioUnit {
                 }
                 mRmsL.pointee = sqrtf(sumL / Float(fc))
                 mRmsR.pointee = sqrtf(sumR / Float(fc))
-                mPeakL.pointee = max(maxL, mPeakL.pointee * 0.95)
-                mPeakR.pointee = max(maxR, mPeakR.pointee * 0.95)
+                mPeakL.pointee = max(maxL, mPeakL.pointee * 0.98)
+                mPeakR.pointee = max(maxR, mPeakR.pointee * 0.98)
             }
 
             // Advance tree clock AFTER all processing.

@@ -6,6 +6,10 @@ struct MasterStripView: View {
 
     @State private var isDragging = false
     @State private var dragFaderPosition: Double = 0.75
+    @State private var lastDragY: CGFloat = 0
+
+    @State private var isEditingDb = false
+    @State private var editDbText: String = ""
 
     private let stripWidth: CGFloat = 80
     private let faderHeight: CGFloat = 140
@@ -39,10 +43,26 @@ struct MasterStripView: View {
             // Volume fader
             masterFader
 
-            // dB display
-            Text(displayDb)
+            // dB display (click to type)
+            if isEditingDb {
+                TextField("dB", text: $editDbText, onCommit: {
+                    commitMasterDbEdit()
+                })
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText.opacity(0.6))
+                .foregroundColor(CanopyColors.chromeTextBright)
+                .multilineTextAlignment(.center)
+                .textFieldStyle(.plain)
+                .frame(width: stripWidth - 16)
+                .onExitCommand { isEditingDb = false }
+            } else {
+                Text(displayDb)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.6))
+                    .onTapGesture {
+                        editDbText = displayDb.replacingOccurrences(of: "+", with: "")
+                        isEditingDb = true
+                    }
+            }
 
             Spacer().frame(height: 4)
 
@@ -98,13 +118,15 @@ struct MasterStripView: View {
                         if !isDragging {
                             isDragging = true
                             dragFaderPosition = faderPosition
+                            lastDragY = value.translation.height
                         }
-                        let delta = -value.translation.height / trackHeight
-                        let newPos = max(0, min(1, dragFaderPosition + delta))
-                        dragFaderPosition = newPos
+                        let rawDelta = value.translation.height - lastDragY
+                        lastDragY = value.translation.height
+                        let scale: CGFloat = NSEvent.modifierFlags.contains(.option) ? 0.25 : 1.0
+                        dragFaderPosition = max(0, min(1, dragFaderPosition + (-rawDelta / trackHeight) * scale))
 
                         // Real-time audio feedback
-                        let linear = VolumeConversion.faderToLinear(newPos)
+                        let linear = VolumeConversion.faderToLinear(dragFaderPosition)
                         AudioEngine.shared.configureMasterVolume(Float(linear))
                     }
                     .onEnded { _ in
@@ -129,11 +151,12 @@ struct MasterStripView: View {
 
     private var shoreIndicator: some View {
         let shore = projectState.project.masterBus.shore
+        let ceilingText = String(format: "%.1f", shore.ceiling)
         return HStack(spacing: 3) {
             Circle()
                 .fill(shore.enabled ? Color.green.opacity(0.7) : CanopyColors.chromeText.opacity(0.2))
                 .frame(width: 5, height: 5)
-            Text("SHORE")
+            Text("SHORE \(ceilingText)")
                 .font(.system(size: 8, weight: .medium, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(shore.enabled ? 0.6 : 0.3))
         }
@@ -166,7 +189,27 @@ struct MasterStripView: View {
                     RoundedRectangle(cornerRadius: 2)
                         .stroke(CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
                 )
+                .overlay(alignment: .topTrailing) {
+                    if !projectState.project.masterBus.effects.isEmpty {
+                        Circle()
+                            .fill(CanopyColors.glowColor)
+                            .frame(width: 4, height: 4)
+                            .offset(x: 1, y: -1)
+                    }
+                }
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - dB Edit
+
+    private func commitMasterDbEdit() {
+        isEditingDb = false
+        guard let dbValue = Double(editDbText) else { return }
+        let clamped = max(-60, min(6, dbValue))
+        let linear = VolumeConversion.dbToLinear(clamped)
+        projectState.project.masterBus.volume = linear
+        projectState.syncMasterBusToEngine()
+        projectState.markDirty()
     }
 }

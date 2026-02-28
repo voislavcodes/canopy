@@ -479,7 +479,7 @@ final class NodeAudioUnit {
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod // reserved for future per-sample resonance modulation
 
-                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    let modVol = max(0.0, min(2.0, volume + volume * volMod))
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = voices.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
@@ -783,7 +783,7 @@ final class NodeAudioUnit {
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
-                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    let modVol = max(0.0, min(2.0, volume + volume * volMod))
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = drumKit.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
@@ -1100,7 +1100,7 @@ final class NodeAudioUnit {
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
-                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    let modVol = max(0.0, min(2.0, volume + volume * volMod))
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = quake.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
@@ -1424,7 +1424,7 @@ final class NodeAudioUnit {
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
-                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    let modVol = max(0.0, min(2.0, volume + volume * volMod))
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = westCoast.renderSample(sampleRate: sr) * Float(volumeSmoothed)
 
@@ -1727,7 +1727,7 @@ final class NodeAudioUnit {
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
-                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    let modVol = max(0.0, min(2.0, volume + volume * volMod))
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let (rawL, rawR) = flow.renderStereoSample(sampleRate: sr)
                     let volF = Float(volumeSmoothed)
@@ -2045,7 +2045,7 @@ final class NodeAudioUnit {
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
-                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    let modVol = max(0.0, min(2.0, volume + volume * volMod))
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let (rawL, rawR) = swarm.renderStereoSample(sampleRate: srF)
                     let volF = Float(volumeSmoothed)
@@ -2370,7 +2370,7 @@ final class NodeAudioUnit {
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
-                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    let modVol = max(0.0, min(2.0, volume + volume * volMod))
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let (rawL, rawR) = tide.renderStereoSample(sampleRate: sr)
                     let volF = Float(volumeSmoothed)
@@ -2726,7 +2726,7 @@ final class NodeAudioUnit {
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
-                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    let modVol = max(0.0, min(2.0, volume + volume * volMod))
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let (rawL, rawR) = spore.renderStereoSample(sampleRate: sr)
                     let volF = Float(volumeSmoothed)
@@ -3085,7 +3085,7 @@ final class NodeAudioUnit {
     ) {
         guard abl.count >= 2, frameCount > 0 else {
             rmsL.pointee = 0; rmsR.pointee = 0
-            peakL.pointee *= 0.95; peakR.pointee *= 0.95
+            peakL.pointee *= 0.98; peakR.pointee *= 0.98
             return
         }
 
@@ -3113,8 +3113,8 @@ final class NodeAudioUnit {
         rmsL.pointee = sqrtf(sumL / Float(fc))
         rmsR.pointee = sqrtf(sumR / Float(fc))
         // Peak decay: hold max of current peak and decayed previous peak
-        peakL.pointee = max(maxL, peakL.pointee * 0.95)
-        peakR.pointee = max(maxR, peakR.pointee * 0.95)
+        peakL.pointee = max(maxL, peakL.pointee * 0.98)
+        peakR.pointee = max(maxR, peakR.pointee * 0.98)
     }
 
     /// Set the monotonic clock offset so this unit's local time starts from zero
@@ -3670,7 +3670,7 @@ final class NodeAudioUnit {
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
-                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    let modVol = max(0.0, min(2.0, volume + volume * volMod))
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = schmynth.renderSampleFloat(sampleRate: Float(sr)) * Float(volumeSmoothed)
 
@@ -3948,7 +3948,7 @@ final class NodeAudioUnit {
                     let (volMod, panMod, cutMod, resMod) = lfoBank.tick(sampleRate: sr)
                     _ = resMod
 
-                    let modVol = max(0.0, min(1.0, volume + volume * volMod))
+                    let modVol = max(0.0, min(2.0, volume + volume * volMod))
                     volumeSmoothed += (modVol - volumeSmoothed) * volumeSmoothCoeff
                     let raw = fuse.renderSampleFloat(sampleRate: Float(sr)) * Float(volumeSmoothed)
 

@@ -21,7 +21,7 @@ enum VolumeConversion {
     /// - `0.0`        → -∞ (silence)
     /// - `0.0–0.05`   → dead zone (silence)
     /// - `0.05–0.75`  → -60dB to 0dB (linear in dB)
-    /// - `0.75–1.0`   → 0dB (unity, clamped for Phase 1)
+    /// - `0.75–1.0`   → 0dB to +6dB (headroom)
     static func faderToDb(_ position: Double) -> Double {
         let p = max(0, min(1, position))
         if p < 0.05 { return -.infinity }
@@ -30,8 +30,9 @@ enum VolumeConversion {
             let t = (p - 0.05) / (0.75 - 0.05)
             return -60.0 + t * 60.0
         }
-        // Map [0.75, 1.0] → 0dB (clamped for now; +6dB headroom deferred to Phase 7)
-        return 0
+        // Map [0.75, 1.0] → [0, +6] dB
+        let t = (p - 0.75) / (1.0 - 0.75)
+        return t * 6.0
     }
 
     /// Convert dB to fader position (0–1). Inverse of `faderToDb`.
@@ -42,8 +43,9 @@ enum VolumeConversion {
             let t = (db + 60.0) / 60.0
             return 0.05 + t * (0.75 - 0.05)
         }
-        // dB > 0: clamp to 1.0 (headroom deferred)
-        return 1.0
+        // Map [0, +6] → [0.75, 1.0]
+        let t = min(db / 6.0, 1.0)
+        return 0.75 + t * (1.0 - 0.75)
     }
 
     /// Convert fader position to linear amplitude.
@@ -62,6 +64,7 @@ enum VolumeConversion {
     static func formatDb(_ db: Double) -> String {
         if db == -.infinity || db < -60 { return "-∞" }
         if abs(db) < 0.1 { return "0.0" }
+        if db > 0 { return String(format: "+%.1f", db) }
         return String(format: "%.1f", db)
     }
 }

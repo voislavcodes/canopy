@@ -5,12 +5,18 @@ struct ChannelStripView: View {
     let node: Node
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
+    @EnvironmentObject var viewModeManager: ViewModeManager
 
     @State private var isDragging = false
     @State private var dragFaderPosition: Double = 0.75
+    @State private var lastDragY: CGFloat = 0
 
     @State private var isPanDragging = false
     @State private var dragPan: Double = 0.0
+    @State private var lastPanDragX: CGFloat = 0
+
+    @State private var isEditingDb = false
+    @State private var editDbText: String = ""
 
     private let stripWidth: CGFloat = 60
     private let faderHeight: CGFloat = 140
@@ -60,7 +66,7 @@ struct ChannelStripView: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            // Name + color dot
+            // Name + color dot (tap to navigate to Forest)
             HStack(spacing: 3) {
                 Circle()
                     .fill(nodeColor)
@@ -69,6 +75,12 @@ struct ChannelStripView: View {
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(CanopyColors.chromeTextBright)
                     .lineLimit(1)
+            }
+            .onTapGesture {
+                projectState.selectedNodeID = node.id
+                if let treeID = projectState.selectedTreeID {
+                    viewModeManager.enterTreeDetail(treeID: treeID)
+                }
             }
 
             // Engine badge
@@ -89,11 +101,27 @@ struct ChannelStripView: View {
             // Volume fader
             volumeFader
 
-            // dB display
-            Text(displayDb)
+            // dB display (click to type)
+            if isEditingDb {
+                TextField("dB", text: $editDbText, onCommit: {
+                    commitDbEdit()
+                })
                 .font(.system(size: 8, weight: .regular, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText.opacity(0.6))
+                .foregroundColor(CanopyColors.chromeTextBright)
+                .multilineTextAlignment(.center)
+                .textFieldStyle(.plain)
                 .frame(width: stripWidth - 8)
+                .onExitCommand { isEditingDb = false }
+            } else {
+                Text(displayDb)
+                    .font(.system(size: 8, weight: .regular, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.6))
+                    .frame(width: stripWidth - 8)
+                    .onTapGesture {
+                        editDbText = displayDb.replacingOccurrences(of: "+", with: "")
+                        isEditingDb = true
+                    }
+            }
 
             // Pan control
             panControl
@@ -114,7 +142,11 @@ struct ChannelStripView: View {
 
     private var soloButton: some View {
         Button(action: {
-            projectState.toggleSolo(nodeID: node.id)
+            if NSEvent.modifierFlags.contains(.option) {
+                projectState.exclusiveSolo(nodeID: node.id)
+            } else {
+                projectState.toggleSolo(nodeID: node.id)
+            }
         }) {
             Text("S")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -190,13 +222,15 @@ struct ChannelStripView: View {
                         if !isDragging {
                             isDragging = true
                             dragFaderPosition = faderPosition
+                            lastDragY = value.translation.height
                         }
-                        let delta = -value.translation.height / trackHeight
-                        let newPos = max(0, min(1, dragFaderPosition + delta))
-                        dragFaderPosition = newPos
+                        let rawDelta = value.translation.height - lastDragY
+                        lastDragY = value.translation.height
+                        let scale: CGFloat = NSEvent.modifierFlags.contains(.option) ? 0.25 : 1.0
+                        dragFaderPosition = max(0, min(1, dragFaderPosition + (-rawDelta / trackHeight) * scale))
 
                         // Real-time audio feedback
-                        let linear = VolumeConversion.faderToLinear(newPos)
+                        let linear = VolumeConversion.faderToLinear(dragFaderPosition)
                         AudioEngine.shared.setNodeVolume(Float(linear), nodeID: node.id)
                     }
                     .onEnded { _ in
@@ -253,9 +287,12 @@ struct ChannelStripView: View {
                             if !isPanDragging {
                                 isPanDragging = true
                                 dragPan = currentPan
+                                lastPanDragX = value.translation.width
                             }
-                            let delta = value.translation.width / (barWidth / 2)
-                            dragPan = max(-1, min(1, currentPan + delta))
+                            let rawDelta = value.translation.width - lastPanDragX
+                            lastPanDragX = value.translation.width
+                            let scale: CGFloat = NSEvent.modifierFlags.contains(.option) ? 0.25 : 1.0
+                            dragPan = max(-1, min(1, dragPan + (rawDelta / (barWidth / 2)) * scale))
                             AudioEngine.shared.setNodePan(Float(dragPan), nodeID: node.id)
                         }
                         .onEnded { _ in
@@ -308,7 +345,26 @@ struct ChannelStripView: View {
                     RoundedRectangle(cornerRadius: 2)
                         .stroke(CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
                 )
+                .overlay(alignment: .topTrailing) {
+                    if !node.effects.isEmpty {
+                        Circle()
+                            .fill(CanopyColors.glowColor)
+                            .frame(width: 4, height: 4)
+                            .offset(x: 1, y: -1)
+                    }
+                }
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - dB Edit
+
+    private func commitDbEdit() {
+        isEditingDb = false
+        guard let dbValue = Double(editDbText) else { return }
+        let clamped = max(-60, min(6, dbValue))
+        let linear = VolumeConversion.dbToLinear(clamped)
+        projectState.updateNode(id: node.id) { $0.patch.setMixVolume(linear) }
+        AudioEngine.shared.setNodeVolume(Float(linear), nodeID: node.id)
     }
 }

@@ -603,9 +603,9 @@ class ProjectState: ObservableObject {
         }
     }
 
-    /// Set master bus volume.
+    /// Set master bus volume (0.0–2.0, linear; 2.0 = +6dB).
     func setMasterVolume(_ volume: Double) {
-        project.masterBus.volume = max(0, min(1, volume))
+        project.masterBus.volume = max(0, min(2, volume))
         markDirty()
         AudioEngine.shared.configureMasterVolume(Float(volume))
     }
@@ -646,6 +646,15 @@ class ProjectState: ObservableObject {
     /// Toggle solo state on a node and sync to audio engine.
     func toggleSolo(nodeID: UUID) {
         updateNode(id: nodeID) { $0.isSolo.toggle() }
+        syncMuteSoloToEngine()
+    }
+
+    /// Exclusive solo: solo only the target node, un-solo all others in the tree.
+    func exclusiveSolo(nodeID: UUID) {
+        let nodes = allNodesForSelectedTree()
+        for node in nodes {
+            updateNode(id: node.id) { $0.isSolo = ($0.id == nodeID) }
+        }
         syncMuteSoloToEngine()
     }
 
