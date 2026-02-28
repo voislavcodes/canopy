@@ -557,14 +557,16 @@ private struct ForestTimelinePoller: View {
             }
         }
 
-        // 2. Pre-stage next tree if approaching boundary (2 sec ahead)
+        // 2. Pre-stage next tree if approaching end of current region (2 sec ahead)
         if !hasStaged {
             let margin = Int64(2.0 * AudioEngine.shared.sampleRate)
-            if let nextBoundary = timeline.nextBoundaryAfter(currentSample),
-               currentSample > nextBoundary - margin {
-                stageNextRegion(afterBoundary: nextBoundary)
-                DispatchQueue.main.async {
-                    hasStaged = true
+            if let currentRegion = timeline.regionForSample(currentSample) {
+                let endOfRegion = currentRegion.endSample
+                if currentSample > endOfRegion - margin {
+                    stageNextRegion(afterBoundary: endOfRegion)
+                    DispatchQueue.main.async {
+                        hasStaged = true
+                    }
                 }
             }
         }
