@@ -6,6 +6,7 @@ enum ViewMode: Equatable {
     case forest                    // Horizontal tree line
     case treeDetail(treeID: UUID)  // Single tree's node hierarchy (canvas)
     case focus(nodeID: UUID)       // Single panel full-screen
+    case meadow                    // Mixer view (channel strips per branch)
 }
 
 /// Manages transitions between Forest, Tree Detail, and Focus view modes.
@@ -26,6 +27,11 @@ class ViewModeManager: ObservableObject {
     var treeDetailID: UUID? {
         if case .treeDetail(let id) = mode { return id }
         return nil
+    }
+
+    var isMeadow: Bool {
+        if case .meadow = mode { return true }
+        return false
     }
 
     var focusedNodeID: UUID? {
@@ -55,5 +61,13 @@ class ViewModeManager: ObservableObject {
     /// Exit focus back to tree detail for a specific tree.
     func exitFocusToTreeDetail(treeID: UUID) {
         mode = .treeDetail(treeID: treeID)
+    }
+
+    func enterMeadow() {
+        mode = .meadow
+    }
+
+    func exitMeadow() {
+        mode = .forest
     }
 }

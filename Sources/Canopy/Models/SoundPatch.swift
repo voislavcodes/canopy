@@ -1119,4 +1119,36 @@ struct SoundPatch: Codable, Equatable {
         pan = try container.decode(Double.self, forKey: .pan)
         filter = try container.decodeIfPresent(FilterConfig.self, forKey: .filter) ?? FilterConfig()
     }
+
+    /// Update volume on both the top-level `SoundPatch.volume` and the inner engine config's volume.
+    /// Ensures that when a bloom panel later re-pushes the full engine config, it carries the mixer's volume.
+    mutating func setMixVolume(_ volume: Double) {
+        self.volume = volume
+        switch soundType {
+        case .oscillator:
+            break // OscillatorConfig has no volume field; uses SoundPatch.volume via setPatch
+        case .drumKit:
+            break // DrumKitConfig has no volume field
+        case .westCoast(var c):
+            c.volume = volume; soundType = .westCoast(c)
+        case .flow(var c):
+            c.volume = volume; soundType = .flow(c)
+        case .tide(var c):
+            c.volume = volume; soundType = .tide(c)
+        case .swarm(var c):
+            c.volume = volume; soundType = .swarm(c)
+        case .quake(var c):
+            c.volume = volume; soundType = .quake(c)
+        case .spore(var c):
+            c.volume = volume; soundType = .spore(c)
+        case .fuse(var c):
+            c.volume = volume; soundType = .fuse(c)
+        case .volt:
+            break // VoltDrumKitConfig uses per-slot levels
+        case .schmynth(var c):
+            c.volume = volume; soundType = .schmynth(c)
+        case .sampler, .auv3:
+            break
+        }
+    }
 }

@@ -41,6 +41,8 @@ struct MainContentView: View {
                 )
             case .focus:
                 FocusView(projectState: projectState, transportState: transportState)
+            case .meadow:
+                MeadowView(projectState: projectState, transportState: transportState)
             }
 
             BottomLaneView(projectState: projectState)
@@ -152,6 +154,9 @@ struct MainContentView: View {
                 projectState.syncNodeFXToEngine(nodeID: node.id)
             }
         }
+
+        // Apply persisted mute/solo states to audio engine
+        projectState.syncMuteSoloToEngine()
     }
 
     /// Add a single node to the live audio graph (incremental, no teardown).
@@ -277,7 +282,7 @@ struct MainContentView: View {
             forestPlayback.isLockedToTree = false
             forestPlayback.timeline = nil
             AudioEngine.shared.clearStagedTree()
-        } else if !viewModeManager.isForest {
+        } else if !viewModeManager.isForest && !viewModeManager.isMeadow {
             forestPlayback.activeTreeID = nil
             forestPlayback.nextTreeID = nil
             forestPlayback.timeline = nil

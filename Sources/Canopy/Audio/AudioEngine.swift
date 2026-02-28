@@ -309,6 +309,23 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.setPan(pan)
     }
 
+    /// Set muted state on a specific node (smoothed to avoid clicks).
+    func setNodeMuted(_ muted: Bool, nodeID: UUID) {
+        graph.unit(for: nodeID)?.setMuted(muted)
+    }
+
+    /// Poll level meters for a specific node.
+    func nodeMeterLevels(nodeID: UUID) -> (rmsL: Float, rmsR: Float, peakL: Float, peakR: Float) {
+        guard let unit = graph.unit(for: nodeID) else { return (0, 0, 0, 0) }
+        return (unit.meterRmsL, unit.meterRmsR, unit.meterPeakL, unit.meterPeakR)
+    }
+
+    /// Poll master bus level meters.
+    func masterMeterLevels() -> (rmsL: Float, rmsR: Float, peakL: Float, peakR: Float) {
+        guard let master = masterBusAU else { return (0, 0, 0, 0) }
+        return (master.meterRmsL, master.meterRmsR, master.meterPeakL, master.meterPeakR)
+    }
+
     /// Set arp config on a specific node's sequencer.
     func setArpConfig(active: Bool, samplesPerStep: Int, gateLength: Double, mode: ArpMode, nodeID: UUID) {
         graph.unit(for: nodeID)?.setArpConfig(active: active, samplesPerStep: samplesPerStep,

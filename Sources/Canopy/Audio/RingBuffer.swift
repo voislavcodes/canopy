@@ -125,6 +125,9 @@ enum AudioCommand {
                      attack: Double, decay: Double, sustain: Double, release: Double,
                      warm: Double, volume: Double)
 
+    // Unified volume control from mixer (works for all engine types)
+    case setMixVolume(Double)
+
     // FX chain swap (per-node effect chain replacement)
     case setFXChain(EffectChain)
 

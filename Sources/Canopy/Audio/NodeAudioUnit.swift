@@ -46,6 +46,20 @@ final class NodeAudioUnit {
 
     private static let logger = Logger(subsystem: "com.canopy", category: "NodeAudioUnit")
 
+    /// Mute state written from main thread, read from audio thread for click-free muting.
+    private let _muted = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+
+    /// Level metering pointers (written by audio thread, read by main thread for UI).
+    private let _meterRmsL = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+    private let _meterRmsR = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+    private let _meterPeakL = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+    private let _meterPeakR = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+
+    var meterRmsL: Float { _meterRmsL.pointee }
+    var meterRmsR: Float { _meterRmsR.pointee }
+    var meterPeakL: Float { _meterPeakL.pointee }
+    var meterPeakR: Float { _meterPeakR.pointee }
+
     /// Shared pointers for orbit body angles (written by audio thread, read by main thread for visualization).
     private let _orbitBodyAngles = UnsafeMutablePointer<(Float, Float, Float, Float, Float, Float)>.allocate(capacity: 1)
 
@@ -59,6 +73,11 @@ final class NodeAudioUnit {
         _currentBeat.initialize(to: 0)
         _isPlaying.initialize(to: false)
         _pan.initialize(to: 0)
+        _muted.initialize(to: false)
+        _meterRmsL.initialize(to: 0)
+        _meterRmsR.initialize(to: 0)
+        _meterPeakL.initialize(to: 0)
+        _meterPeakR.initialize(to: 0)
         _orbitBodyAngles.initialize(to: (0, 0, 0, 0, 0, 0))
         _fadeState.initialize(to: 0)
         _startOffset.initialize(to: 0)
@@ -76,6 +95,11 @@ final class NodeAudioUnit {
         let deactivateAtSamplePtr = self._deactivateAtSample
         let activateAtSamplePtr = self._activateAtSample
         let activateBPMPtr = self._activateBPM
+        let mutedPtr = self._muted
+        let meterRmsLPtr = self._meterRmsL
+        let meterRmsRPtr = self._meterRmsR
+        let meterPeakLPtr = self._meterPeakL
+        let meterPeakRPtr = self._meterPeakR
 
         if isSchmynth {
             self.sourceNode = Self.makeSchmynthSourceNode(
@@ -85,7 +109,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         } else if isVolt {
             self.sourceNode = Self.makeVoltSourceNode(
@@ -95,7 +122,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         } else if isFuse {
             self.sourceNode = Self.makeFuseSourceNode(
@@ -105,7 +135,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         } else if isSpore {
             self.sourceNode = Self.makeSporeSourceNode(
@@ -115,7 +148,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         } else if isQuake {
             self.sourceNode = Self.makeQuakeSourceNode(
@@ -125,7 +161,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         } else if isSwarm {
             self.sourceNode = Self.makeSwarmSourceNode(
@@ -135,7 +174,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         } else if isTide {
             self.sourceNode = Self.makeTideSourceNode(
@@ -145,7 +187,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         } else if isFlow {
             self.sourceNode = Self.makeFlowSourceNode(
@@ -155,7 +200,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         } else if isWestCoast {
             self.sourceNode = Self.makeWestCoastSourceNode(
@@ -165,7 +213,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         } else if isDrumKit {
             self.sourceNode = Self.makeDrumKitSourceNode(
@@ -175,7 +226,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         } else {
             self.sourceNode = Self.makeOscillatorSourceNode(
@@ -185,7 +239,10 @@ final class NodeAudioUnit {
                 startOffsetPtr: startOffsetPtr,
                 deactivateAtSamplePtr: deactivateAtSamplePtr,
                 activateAtSamplePtr: activateAtSamplePtr,
-                activateBPMPtr: activateBPMPtr
+                activateBPMPtr: activateBPMPtr,
+                mutedPtr: mutedPtr,
+                meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
             )
         }
     }
@@ -204,7 +261,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var voices = VoiceManager(voiceCount: 8)
         var seq = Sequencer()
@@ -216,6 +278,8 @@ final class NodeAudioUnit {
         var detune: Double = 0
         let sr = sampleRate
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         voices.configurePatch(
             waveform: 0, detune: 0,
@@ -251,6 +315,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     voices.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(let waveform, let newDetune, let attack, let decay, let sustain, let release, let newVolume):
                     detune = newDetune
@@ -388,6 +455,8 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
                 playingPtr.pointee = seq.isPlaying
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -496,6 +565,8 @@ final class NodeAudioUnit {
             beatPtr.pointee = seq.currentBeat
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }
@@ -514,7 +585,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var drumKit = FMDrumKit.defaultKit()
         var seq = Sequencer()
@@ -525,6 +601,8 @@ final class NodeAudioUnit {
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -544,6 +622,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     drumKit.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
@@ -681,6 +762,8 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
                 playingPtr.pointee = seq.isPlaying
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -784,6 +867,8 @@ final class NodeAudioUnit {
             beatPtr.pointee = seq.currentBeat
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }
@@ -803,7 +888,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var quake = QuakeVoiceManager.defaultKit()
         var seq = Sequencer()
@@ -817,6 +907,8 @@ final class NodeAudioUnit {
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -836,6 +928,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     quake.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
@@ -978,6 +1073,8 @@ final class NodeAudioUnit {
                     playingPtr.pointee = seq.isPlaying
                 }
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -1099,6 +1196,8 @@ final class NodeAudioUnit {
             }
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }
@@ -1117,7 +1216,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var westCoast = WestCoastVoiceManager()
         var seq = Sequencer()
@@ -1128,6 +1232,8 @@ final class NodeAudioUnit {
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -1147,6 +1253,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     westCoast.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
@@ -1294,6 +1403,8 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
                 playingPtr.pointee = seq.isPlaying
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -1396,6 +1507,8 @@ final class NodeAudioUnit {
             beatPtr.pointee = seq.currentBeat
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }
@@ -1414,7 +1527,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var flow = FlowVoiceManager()
         var seq = Sequencer()
@@ -1425,6 +1543,8 @@ final class NodeAudioUnit {
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -1441,6 +1561,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     flow.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
@@ -1582,6 +1705,8 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
                 playingPtr.pointee = seq.isPlaying
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -1703,6 +1828,8 @@ final class NodeAudioUnit {
             beatPtr.pointee = seq.currentBeat
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }
@@ -1721,7 +1848,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var swarm = SwarmVoiceManager()
         var seq = Sequencer()
@@ -1733,6 +1865,8 @@ final class NodeAudioUnit {
         let sr = sampleRate
         let srF = Float(sr)
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -1749,6 +1883,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     swarm.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
@@ -1886,6 +2023,8 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
                 playingPtr.pointee = seq.isPlaying
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -2007,6 +2146,8 @@ final class NodeAudioUnit {
             beatPtr.pointee = seq.currentBeat
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }
@@ -2025,7 +2166,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var tide = TideVoiceManager()
         var seq = Sequencer()
@@ -2036,6 +2182,8 @@ final class NodeAudioUnit {
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -2052,6 +2200,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     tide.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
@@ -2196,6 +2347,8 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
                 playingPtr.pointee = seq.isPlaying
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -2317,6 +2470,8 @@ final class NodeAudioUnit {
             beatPtr.pointee = seq.currentBeat
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }
@@ -2335,7 +2490,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var spore = SporeVoiceManager()
         var seq = Sequencer()
@@ -2348,6 +2508,8 @@ final class NodeAudioUnit {
         var volumeSmoothed: Double = 0.7
         let sr = sampleRate
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -2364,6 +2526,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     spore.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
@@ -2528,6 +2693,8 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
                 playingPtr.pointee = seq.isPlaying || sporeSeq.isRunning
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -2669,6 +2836,8 @@ final class NodeAudioUnit {
             beatPtr.pointee = seq.currentBeat
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }
@@ -2680,6 +2849,16 @@ final class NodeAudioUnit {
         _isPlaying.deallocate()
         _pan.deinitialize(count: 1)
         _pan.deallocate()
+        _muted.deinitialize(count: 1)
+        _muted.deallocate()
+        _meterRmsL.deinitialize(count: 1)
+        _meterRmsL.deallocate()
+        _meterRmsR.deinitialize(count: 1)
+        _meterRmsR.deallocate()
+        _meterPeakL.deinitialize(count: 1)
+        _meterPeakL.deallocate()
+        _meterPeakR.deinitialize(count: 1)
+        _meterPeakR.deallocate()
         _orbitBodyAngles.deinitialize(count: 1)
         _orbitBodyAngles.deallocate()
         _fadeState.deinitialize(count: 1)
@@ -2867,6 +3046,77 @@ final class NodeAudioUnit {
         }
     }
 
+    /// Apply mute gain with smoothing to avoid clicks.
+    /// Called after applyFade. muteGain is a closure-captured var that persists across callbacks.
+    @inline(__always)
+    static func applyMute(
+        _ abl: UnsafeMutableAudioBufferListPointer,
+        frameCount: UInt32,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        muteGain: inout Float,
+        smoothCoeff: Float
+    ) {
+        let target: Float = mutedPtr.pointee ? 0.0 : 1.0
+        // Early exit if already at target
+        if abs(muteGain - target) < 0.0001 && target == 1.0 { return }
+        guard abl.count >= 2 else { return }
+
+        let bufL = abl[0].mData?.assumingMemoryBound(to: Float.self)
+        let bufR = abl[1].mData?.assumingMemoryBound(to: Float.self)
+        guard let leftBuf = bufL, let rightBuf = bufR else { return }
+
+        for frame in 0..<Int(frameCount) {
+            muteGain += (target - muteGain) * smoothCoeff
+            leftBuf[frame] *= muteGain
+            rightBuf[frame] *= muteGain
+        }
+    }
+
+    /// Compute RMS and peak levels from the output buffer and write to meter pointers.
+    /// Called at the end of each render callback, after applyFade and applyMute.
+    @inline(__always)
+    static func updateMeters(
+        _ abl: UnsafeMutableAudioBufferListPointer,
+        frameCount: UInt32,
+        rmsL: UnsafeMutablePointer<Float>,
+        rmsR: UnsafeMutablePointer<Float>,
+        peakL: UnsafeMutablePointer<Float>,
+        peakR: UnsafeMutablePointer<Float>
+    ) {
+        guard abl.count >= 2, frameCount > 0 else {
+            rmsL.pointee = 0; rmsR.pointee = 0
+            peakL.pointee *= 0.95; peakR.pointee *= 0.95
+            return
+        }
+
+        let bufL = abl[0].mData?.assumingMemoryBound(to: Float.self)
+        let bufR = abl[1].mData?.assumingMemoryBound(to: Float.self)
+        guard let leftBuf = bufL, let rightBuf = bufR else { return }
+
+        var sumL: Float = 0
+        var sumR: Float = 0
+        var maxL: Float = 0
+        var maxR: Float = 0
+        let fc = Int(frameCount)
+
+        for frame in 0..<fc {
+            let sL = leftBuf[frame]
+            let sR = rightBuf[frame]
+            sumL += sL * sL
+            sumR += sR * sR
+            let absL = abs(sL)
+            let absR = abs(sR)
+            if absL > maxL { maxL = absL }
+            if absR > maxR { maxR = absR }
+        }
+
+        rmsL.pointee = sqrtf(sumL / Float(fc))
+        rmsR.pointee = sqrtf(sumR / Float(fc))
+        // Peak decay: hold max of current peak and decayed previous peak
+        peakL.pointee = max(maxL, peakL.pointee * 0.95)
+        peakR.pointee = max(maxR, peakR.pointee * 0.95)
+    }
+
     /// Set the monotonic clock offset so this unit's local time starts from zero
     /// at the given global clock sample. Called during tree transitions.
     func setClockStartOffset(_ offset: Int64) {
@@ -2978,11 +3228,15 @@ final class NodeAudioUnit {
     }
 
     func setVolume(_ volume: Float) {
-        // Volume is handled via setPatch in the render callback
+        commandBuffer.push(.setMixVolume(Double(volume)))
     }
 
     func setPan(_ pan: Float) {
         _pan.pointee = max(-1, min(1, pan))
+    }
+
+    func setMuted(_ muted: Bool) {
+        _muted.pointee = muted
     }
 
     func configureFilter(enabled: Bool, cutoff: Double, resonance: Double) {
@@ -3241,7 +3495,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var schmynth = SchmynthVoiceManager()
         var seq = Sequencer()
@@ -3252,6 +3511,8 @@ final class NodeAudioUnit {
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -3271,6 +3532,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     schmynth.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
@@ -3384,6 +3648,8 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
                 playingPtr.pointee = seq.isPlaying
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -3488,6 +3754,8 @@ final class NodeAudioUnit {
             beatPtr.pointee = seq.currentBeat
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }
@@ -3506,7 +3774,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var fuse = FuseVoiceManager()
         var seq = Sequencer()
@@ -3517,6 +3790,8 @@ final class NodeAudioUnit {
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -3536,6 +3811,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     fuse.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
@@ -3648,6 +3926,8 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
                 playingPtr.pointee = seq.isPlaying
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -3752,6 +4032,8 @@ final class NodeAudioUnit {
             beatPtr.pointee = seq.currentBeat
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }
@@ -3770,7 +4052,12 @@ final class NodeAudioUnit {
         startOffsetPtr: UnsafeMutablePointer<Int64>,
         deactivateAtSamplePtr: UnsafeMutablePointer<Int64>,
         activateAtSamplePtr: UnsafeMutablePointer<Int64>,
-        activateBPMPtr: UnsafeMutablePointer<Double>
+        activateBPMPtr: UnsafeMutablePointer<Double>,
+        mutedPtr: UnsafeMutablePointer<Bool>,
+        meterRmsLPtr: UnsafeMutablePointer<Float>,
+        meterRmsRPtr: UnsafeMutablePointer<Float>,
+        meterPeakLPtr: UnsafeMutablePointer<Float>,
+        meterPeakRPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var volt = VoltVoiceManager()
         var seq = Sequencer()
@@ -3781,6 +4068,8 @@ final class NodeAudioUnit {
         var volumeSmoothed: Double = 0.8
         let sr = sampleRate
         let volumeSmoothCoeff = 1.0 - exp(-2.0 * .pi * 200.0 / sampleRate)
+        var muteGain: Float = 1.0
+        let muteSmoothCoeff: Float = Float(1.0 - exp(-2.0 * .pi * 200.0 / sampleRate))
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -3800,6 +4089,9 @@ final class NodeAudioUnit {
 
                 case .allNotesOff:
                     volt.allNotesOff()
+
+                case .setMixVolume(let v):
+                    volume = v
 
                 case .setPatch(_, _, _, _, _, _, let newVolume):
                     volume = newVolume
@@ -3929,6 +4221,8 @@ final class NodeAudioUnit {
                 beatPtr.pointee = seq.currentBeat
                 playingPtr.pointee = seq.isPlaying
                 Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+                Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+                Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
                 return noErr
             }
 
@@ -3998,6 +4292,8 @@ final class NodeAudioUnit {
             beatPtr.pointee = seq.currentBeat
 
             Self.applyFade(ablPointer, frameCount: frameCount, fadeState: fadeStatePtr)
+            Self.applyMute(ablPointer, frameCount: frameCount, mutedPtr: mutedPtr, muteGain: &muteGain, smoothCoeff: muteSmoothCoeff)
+            Self.updateMeters(ablPointer, frameCount: frameCount, rmsL: meterRmsLPtr, rmsR: meterRmsRPtr, peakL: meterPeakLPtr, peakR: meterPeakRPtr)
             return noErr
         }
     }

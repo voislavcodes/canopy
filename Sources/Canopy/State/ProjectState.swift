@@ -635,6 +635,38 @@ class ProjectState: ObservableObject {
         syncMasterFXToEngine()
     }
 
+    // MARK: - Mute / Solo
+
+    /// Toggle mute state on a node and sync to audio engine.
+    func toggleMute(nodeID: UUID) {
+        updateNode(id: nodeID) { $0.isMuted.toggle() }
+        syncMuteSoloToEngine()
+    }
+
+    /// Toggle solo state on a node and sync to audio engine.
+    func toggleSolo(nodeID: UUID) {
+        updateNode(id: nodeID) { $0.isSolo.toggle() }
+        syncMuteSoloToEngine()
+    }
+
+    /// Resolve effective mute for all nodes in the selected tree and push to audio engine.
+    /// Solo logic: if any node is soloed, only soloed nodes play.
+    /// Mute overrides solo: if a node is both soloed and muted, it's silent.
+    func syncMuteSoloToEngine() {
+        let nodes = allNodesForSelectedTree()
+        let anySoloed = nodes.contains { $0.isSolo }
+
+        for node in nodes {
+            let effectiveMute: Bool
+            if anySoloed {
+                effectiveMute = node.isMuted || !node.isSolo
+            } else {
+                effectiveMute = node.isMuted
+            }
+            AudioEngine.shared.setNodeMuted(effectiveMute, nodeID: node.id)
+        }
+    }
+
     // MARK: - LFO / Modulation
 
     /// Add a new LFO with auto-generated name and color.

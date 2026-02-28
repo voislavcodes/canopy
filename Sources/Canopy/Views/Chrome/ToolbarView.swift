@@ -4,6 +4,7 @@ struct ToolbarView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
     @ObservedObject var forestPlayback: ForestPlaybackState
+    @EnvironmentObject var viewModeManager: ViewModeManager
 
     @State private var showRootPicker = false
     @State private var showModePicker = false
@@ -15,11 +16,24 @@ struct ToolbarView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-                // FOREST / RIVER tabs — matching FX/MOD style
+                // FOREST / MEADOW / RIVER tabs — matching FX/MOD style
                 HStack(spacing: 12) {
                     Text("FOREST")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(CanopyColors.chromeTextBright)
+                        .font(.system(size: 11, weight: viewModeManager.isMeadow ? .regular : .bold, design: .monospaced))
+                        .foregroundColor(viewModeManager.isMeadow ? CanopyColors.chromeText.opacity(0.7) : CanopyColors.chromeTextBright)
+                        .onTapGesture {
+                            if viewModeManager.isMeadow {
+                                viewModeManager.exitMeadow()
+                            }
+                        }
+                    Text("MEADOW")
+                        .font(.system(size: 11, weight: viewModeManager.isMeadow ? .bold : .regular, design: .monospaced))
+                        .foregroundColor(viewModeManager.isMeadow ? CanopyColors.chromeTextBright : CanopyColors.chromeText.opacity(0.7))
+                        .onTapGesture {
+                            if !viewModeManager.isMeadow {
+                                viewModeManager.enterMeadow()
+                            }
+                        }
                     Text("RIVER")
                         .font(.system(size: 11, weight: .regular, design: .monospaced))
                         .foregroundColor(CanopyColors.chromeText.opacity(0.5))

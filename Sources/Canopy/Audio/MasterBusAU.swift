@@ -54,6 +54,17 @@ final class MasterBusAU: AUAudioUnit {
     private let clockPositionSlot: UnsafeMutablePointer<UnsafeMutablePointer<Int64>?>
     private let clockRunningSlot: UnsafeMutablePointer<UnsafeMutablePointer<Bool>?>
 
+    // Level metering pointers (written by audio thread, read by main thread)
+    private let meterRmsLPtr: UnsafeMutablePointer<Float>
+    private let meterRmsRPtr: UnsafeMutablePointer<Float>
+    private let meterPeakLPtr: UnsafeMutablePointer<Float>
+    private let meterPeakRPtr: UnsafeMutablePointer<Float>
+
+    var meterRmsL: Float { meterRmsLPtr.pointee }
+    var meterRmsR: Float { meterRmsRPtr.pointee }
+    var meterPeakL: Float { meterPeakLPtr.pointee }
+    var meterPeakR: Float { meterPeakRPtr.pointee }
+
     // Internal render block (captured once, no per-render allocation)
     private var _internalRenderBlock: AUInternalRenderBlock!
 
@@ -118,6 +129,15 @@ final class MasterBusAU: AUAudioUnit {
         graphMuteHoldPtr = .allocate(capacity: 1)
         graphMuteHoldPtr.initialize(to: 0)
 
+        meterRmsLPtr = .allocate(capacity: 1)
+        meterRmsLPtr.initialize(to: 0)
+        meterRmsRPtr = .allocate(capacity: 1)
+        meterRmsRPtr.initialize(to: 0)
+        meterPeakLPtr = .allocate(capacity: 1)
+        meterPeakLPtr.initialize(to: 0)
+        meterPeakRPtr = .allocate(capacity: 1)
+        meterPeakRPtr.initialize(to: 0)
+
         try super.init(componentDescription: componentDescription, options: options)
 
         // Create stereo format
@@ -139,6 +159,10 @@ final class MasterBusAU: AUAudioUnit {
         let runSlot = clockRunningSlot
         let gMuteState = graphMuteStatePtr
         let gMuteHold = graphMuteHoldPtr
+        let mRmsL = meterRmsLPtr
+        let mRmsR = meterRmsRPtr
+        let mPeakL = meterPeakLPtr
+        let mPeakR = meterPeakRPtr
 
         _internalRenderBlock = { actionFlags, timestamp, frameCount, outputBusNumber, outputData, renderEvent, pullInputBlock in
             guard let pullInputBlock = pullInputBlock else {
@@ -227,6 +251,24 @@ final class MasterBusAU: AUAudioUnit {
                 }
             }
 
+            // Compute master bus metering (after all processing including graph mute)
+            do {
+                var sumL: Float = 0, sumR: Float = 0
+                var maxL: Float = 0, maxR: Float = 0
+                let fc = Int(frameCount)
+                for frame in 0..<fc {
+                    let sL = leftBuf[frame], sR = rightBuf[frame]
+                    sumL += sL * sL; sumR += sR * sR
+                    let aL = abs(sL), aR = abs(sR)
+                    if aL > maxL { maxL = aL }
+                    if aR > maxR { maxR = aR }
+                }
+                mRmsL.pointee = sqrtf(sumL / Float(fc))
+                mRmsR.pointee = sqrtf(sumR / Float(fc))
+                mPeakL.pointee = max(maxL, mPeakL.pointee * 0.95)
+                mPeakR.pointee = max(maxR, mPeakR.pointee * 0.95)
+            }
+
             // Advance tree clock AFTER all processing.
             // Source nodes already rendered (pull model), so this is safe.
             if runSlot.pointee?.pointee == true {
@@ -263,6 +305,14 @@ final class MasterBusAU: AUAudioUnit {
         graphMuteStatePtr.deallocate()
         graphMuteHoldPtr.deinitialize(count: 1)
         graphMuteHoldPtr.deallocate()
+        meterRmsLPtr.deinitialize(count: 1)
+        meterRmsLPtr.deallocate()
+        meterRmsRPtr.deinitialize(count: 1)
+        meterRmsRPtr.deallocate()
+        meterPeakLPtr.deinitialize(count: 1)
+        meterPeakLPtr.deallocate()
+        meterPeakRPtr.deinitialize(count: 1)
+        meterPeakRPtr.deallocate()
     }
 
     // MARK: - AUAudioUnit overrides
