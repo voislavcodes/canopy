@@ -594,7 +594,7 @@ private struct ForestTimelinePoller: View {
             lengthInBeats: cycleLength
         ))
 
-        AudioEngine.shared.stageNextTree(nextTree, bpm: bpm) {
+        AudioEngine.shared.stageNextTree(nextTree, bpm: bpm, muteGraph: false) {
             AudioEngine.shared.armStagedUnits(regionStart: boundary, regionEnd: boundary + regionLen, bpm: bpm)
         }
     }

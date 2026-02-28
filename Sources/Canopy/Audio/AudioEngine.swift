@@ -149,20 +149,30 @@ final class AudioEngine {
 
     /// Pre-build the next tree's graph while the current tree plays.
     /// Moves slow engine.attach/connect out of the transition path.
-    /// Triggers a brief master-bus mute to mask any AVAudioEngine graph-change clicks.
     /// The completion block runs on the main thread after staging finishes.
+    ///
+    /// - Parameter muteGraph: When true, briefly mutes the master bus to mask
+    ///   any AVAudioEngine graph-mutation click. Set to false when staging during
+    ///   a transition overlap to avoid disrupting the crossfade.
     func stageNextTree(_ tree: NodeTree, bpm: Double, currentCycleLengthInBeats: Double = 0,
-                       completion: (() -> Void)? = nil) {
+                       muteGraph: Bool = true, completion: (() -> Void)? = nil) {
         guard sampleRate > 0 else { return }
-        // Mute master output FIRST, then delay graph mutation so the audio thread
-        // has time to fade out before engine.attach/connect corrupts any buffers.
-        // Without the delay, engine.attach() runs before the audio thread renders
-        // even one muted buffer, and the click gets through.
-        masterBusAU?.beginGraphMute()
+        if muteGraph {
+            masterBusAU?.beginGraphMute()
+        }
         let sr = sampleRate
         let eng = engine
         let g = graph
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.035) {
+        // Delay graph mutation so the audio thread has time to fade out
+        // (when muting) or to avoid blocking the main thread.
+        let delay = muteGraph ? 0.035 : 0.0
+        if delay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                g.stageNextTree(tree, engine: eng, sampleRate: sr, bpm: bpm,
+                                currentCycleLengthInBeats: currentCycleLengthInBeats)
+                completion?()
+            }
+        } else {
             g.stageNextTree(tree, engine: eng, sampleRate: sr, bpm: bpm,
                             currentCycleLengthInBeats: currentCycleLengthInBeats)
             completion?()

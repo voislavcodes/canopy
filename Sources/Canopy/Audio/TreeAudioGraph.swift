@@ -107,8 +107,8 @@ final class TreeAudioGraph {
         for (_, unit) in units {
             unit.requestFadeOut()
         }
-        // Multi-buffer fade takes ~185ms. Poll with generous timeout.
-        for _ in 0..<60 {
+        // Multi-buffer fade takes ~370ms. Poll with generous timeout.
+        for _ in 0..<100 {
             if units.values.allSatisfy({ $0.isFadedOut }) { break }
             Thread.sleep(forTimeInterval: 0.005)
         }
@@ -229,9 +229,9 @@ final class TreeAudioGraph {
     private func scheduleDrainingCleanup(_ drainingUnits: [NodeAudioUnit], engine: AVAudioEngine) {
         guard !drainingUnits.isEmpty else { return }
         // Fade was requested either by the audio thread (deactivation timestamp)
-        // or by the safety net in activateStagedTree(). Multi-buffer fade takes ~185ms.
-        // Wait 300ms then poll for completion before detaching.
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.3) {
+        // or by the safety net in activateStagedTree(). Multi-buffer fade takes ~370ms.
+        // Wait 500ms then poll for completion before detaching.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
             // Wait for multi-buffer fade to complete
             for _ in 0..<50 {
                 if drainingUnits.allSatisfy({ $0.isFadedOut }) { break }

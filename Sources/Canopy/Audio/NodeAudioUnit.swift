@@ -2694,14 +2694,14 @@ final class NodeAudioUnit {
         _activateBPM.deallocate()
     }
 
-    /// Number of buffers over which to fade out (~185ms at 512/44100).
-    /// Long enough to avoid clicks, short enough to prevent audible chord overlap.
-    static let fadeOutBuffers: Int32 = 16
+    /// Number of buffers over which to fade out (~370ms at 512/44100).
+    /// Long enough for voice release tails to ring out naturally during
+    /// region transitions, short enough for responsive manual stops.
+    static let fadeOutBuffers: Int32 = 32
 
-    /// Number of buffers over which to fade in (~46ms at 512/44100).
-    /// Multi-buffer ramp creates a gradual crossfade with the old tree's fade-out,
-    /// reducing energy spikes and masking any real-time timing jitter.
-    static let fadeInBuffers: Int32 = 4
+    /// Number of buffers over which to fade in (~12ms at 512/44100).
+    /// Just long enough to avoid a click; short enough for a natural attack.
+    static let fadeInBuffers: Int32 = 1
 
     // MARK: - Sample-Precise Activation/Deactivation
 
