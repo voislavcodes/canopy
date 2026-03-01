@@ -11,6 +11,7 @@ struct ForestCanvasView: View {
 
     @State private var scrollMonitor: Any?
     @State private var keyMonitor: Any?
+    @State private var rightClickMonitor: Any?
     @State private var editingTreeID: UUID?
     @State private var editingName: String = ""
     @State private var showNewTreePopover = false
@@ -143,8 +144,8 @@ struct ForestCanvasView: View {
             .onTapGesture { location in
                 handleTap(at: location, viewSize: viewSize, treeOffsets: treeOffsets)
             }
-            .onAppear { installScrollMonitor(); installKeyMonitor() }
-            .onDisappear { removeScrollMonitor(); removeKeyMonitor() }
+            .onAppear { installScrollMonitor(); installKeyMonitor(); installRightClickMonitor(viewSize: viewSize) }
+            .onDisappear { removeScrollMonitor(); removeKeyMonitor(); removeRightClickMonitor() }
             .onChange(of: projectState.selectedNodeID) { _ in
                 editingNodeID = nil
             }
@@ -404,8 +405,6 @@ struct ForestCanvasView: View {
         let trees = projectState.project.trees
 
         // Hit test all nodes across all trees (in forest coordinates)
-        // Label zone: tap below the circle (dy > 20) → rename
-        // Circle zone: tap on/above → select
         for (treeIdx, tree) in trees.enumerated() {
             guard treeIdx < treeOffsets.count else { continue }
             let offset = treeOffsets[treeIdx]
@@ -416,12 +415,7 @@ struct ForestCanvasView: View {
                 let dx = canvas.x - fx
                 let dy = canvas.y - fy
                 if dx * dx + dy * dy <= hitRadius * hitRadius {
-                    if dy > 20 && abs(dx) < 35 {
-                        // Tap is on the label text below the circle
-                        handleNameTap(node.id)
-                    } else {
-                        handleNodeTap(node.id)
-                    }
+                    handleNodeTap(node.id)
                     return
                 }
             }
@@ -593,6 +587,67 @@ struct ForestCanvasView: View {
         if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
             keyMonitor = nil
+        }
+    }
+
+    // MARK: - Right-Click Rename
+
+    private func installRightClickMonitor(viewSize: CGSize) {
+        rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { event in
+            guard let window = event.window,
+                  let contentView = window.contentView else { return event }
+
+            // Convert window location to view coordinates
+            let windowPt = event.locationInWindow
+            let viewPt = contentView.convert(windowPt, from: nil)
+            // Flip Y (AppKit is bottom-up, our canvas is top-down)
+            let flipped = CGPoint(x: viewPt.x, y: contentView.bounds.height - viewPt.y)
+
+            // Convert to canvas coordinates using captured state
+            let currentViewSize = contentView.bounds.size
+            let centerX = currentViewSize.width / 2
+            let centerY = currentViewSize.height / 2
+            let scaleAnchor = CGPoint(x: currentViewSize.width / 2, y: currentViewSize.height / 2)
+            let scale = self.canvasState.scale
+            let offset = self.canvasState.offset
+            let canvasPt = CGPoint(
+                x: (flipped.x - scaleAnchor.x) / scale - offset.width - (centerX - scaleAnchor.x),
+                y: (flipped.y - scaleAnchor.y) / scale - offset.height - (centerY - scaleAnchor.y)
+            )
+
+            // Hit test nodes
+            let hitRadius: CGFloat = 40
+            let trees = self.projectState.project.trees
+            let treeOffsets = self.computeTreeOffsets(trees: trees)
+
+            for (treeIdx, tree) in trees.enumerated() {
+                guard treeIdx < treeOffsets.count else { continue }
+                let treeOffset = treeOffsets[treeIdx]
+                let nodes = self.projectState.nodesForTree(tree.id)
+                for node in nodes {
+                    let fx = treeOffset.x + node.position.x
+                    let fy = treeOffset.y + node.position.y
+                    let dx = canvasPt.x - fx
+                    let dy = canvasPt.y - fy
+                    if dx * dx + dy * dy <= hitRadius * hitRadius {
+                        DispatchQueue.main.async {
+                            self.editingNodeID = node.id
+                            self.editingNodeName = node.name
+                            self.projectState.selectNodeInTree(node.id)
+                        }
+                        return nil
+                    }
+                }
+            }
+
+            return event
+        }
+    }
+
+    private func removeRightClickMonitor() {
+        if let monitor = rightClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            rightClickMonitor = nil
         }
     }
 
