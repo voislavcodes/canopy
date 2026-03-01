@@ -225,6 +225,22 @@ class ProjectState: ObservableObject {
         return result
     }
 
+    /// Flattened list of all nodes in a specific tree.
+    func nodesForTree(_ treeID: UUID) -> [Node] {
+        guard let tree = project.trees.first(where: { $0.id == treeID }) else { return [] }
+        var result: [Node] = []
+        collectNodes(from: tree.rootNode, into: &result)
+        return result
+    }
+
+    /// Select a node and also select the tree containing it.
+    func selectNodeInTree(_ nodeID: UUID) {
+        if let (_, tree) = treeContainingNode(nodeID) {
+            selectedTreeID = tree.id
+        }
+        selectedNodeID = nodeID
+    }
+
     /// Cycle length for the selected tree (falls back to first tree).
     /// Uses 96 PPQN ticks to handle mixed step rates correctly.
     func cycleLengthForSelectedTree() -> Double {

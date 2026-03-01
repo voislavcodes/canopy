@@ -77,10 +77,8 @@ struct ChannelStripView: View {
                     .lineLimit(1)
             }
             .onTapGesture {
-                projectState.selectedNodeID = node.id
-                if let treeID = projectState.selectedTreeID {
-                    viewModeManager.enterTreeDetail(treeID: treeID)
-                }
+                projectState.selectNodeInTree(node.id)
+                viewModeManager.exitMeadow()
             }
 
             // Engine badge

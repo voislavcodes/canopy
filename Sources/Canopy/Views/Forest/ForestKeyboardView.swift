@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Dispatches to the correct input panel based on the node's effective `InputMode`.
-/// Extracted from `CanopyCanvasView` to eliminate duplicate dispatch logic.
+/// Keyboard bloom panel for forest/canvas mode.
 struct ForestKeyboardView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState

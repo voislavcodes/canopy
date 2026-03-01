@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Dispatches to the correct sequencer panel based on the node's effective `SequencerType`.
-/// Extracted from `CanopyCanvasView` to eliminate duplicate dispatch logic.
+/// Sequencer bloom panel for forest/canvas mode.
 struct ForestSequencerView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState

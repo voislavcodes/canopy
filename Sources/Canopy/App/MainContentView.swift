@@ -31,14 +31,6 @@ struct MainContentView: View {
                     transportState: transportState,
                     forestPlayback: forestPlayback
                 )
-            case .treeDetail:
-                CanopyCanvasView(
-                    projectState: projectState,
-                    canvasState: canvasState,
-                    bloomState: bloomState,
-                    viewModeManager: viewModeManager,
-                    transportState: transportState
-                )
             case .focus:
                 FocusView(projectState: projectState, transportState: transportState)
             case .meadow:
@@ -64,11 +56,9 @@ struct MainContentView: View {
         }
         .onAppear {
             syncTreeToEngine()
-            syncViewModeToTreeCount()
         }
         .onChange(of: projectState.project.trees.count) { _ in
             DispatchQueue.main.async {
-                syncViewModeToTreeCount()
                 syncForestAdvanceToState()
             }
         }
@@ -93,31 +83,6 @@ struct MainContentView: View {
         .onChange(of: forestPlayback.isLockedToTree) { _ in
             DispatchQueue.main.async { syncForestAdvanceToState() }
         }
-    }
-
-    // MARK: - View Mode Sync
-
-    /// With 1 empty tree: auto-enter treeDetail (so user can start creating).
-    /// With 1 tree that has content: stay in current mode (forest shows "new" node).
-    /// With 2+ trees: forest mode is natural. Don't force-switch if already in focus/treeDetail.
-    private func syncViewModeToTreeCount() {
-        let count = projectState.project.trees.count
-        if count <= 1 {
-            // Single tree — only auto-enter treeDetail if tree is empty
-            if case .focus = viewModeManager.mode { return }
-            if case .forest = viewModeManager.mode, singleTreeHasContent() { return }
-            if let treeID = projectState.selectedTreeID ?? projectState.project.trees.first?.id {
-                viewModeManager.enterTreeDetail(treeID: treeID)
-            }
-        } else if viewModeManager.isTreeDetail {
-            // Grew from 1→2 trees while in treeDetail — stay there (don't yank the user away)
-        }
-    }
-
-    /// Check if the first (only) tree has any musical content.
-    private func singleTreeHasContent() -> Bool {
-        guard let tree = projectState.project.trees.first else { return false }
-        return !tree.rootNode.sequence.notes.isEmpty || !tree.rootNode.children.isEmpty
     }
 
     // MARK: - Audio Graph Sync
@@ -230,13 +195,8 @@ struct MainContentView: View {
         AudioEngine.shared.clearStagedTree()
     }
 
-    /// Called when view mode changes (forest ↔ treeDetail ↔ focus).
+    /// Called when view mode changes (forest ↔ focus ↔ meadow).
     private func handleViewModeChange() {
-        // Entering tree detail during playback → lock to that tree (it loops until user exits)
-        if viewModeManager.isTreeDetail && transportState.isPlaying
-            && projectState.project.trees.count >= 2 {
-            forestPlayback.isLockedToTree = true
-        }
         if viewModeManager.isForest, projectState.project.trees.count >= 2 {
             // Entering forest with 2+ trees → start playback if not already playing
             if !transportState.isPlaying {
@@ -324,22 +284,6 @@ struct MainContentView: View {
             // Node deselected → unlock so forest advance resumes
             if forestPlayback.isLockedToTree {
                 forestPlayback.isLockedToTree = false
-            }
-
-            // Node deselected in tree detail → return to forest
-            if viewModeManager.isTreeDetail {
-                let treeCount = projectState.project.trees.count
-                if treeCount >= 2 {
-                    // Multi-tree → return to forest, advance resumes (lock already cleared above)
-                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                        viewModeManager.exitTreeDetail()
-                    }
-                } else if treeCount == 1, singleTreeHasContent() {
-                    // Single tree with content → forest so "new" node appears
-                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                        viewModeManager.exitTreeDetail()
-                    }
-                }
             }
         }
 
@@ -438,17 +382,21 @@ struct MainContentView: View {
 
         let timeline = ForestTimeline()
 
+        // Use current clock position as base — timeline may be (re)started
+        // mid-playback after an unlock or view mode change.
+        let baseSample = AudioEngine.shared.graph.clockSamplePosition.pointee
+
         // Region 1: current tree
         let cycle1 = forestPlayback.computeCycleLength(tree: activeTree)
         let len1 = Int64(cycle1 * 60.0 * sampleRate / bpm)
         timeline.appendRegion(TimelineRegion(
             treeID: activeTree.id,
-            startSample: 0, endSample: len1,
+            startSample: baseSample, endSample: baseSample + len1,
             lengthInBeats: cycle1
         ))
 
         // Set region bounds on active tree's units (already started by TransportState)
-        AudioEngine.shared.setActiveRegionBounds(start: 0, end: len1)
+        AudioEngine.shared.setActiveRegionBounds(start: baseSample, end: baseSample + len1)
 
         // Region 2: next tree (pre-stage + arm)
         forestPlayback.computeNextTree(trees: trees)
@@ -458,11 +406,11 @@ struct MainContentView: View {
             let len2 = Int64(cycle2 * 60.0 * sampleRate / bpm)
             timeline.appendRegion(TimelineRegion(
                 treeID: nextTree.id,
-                startSample: len1, endSample: len1 + len2,
+                startSample: baseSample + len1, endSample: baseSample + len1 + len2,
                 lengthInBeats: cycle2
             ))
             AudioEngine.shared.stageNextTree(nextTree, bpm: bpm) {
-                AudioEngine.shared.armStagedUnits(regionStart: len1, regionEnd: len1 + len2, bpm: bpm)
+                AudioEngine.shared.armStagedUnits(regionStart: baseSample + len1, regionEnd: baseSample + len1 + len2, bpm: bpm)
             }
         }
 

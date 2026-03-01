@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Dispatches to the correct engine panel based on the node's `SoundType`.
-/// Extracted from `CanopyCanvasView` to eliminate duplicate dispatch logic
+/// Engine bloom panel for forest/canvas mode.
 /// between Forest (bloom) and Focus modes.
 struct ForestEngineView: View {
     @ObservedObject var projectState: ProjectState

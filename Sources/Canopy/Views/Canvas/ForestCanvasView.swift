@@ -13,20 +13,27 @@ struct ForestCanvasView: View {
     @State private var keyMonitor: Any?
     @State private var editingTreeID: UUID?
     @State private var editingName: String = ""
-    @State private var lastTreeTapID: UUID?
-    @State private var lastTreeTapTime: Date?
     @State private var showNewTreePopover = false
+    @State private var presetPickerNodeID: UUID?
+    @State private var hoveredNodeID: UUID?
+    @State private var hoverDismissWork: DispatchWorkItem?
+    @State private var editingNodeID: UUID?
+    @State private var editingNodeName: String = ""
+    @State private var lastNodeTapID: UUID?
+    @State private var lastNodeTapTime: Date?
 
-    private let treeSpacing: CGFloat = 160
     private let dotSpacing: CGFloat = 40
     private let dotSize: CGFloat = 2
     private let canvasCornerRadius: CGFloat = 16
+    /// Minimum horizontal gap between tree origins.
+    private let minTreeSpacing: CGFloat = 160
 
     var body: some View {
         GeometryReader { geometry in
             let viewSize = geometry.size
             let trees = projectState.project.trees
-            let selectedTreeID = projectState.selectedTreeID
+            let selectedNodeID = projectState.selectedNodeID
+            let treeOffsets = computeTreeOffsets(trees: trees)
 
             ZStack {
                 // Layer 0: background
@@ -36,36 +43,55 @@ struct ForestCanvasView: View {
                 // Layer 1: canvas area with dot grid + border
                 canvasArea(viewSize: viewSize)
 
-                // Layer 2: scaled content — trees, lines, new node
+                // Layer 2: scaled content — node hierarchies per tree
                 ForestContentView(
                     trees: trees,
-                    selectedTreeID: selectedTreeID,
+                    treeOffsets: treeOffsets,
+                    selectedNodeID: selectedNodeID,
+                    selectedTreeID: projectState.selectedTreeID,
                     activeTreeID: forestPlayback.activeTreeID,
                     nextTreeID: forestPlayback.nextTreeID,
                     isPlaying: transportState.isPlaying,
-                    treeSpacing: treeSpacing,
-                    editingTreeID: editingTreeID,
-                    showNewTreePopover: $showNewTreePopover,
+                    presetPickerNodeID: presetPickerNodeID,
+                    hoveredNodeID: hoveredNodeID,
                     projectState: projectState,
-                    onTreeTap: { treeID in handleTreeTap(treeID) },
-                    onNewTreeTap: { handleNewTreeTap() }
+                    onNodeTap: { nodeID in handleNodeTap(nodeID) },
+                    onNameTap: { nodeID in handleNameTap(nodeID) },
+                    onAddBranch: { nodeID in
+                        if let node = projectState.findNode(id: nodeID) {
+                            ensureInitialOffsets(for: node)
+                        }
+                        presetPickerNodeID = nodeID
+                    },
+                    onPresetSelected: { preset in
+                        if let targetID = presetPickerNodeID {
+                            presetPickerNodeID = nil
+                            projectState.selectNodeInTree(targetID)
+                            handleAddBranch(to: targetID, preset: preset)
+                        }
+                    },
+                    onPickerDismiss: { presetPickerNodeID = nil },
+                    onHover: { nodeID, isHovered in
+                        handleNodeHover(nodeID: nodeID, isHovered: isHovered)
+                    },
+                    onNewTreeTap: { handleNewTreeTap() },
+                    showNewTreePopover: $showNewTreePopover
                 )
                 .offset(CGSize(width: viewSize.width / 2, height: viewSize.height / 2))
                 .offset(canvasState.offset)
                 .scaleEffect(canvasState.scale)
 
-                // Layer 3: Bloom panels for selected tree's root node
-                if let tree = projectState.selectedTree,
-                   projectState.selectedNodeID != nil {
-                    forestBloomContent(node: tree.rootNode, viewSize: viewSize)
+                // Layer 3: Bloom panels for selected node
+                if let selectedNode = projectState.selectedNode {
+                    forestBloomContent(node: selectedNode, viewSize: viewSize, treeOffsets: treeOffsets)
                 }
 
-                // Layer 3.5: Inline rename overlay
+                // Layer 3.5: Inline rename overlay (tree name)
                 if let editID = editingTreeID,
-                   let treeIdx = projectState.project.trees.firstIndex(where: { $0.id == editID }) {
-                    let pos = treePosition(index: treeIdx, total: trees.count)
+                   let treeIdx = trees.firstIndex(where: { $0.id == editID }) {
+                    let offset = treeOffsets[treeIdx]
                     let screenPos = canvasToScreen(
-                        CGPoint(x: pos.x, y: pos.y + 46),
+                        CGPoint(x: offset.x, y: offset.y + 46),
                         viewSize: viewSize
                     )
                     InlineTreeRenameField(
@@ -77,6 +103,28 @@ struct ForestCanvasView: View {
                             projectState.renameTree(id: id, name: name)
                         },
                         onCancel: { editingTreeID = nil }
+                    )
+                    .scaleEffect(canvasState.scale)
+                    .position(x: screenPos.x, y: screenPos.y)
+                }
+
+                // Layer 3.6: Inline rename overlay (node name)
+                if let editNodeID = editingNodeID,
+                   let editNode = projectState.findNode(id: editNodeID) {
+                    let nodeForest = forestPositionForNode(editNode, treeOffsets: treeOffsets)
+                    let screenPos = canvasToScreen(
+                        CGPoint(x: nodeForest.x, y: nodeForest.y + 36),
+                        viewSize: viewSize
+                    )
+                    InlineNodeRenameField(
+                        name: $editingNodeName,
+                        onCommit: {
+                            let finalName = editingNodeName
+                            let nid = editNodeID
+                            editingNodeID = nil
+                            projectState.updateNode(id: nid) { $0.name = finalName }
+                        },
+                        onCancel: { editingNodeID = nil }
                     )
                     .scaleEffect(canvasState.scale)
                     .position(x: screenPos.x, y: screenPos.y)
@@ -94,23 +142,69 @@ struct ForestCanvasView: View {
                     }
             )
             .onTapGesture { location in
-                handleTap(at: location, viewSize: viewSize)
+                handleTap(at: location, viewSize: viewSize, treeOffsets: treeOffsets)
             }
             .onAppear { installScrollMonitor(); installKeyMonitor() }
             .onDisappear { removeScrollMonitor(); removeKeyMonitor() }
+            .onChange(of: projectState.selectedNodeID) { _ in
+                editingNodeID = nil
+            }
         }
     }
 
-    // MARK: - Layout Math
+    // MARK: - Tree Layout
 
-    private func treePosition(index: Int, total: Int) -> CGPoint {
-        let startX = -CGFloat(total - 1) * treeSpacing / 2
-        return CGPoint(x: startX + CGFloat(index) * treeSpacing, y: 0)
+    /// Compute horizontal offsets for each tree so they don't overlap.
+    /// Each tree's nodes use local coordinates (root at 0,0). The offset positions
+    /// trees left-to-right with enough spacing for their node extents.
+    private func computeTreeOffsets(trees: [NodeTree]) -> [CGPoint] {
+        guard !trees.isEmpty else { return [] }
+
+        // Compute horizontal extent of each tree
+        var extents: [(minX: CGFloat, maxX: CGFloat)] = []
+        for tree in trees {
+            var nodes: [Node] = []
+            collectNodes(from: tree.rootNode, into: &nodes)
+            let xs = nodes.map { CGFloat($0.position.x) }
+            let minX = (xs.min() ?? 0) - 40  // pad for node radius + label
+            let maxX = (xs.max() ?? 0) + 40
+            extents.append((minX, maxX))
+        }
+
+        // Place trees sequentially with gaps
+        let gap: CGFloat = 80
+        var offsets: [CGPoint] = []
+        var cursor: CGFloat = 0
+
+        for (i, ext) in extents.enumerated() {
+            if i == 0 {
+                // First tree: center its local coordinates at cursor
+                let centerX = -ext.minX  // shifts so minX lands at 0
+                cursor = centerX + ext.maxX + gap
+                offsets.append(CGPoint(x: centerX, y: 0))
+            } else {
+                // Next tree starts after cursor, shifted so its minX aligns at cursor
+                let x = cursor - ext.minX
+                cursor = x + ext.maxX + gap
+                offsets.append(CGPoint(x: x, y: 0))
+            }
+        }
+
+        // Center the whole set
+        let totalMin = offsets.enumerated().map { (i, o) in o.x + extents[i].minX }.min() ?? 0
+        let totalMax = offsets.enumerated().map { (i, o) in o.x + extents[i].maxX }.max() ?? 0
+        let totalCenter = (totalMin + totalMax) / 2
+        return offsets.map { CGPoint(x: $0.x - totalCenter, y: $0.y) }
     }
 
-    private func newTreePosition(treeCount: Int) -> CGPoint {
-        let startX = -CGFloat(treeCount - 1) * treeSpacing / 2
-        return CGPoint(x: startX + CGFloat(treeCount) * treeSpacing, y: 0)
+    /// Convert a node's local position to forest coordinates using tree offsets.
+    private func forestPositionForNode(_ node: Node, treeOffsets: [CGPoint]) -> CGPoint {
+        if let (index, _) = projectState.treeContainingNode(node.id),
+           index < treeOffsets.count {
+            let offset = treeOffsets[index]
+            return CGPoint(x: offset.x + node.position.x, y: offset.y + node.position.y)
+        }
+        return CGPoint(x: node.position.x, y: node.position.y)
     }
 
     // MARK: - Canvas Background
@@ -163,99 +257,141 @@ struct ForestCanvasView: View {
         )
     }
 
-    // MARK: - Bloom Content for Forest (screen space)
+    // MARK: - Bloom Content (screen space)
+
+    private enum BloomLayout {
+        static let synthOffset = CGPoint(x: -330, y: -100)
+        static let seqOffset = CGPoint(x: 260, y: -100)
+        static let keyboardOffset = CGPoint(x: 0, y: 205)
+
+        static let synthSize = CGSize(width: 220, height: 260)
+        static let seqSize = CGSize(width: 440, height: 340)
+        static let keyboardSize = CGSize(width: 420, height: 250)
+
+        static let defaultOffsets: [BloomPanel: CGPoint] = [
+            .synth: synthOffset, .sequencer: seqOffset,
+            .input: keyboardOffset
+        ]
+        static let panelSizes: [BloomPanel: CGSize] = [
+            .synth: synthSize, .sequencer: seqSize,
+            .input: keyboardSize
+        ]
+    }
 
     @ViewBuilder
-    private func forestBloomContent(node: Node, viewSize: CGSize) -> some View {
-        if let treeIdx = projectState.project.trees.firstIndex(where: { $0.id == projectState.selectedTreeID }) {
-            let treePt = treePosition(index: treeIdx, total: projectState.project.trees.count)
-            let nodeScreen = canvasToScreen(treePt, viewSize: viewSize)
+    private func forestBloomContent(node: Node, viewSize: CGSize, treeOffsets: [CGPoint]) -> some View {
+        let _ = ensureInitialOffsets(for: node)
+        let nodeForest = forestPositionForNode(node, treeOffsets: treeOffsets)
 
-            let synthOffset = CGPoint(x: -330, y: -100)
-            let seqOffset = CGPoint(x: 260, y: -100)
-            let keyboardOffset = CGPoint(x: 0, y: 205)
+        let synthUserOffset = bloomState.storedOffset(panel: .synth, nodeID: node.id)
+        let seqUserOffset = bloomState.storedOffset(panel: .sequencer, nodeID: node.id)
+        let keyboardUserOffset = bloomState.storedOffset(panel: .input, nodeID: node.id)
 
-            let synthUserOffset = bloomState.storedOffset(panel: .synth, nodeID: node.id)
-            let seqUserOffset = bloomState.storedOffset(panel: .sequencer, nodeID: node.id)
-            let keyboardUserOffset = bloomState.storedOffset(panel: .input, nodeID: node.id)
+        let synthCanvas = CGPoint(
+            x: nodeForest.x + BloomLayout.synthOffset.x + synthUserOffset.width,
+            y: nodeForest.y + BloomLayout.synthOffset.y + synthUserOffset.height
+        )
+        let seqCanvas = CGPoint(
+            x: nodeForest.x + BloomLayout.seqOffset.x + seqUserOffset.width,
+            y: nodeForest.y + BloomLayout.seqOffset.y + seqUserOffset.height
+        )
+        let keyboardCanvas = CGPoint(
+            x: nodeForest.x + BloomLayout.keyboardOffset.x + keyboardUserOffset.width,
+            y: nodeForest.y + BloomLayout.keyboardOffset.y + keyboardUserOffset.height
+        )
 
-            let synthCanvas = CGPoint(
-                x: treePt.x + synthOffset.x + synthUserOffset.width,
-                y: treePt.y + synthOffset.y + synthUserOffset.height
+        let nodeScreen = canvasToScreen(nodeForest, viewSize: viewSize)
+        let synthScreen = canvasToScreen(synthCanvas, viewSize: viewSize)
+        let seqScreen = canvasToScreen(seqCanvas, viewSize: viewSize)
+        let keyboardScreen = canvasToScreen(keyboardCanvas, viewSize: viewSize)
+
+        let scale = canvasState.scale
+
+        ZStack {
+            BloomConnectors(
+                nodeCenter: nodeScreen,
+                synthCenter: canvasToScreen(CGPoint(x: synthCanvas.x + 180, y: synthCanvas.y - 50), viewSize: viewSize),
+                seqCenter: canvasToScreen(CGPoint(x: seqCanvas.x - 120, y: seqCanvas.y - 50), viewSize: viewSize),
+                inputCenter: canvasToScreen(CGPoint(x: keyboardCanvas.x, y: keyboardCanvas.y - 20), viewSize: viewSize)
             )
-            let seqCanvas = CGPoint(
-                x: treePt.x + seqOffset.x + seqUserOffset.width,
-                y: treePt.y + seqOffset.y + seqUserOffset.height
-            )
-            let keyboardCanvas = CGPoint(
-                x: treePt.x + keyboardOffset.x + keyboardUserOffset.width,
-                y: treePt.y + keyboardOffset.y + keyboardUserOffset.height
-            )
 
-            let synthScreen = canvasToScreen(synthCanvas, viewSize: viewSize)
-            let seqScreen = canvasToScreen(seqCanvas, viewSize: viewSize)
-            let keyboardScreen = canvasToScreen(keyboardCanvas, viewSize: viewSize)
-
-            let scale = canvasState.scale
-
-            ZStack {
-                BloomConnectors(
-                    nodeCenter: nodeScreen,
-                    synthCenter: canvasToScreen(CGPoint(x: synthCanvas.x + 180, y: synthCanvas.y - 50), viewSize: viewSize),
-                    seqCenter: canvasToScreen(CGPoint(x: seqCanvas.x - 120, y: seqCanvas.y - 50), viewSize: viewSize),
-                    inputCenter: canvasToScreen(CGPoint(x: keyboardCanvas.x, y: keyboardCanvas.y - 20), viewSize: viewSize)
-                )
-
-                DraggableBloomPanel(panel: .synth, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: synthScreen) {
-                    ForestEngineView(projectState: projectState)
-                }
-
-                DraggableBloomPanel(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: seqScreen) {
-                    ForestSequencerView(projectState: projectState, transportState: transportState)
-                }
-
-                DraggableBloomPanel(panel: .input, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: keyboardScreen) {
-                    ForestKeyboardView(projectState: projectState, transportState: transportState)
-                }
+            DraggableBloomPanel(panel: .synth, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: synthScreen) {
+                ForestEngineView(projectState: projectState)
             }
+
+            DraggableBloomPanel(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: seqScreen) {
+                ForestSequencerView(projectState: projectState, transportState: transportState)
+            }
+
+            DraggableBloomPanel(panel: .input, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: keyboardScreen) {
+                ForestKeyboardView(projectState: projectState, transportState: transportState)
+            }
+        }
+    }
+
+    /// Lazily compute push-apart offsets on first selection of a node.
+    private func ensureInitialOffsets(for node: Node) {
+        guard bloomState.panelOffsets[node.id] == nil else { return }
+        let allNodes = projectState.allNodes()
+        let computed = BloomState.computeInitialOffsets(
+            nodePosition: CGPoint(x: node.position.x, y: node.position.y),
+            allNodes: allNodes,
+            selectedNodeID: node.id,
+            defaultOffsets: BloomLayout.defaultOffsets,
+            panelSizes: BloomLayout.panelSizes
+        )
+        let hasNonZero = computed.offsets.values.contains { $0 != .zero }
+        if hasNonZero {
+            bloomState.panelOffsets[node.id] = computed
+        } else {
+            bloomState.panelOffsets[node.id] = .zero
         }
     }
 
     // MARK: - Interactions
 
-    private func handleTreeTap(_ treeID: UUID) {
+    private func handleNodeTap(_ nodeID: UUID) {
         let now = Date()
         // Double-tap detection
-        if let lastID = lastTreeTapID, lastID == treeID,
-           let lastTime = lastTreeTapTime, now.timeIntervalSince(lastTime) < 0.35 {
-            // Double-tap → enter tree detail
-            lastTreeTapTime = nil
-            lastTreeTapID = nil
-            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                viewModeManager.enterTreeDetail(treeID: treeID)
+        if let lastID = lastNodeTapID, lastID == nodeID,
+           let lastTime = lastNodeTapTime, now.timeIntervalSince(lastTime) < 0.35 {
+            // Double-tap → rename
+            if let node = projectState.findNode(id: nodeID) {
+                editingNodeID = nodeID
+                editingNodeName = node.name
             }
+            lastNodeTapTime = nil
+            lastNodeTapID = nil
             return
         }
-        lastTreeTapTime = now
-        lastTreeTapID = treeID
+        lastNodeTapTime = now
+        lastNodeTapID = nodeID
 
-        // During forest advance: lock/unlock
-        if transportState.isPlaying && forestPlayback.activeTreeID != nil
-            && projectState.project.trees.count >= 2 {
-            if forestPlayback.isLockedToTree && forestPlayback.activeTreeID == treeID {
-                // Tap locked tree → unlock, resume advance
-                forestPlayback.isLockedToTree = false
-                // syncForestAdvanceToState() fires via onChange(of: isLockedToTree)
-            } else {
-                // Tap any tree → jump and lock
-                forestPlayback.isLockedToTree = true
-                forestPlayback.nextTreeID = nil
-                AudioEngine.shared.clearStagedTree()
-                projectState.selectTree(treeID)
-                // selectTree triggers handleTreeSelectionChange which swaps audio
-            }
-        } else {
-            projectState.selectTree(treeID)
+        // Single tap — select node and its tree
+        presetPickerNodeID = nil
+        if let node = projectState.findNode(id: nodeID) {
+            ensureInitialOffsets(for: node)
+        }
+        projectState.selectNodeInTree(nodeID)
+    }
+
+    private func handleNameTap(_ nodeID: UUID) {
+        if let node = projectState.findNode(id: nodeID) {
+            editingNodeID = nodeID
+            editingNodeName = node.name
+            // Also select the node so bloom appears
+            projectState.selectNodeInTree(nodeID)
+        }
+    }
+
+    private func handleNodeHover(nodeID: UUID, isHovered: Bool) {
+        if isHovered {
+            hoverDismissWork?.cancel()
+            hoveredNodeID = nodeID
+        } else if hoveredNodeID == nodeID {
+            let work = DispatchWorkItem { hoveredNodeID = nil }
+            hoverDismissWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
         }
     }
 
@@ -263,39 +399,79 @@ struct ForestCanvasView: View {
         showNewTreePopover = true
     }
 
-    private func handleTap(at location: CGPoint, viewSize: CGSize) {
+    private func handleTap(at location: CGPoint, viewSize: CGSize, treeOffsets: [CGPoint]) {
         let canvas = screenToCanvas(location, viewSize: viewSize)
-        let hitRadius: CGFloat = 30
+        let hitRadius: CGFloat = 40
         let trees = projectState.project.trees
 
-        // Hit test tree circles
-        for (i, tree) in trees.enumerated() {
-            let pos = treePosition(index: i, total: trees.count)
-            let dx = canvas.x - pos.x
-            let dy = canvas.y - pos.y
-            if dx * dx + dy * dy <= hitRadius * hitRadius {
-                handleTreeTap(tree.id)
-                return
+        // Hit test all nodes across all trees (in forest coordinates)
+        for (treeIdx, tree) in trees.enumerated() {
+            guard treeIdx < treeOffsets.count else { continue }
+            let offset = treeOffsets[treeIdx]
+            let nodes = projectState.nodesForTree(tree.id)
+            for node in nodes {
+                let fx = offset.x + node.position.x
+                let fy = offset.y + node.position.y
+                let dx = canvas.x - fx
+                let dy = canvas.y - fy
+                if dx * dx + dy * dy <= hitRadius * hitRadius {
+                    handleNodeTap(node.id)
+                    return
+                }
             }
         }
 
-        // Hit test new tree node (only visible when first tree has content)
+        // Hit test new tree node
         let hasContent = trees.first.map { !$0.rootNode.sequence.notes.isEmpty || !$0.rootNode.children.isEmpty } ?? false
         if trees.count < 8, hasContent {
-            let newPos = newTreePosition(treeCount: trees.count)
+            let newPos = newTreePosition(treeOffsets: treeOffsets, trees: trees)
             let dx = canvas.x - newPos.x
             let dy = canvas.y - newPos.y
-            if dx * dx + dy * dy <= hitRadius * hitRadius {
+            if dx * dx + dy * dy <= 30 * 30 {
                 handleNewTreeTap()
                 return
             }
         }
 
         // Background tap — deselect node/bloom but keep tree selected
-        // (tree stays selected so audio graph remains valid during forest playback)
         projectState.selectNode(nil)
+        presetPickerNodeID = nil
+        editingNodeID = nil
         editingTreeID = nil
         projectState.selectedLFOID = nil
+    }
+
+    private func newTreePosition(treeOffsets: [CGPoint], trees: [NodeTree]) -> CGPoint {
+        guard let lastOffset = treeOffsets.last, let lastTree = trees.last else {
+            return CGPoint(x: minTreeSpacing, y: 0)
+        }
+        let lastNodes = projectState.nodesForTree(lastTree.id)
+        let maxX = lastNodes.map { CGFloat($0.position.x) }.max() ?? 0
+        return CGPoint(x: lastOffset.x + maxX + 120, y: 0)
+    }
+
+    // MARK: - Branch Actions
+
+    private func handleAddBranch(to parentID: UUID, preset: NodePreset) {
+        var newNode: Node!
+        withAnimation(.spring(duration: 0.4, bounce: 0.15)) {
+            newNode = projectState.addChildNode(to: parentID, preset: preset)
+            projectState.selectNodeInTree(newNode.id)
+        }
+
+        AudioEngine.shared.addNode(newNode)
+        AudioEngine.shared.configureSingleNodePatch(newNode)
+        AudioEngine.shared.loadSingleNodeSequence(newNode, bpm: projectState.project.bpm)
+        AudioEngine.shared.configureFilter(
+            enabled: newNode.patch.filter.enabled,
+            cutoff: newNode.patch.filter.cutoff,
+            resonance: newNode.patch.filter.resonance,
+            nodeID: newNode.id
+        )
+
+        if AudioEngine.shared.isClockRunning {
+            AudioEngine.shared.startNodeSequencer(nodeID: newNode.id, bpm: projectState.project.bpm)
+        }
     }
 
     // MARK: - Scroll Panning
@@ -335,36 +511,72 @@ struct ForestCanvasView: View {
             guard let viewModeManager = viewModeManager,
                   let projectState = projectState else { return event }
 
-            // Enter → enter tree detail for selected tree
+            // Enter → enter focus mode for selected node
             if event.keyCode == 36, viewModeManager.isForest {
-                guard let treeID = projectState.selectedTreeID else { return event }
+                guard let nodeID = projectState.selectedNodeID else { return event }
                 DispatchQueue.main.async {
                     withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                        viewModeManager.enterTreeDetail(treeID: treeID)
+                        viewModeManager.enterFocus(nodeID: nodeID)
                     }
                 }
                 return nil
             }
 
-            // Delete/Backspace → remove selected tree
-            if event.keyCode == 51 || event.keyCode == 117 {
-                guard viewModeManager.isForest,
-                      let treeID = projectState.selectedTreeID,
-                      projectState.project.trees.count > 1 else { return event }
+            // Escape → deselect node
+            if event.keyCode == 53, viewModeManager.isForest {
+                guard projectState.selectedNodeID != nil else { return event }
                 DispatchQueue.main.async {
-                    // Fade out audio then teardown for the tree being removed
-                    AudioEngine.shared.teardownGraphWithFade()
-                    withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
-                        projectState.removeTree(id: treeID)
-                    }
-                    // Rebuild audio for newly selected tree
-                    if let newTree = projectState.selectedTree {
-                        AudioEngine.shared.buildGraph(from: newTree)
-                        AudioEngine.shared.configureAllPatches(from: newTree)
-                        AudioEngine.shared.loadAllSequences(from: newTree, bpm: projectState.project.bpm)
-                    }
+                    projectState.selectNode(nil)
                 }
                 return nil
+            }
+
+            // Delete/Backspace
+            if event.keyCode == 51 || event.keyCode == 117 {
+                guard viewModeManager.isForest else { return event }
+
+                if let nodeID = projectState.selectedNodeID {
+                    // Check if it's a root node
+                    let isRoot = projectState.project.trees.contains { $0.rootNode.id == nodeID }
+                    if isRoot {
+                        // Root node: delete the tree (if 2+ trees)
+                        guard let treeID = projectState.selectedTreeID,
+                              projectState.project.trees.count > 1 else { return event }
+                        DispatchQueue.main.async {
+                            // Collect all node IDs in the tree for audio cleanup
+                            let nodes = projectState.nodesForTree(treeID)
+                            let idsToRemove = nodes.map { $0.id }
+                            projectState.selectNode(nil)
+                            withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
+                                projectState.removeTree(id: treeID)
+                            }
+                            AudioEngine.shared.muteAndRemoveNodes(idsToRemove)
+                            // Rebuild audio for newly selected tree
+                            if let newTree = projectState.selectedTree {
+                                AudioEngine.shared.buildGraph(from: newTree)
+                                AudioEngine.shared.configureAllPatches(from: newTree)
+                                AudioEngine.shared.loadAllSequences(from: newTree, bpm: projectState.project.bpm)
+                            }
+                        }
+                    } else {
+                        // Non-root node: delete node and descendants
+                        DispatchQueue.main.async {
+                            func collectIDs(_ node: Node) -> [UUID] {
+                                [node.id] + node.children.flatMap { collectIDs($0) }
+                            }
+                            let nodeToDelete = projectState.findNode(id: nodeID)
+                            let idsToRemove = nodeToDelete.map { collectIDs($0) } ?? [nodeID]
+                            projectState.selectNode(nil)
+                            withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
+                                projectState.removeNode(id: nodeID)
+                            }
+                            AudioEngine.shared.muteAndRemoveNodes(idsToRemove)
+                        }
+                    }
+                    return nil
+                }
+
+                return event
             }
 
             return event
@@ -377,42 +589,156 @@ struct ForestCanvasView: View {
             keyMonitor = nil
         }
     }
+
+    // MARK: - Private Helpers
+
+    private func collectNodes(from node: Node, into result: inout [Node]) {
+        result.append(node)
+        for child in node.children {
+            collectNodes(from: child, into: &result)
+        }
+    }
 }
 
 // MARK: - ForestContentView (value-type inputs)
 
 private struct ForestContentView: View {
     let trees: [NodeTree]
+    let treeOffsets: [CGPoint]
+    let selectedNodeID: UUID?
     let selectedTreeID: UUID?
     let activeTreeID: UUID?
     let nextTreeID: UUID?
     let isPlaying: Bool
-    let treeSpacing: CGFloat
-    let editingTreeID: UUID?
-    @Binding var showNewTreePopover: Bool
+    let presetPickerNodeID: UUID?
+    let hoveredNodeID: UUID?
     var projectState: ProjectState
-    let onTreeTap: (UUID) -> Void
+    let onNodeTap: (UUID) -> Void
+    let onNameTap: (UUID) -> Void
+    let onAddBranch: (UUID) -> Void
+    let onPresetSelected: (NodePreset) -> Void
+    let onPickerDismiss: () -> Void
+    let onHover: (UUID, Bool) -> Void
     let onNewTreeTap: () -> Void
+    @Binding var showNewTreePopover: Bool
 
     var body: some View {
         ZStack {
-            // Tree circles
+            // Per-tree rendering
             ForEach(Array(trees.enumerated()), id: \.element.id) { index, tree in
-                let pos = treePosition(index: index, total: trees.count)
-                TreeCircleView(
-                    tree: tree,
-                    isSelected: selectedTreeID == tree.id,
-                    isActive: activeTreeID == tree.id,
-                    isNext: nextTreeID == tree.id,
-                    isPlaying: isPlaying
-                )
-                .onTapGesture { onTreeTap(tree.id) }
-                .position(x: pos.x, y: pos.y)
+                if index < treeOffsets.count {
+                    let offset = treeOffsets[index]
+                    let nodes = projectState.nodesForTree(tree.id)
+
+                    ZStack {
+                        // Branch lines
+                        BranchLineView(nodes: nodes)
+
+                        // Bloom zone behind selected node
+                        if let selID = selectedNodeID,
+                           let selNode = nodes.first(where: { $0.id == selID }) {
+                            Circle()
+                                .fill(CanopyColors.bloomZone.opacity(0.85))
+                                .frame(width: 350, height: 350)
+                                .position(x: selNode.position.x, y: selNode.position.y)
+                                .transition(.opacity.animation(.easeOut(duration: 0.15)))
+                        }
+
+                        // Active tree playing indicator (ring pulse on root)
+                        if activeTreeID == tree.id && isPlaying {
+                            Circle()
+                                .stroke(treeColor(tree).opacity(0.3), lineWidth: 2)
+                                .frame(width: 60, height: 60)
+                                .position(x: tree.rootNode.position.x, y: tree.rootNode.position.y)
+                                .allowsHitTesting(false)
+                        }
+
+                        // Next tree indicator (dim ring on root)
+                        if nextTreeID == tree.id && isPlaying {
+                            Circle()
+                                .stroke(treeColor(tree).opacity(0.12), lineWidth: 1.5)
+                                .frame(width: 60, height: 60)
+                                .position(x: tree.rootNode.position.x, y: tree.rootNode.position.y)
+                                .allowsHitTesting(false)
+                        }
+
+                        // Node circles
+                        ForEach(nodes) { node in
+                            NodeView(
+                                node: node,
+                                isSelected: selectedNodeID == node.id
+                            )
+                            .onTapGesture { onNodeTap(node.id) }
+                            .onHover { isHovered in
+                                onHover(node.id, isHovered)
+                            }
+                        }
+
+                        // Node name tap targets (click label text → rename)
+                        ForEach(nodes) { node in
+                            Text(node.name.lowercased())
+                                .font(.system(size: 13, weight: .regular, design: .monospaced))
+                                .foregroundColor(.clear)
+                                .frame(width: 60, height: 20)
+                                .contentShape(Rectangle())
+                                .position(x: node.position.x, y: node.position.y + 35)
+                                .onTapGesture { onNameTap(node.id) }
+                        }
+
+                        // Add branch button for hovered (non-selected) node
+                        if let hoverID = hoveredNodeID,
+                           hoverID != selectedNodeID,
+                           presetPickerNodeID == nil,
+                           let hoveredNode = nodes.first(where: { $0.id == hoverID }) {
+                            AddBranchButton(
+                                parentPosition: CGPoint(x: hoveredNode.position.x, y: hoveredNode.position.y),
+                                children: []
+                            ) {
+                                onAddBranch(hoveredNode.id)
+                            }
+                            .onHover { isHovered in
+                                if isHovered {
+                                    onHover(hoverID, true)
+                                } else {
+                                    onHover(hoverID, false)
+                                }
+                            }
+                            .transition(.opacity.animation(.easeOut(duration: 0.15)))
+                        }
+
+                        // Preset picker for any node
+                        if let pickerID = presetPickerNodeID,
+                           let pickerNode = nodes.first(where: { $0.id == pickerID }) {
+                            let pickerPos = AddBranchButton.buttonPosition(
+                                parentPosition: CGPoint(x: pickerNode.position.x, y: pickerNode.position.y),
+                                children: pickerNode.children
+                            )
+                            PresetPickerView(
+                                onSelect: onPresetSelected,
+                                onDismiss: onPickerDismiss
+                            )
+                            .position(pickerPos)
+                        }
+
+                        // Add branch button for selected node (when picker not open)
+                        if let selID = selectedNodeID,
+                           presetPickerNodeID == nil,
+                           let selNode = nodes.first(where: { $0.id == selID }) {
+                            AddBranchButton(
+                                parentPosition: CGPoint(x: selNode.position.x, y: selNode.position.y),
+                                children: selNode.children
+                            ) {
+                                onAddBranch(selNode.id)
+                            }
+                        }
+                    }
+                    .offset(x: offset.x, y: offset.y)
+                }
             }
 
-            // "New tree" node with variation popover
+            // "New tree" node
             if trees.count < 8, hasAnyContent() {
-                let pos = newTreePosition(treeCount: trees.count)
+                let pos = newTreePosition()
                 NewTreeNodeView()
                     .onTapGesture { onNewTreeTap() }
                     .popover(isPresented: $showNewTreePopover) {
@@ -426,76 +752,24 @@ private struct ForestContentView: View {
         }
     }
 
-    private func treePosition(index: Int, total: Int) -> CGPoint {
-        let startX = -CGFloat(total - 1) * treeSpacing / 2
-        return CGPoint(x: startX + CGFloat(index) * treeSpacing, y: 0)
-    }
-
-    private func newTreePosition(treeCount: Int) -> CGPoint {
-        let startX = -CGFloat(treeCount - 1) * treeSpacing / 2
-        return CGPoint(x: startX + CGFloat(treeCount) * treeSpacing, y: 0)
+    private func newTreePosition() -> CGPoint {
+        guard let lastOffset = treeOffsets.last, let lastTree = trees.last else {
+            return CGPoint(x: 160, y: 0)
+        }
+        let lastNodes = projectState.nodesForTree(lastTree.id)
+        let maxX = lastNodes.map { CGFloat($0.position.x) }.max() ?? 0
+        return CGPoint(x: lastOffset.x + maxX + 120, y: 0)
     }
 
     private func hasAnyContent() -> Bool {
         trees.first.map { !$0.rootNode.sequence.notes.isEmpty || !$0.rootNode.children.isEmpty } ?? false
     }
-}
 
-// MARK: - TreeCircleView
-
-private struct TreeCircleView: View {
-    let tree: NodeTree
-    let isSelected: Bool
-    let isActive: Bool
-    let isNext: Bool
-    let isPlaying: Bool
-
-    private let circleSize: CGFloat = 44
-
-    private var treeColor: Color {
+    private func treeColor(_ tree: NodeTree) -> Color {
         if let pid = tree.rootNode.presetID, let preset = NodePreset.find(pid) {
             return CanopyColors.presetColor(preset.color)
         }
         return CanopyColors.nodeSeed
-    }
-
-    var body: some View {
-        VStack(spacing: 8) {
-            ZStack {
-                // Selection glow
-                if isSelected {
-                    NodeGlowEffect(radius: circleSize / 2, color: treeColor)
-                }
-
-                // Next-tree soft glow during playback
-                if isNext && isPlaying {
-                    Circle()
-                        .fill(treeColor.opacity(0.08))
-                        .frame(width: circleSize * 2.5, height: circleSize * 2.5)
-                        .blur(radius: 10)
-                }
-
-                // Main circle
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [treeColor, treeColor.opacity(0.8)],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: circleSize / 2
-                        )
-                    )
-                    .frame(width: circleSize, height: circleSize)
-            }
-
-            // Name label
-            Text(tree.name.lowercased())
-                .font(.system(size: 12, weight: .regular, design: .monospaced))
-                .foregroundColor(CanopyColors.nodeLabel)
-                .lineLimit(1)
-        }
-        .frame(width: 80, height: 80)
-        .contentShape(Rectangle())
     }
 }
 
@@ -530,32 +804,40 @@ private struct NewTreeNodeView: View {
     }
 }
 
-// MARK: - ForestConnectorLine
-
-private struct ForestConnectorLine: View {
-    let treeCount: Int
-    let treeSpacing: CGFloat
-
-    var body: some View {
-        Canvas { context, _ in
-            guard treeCount > 1 else { return }
-            let startX = -CGFloat(treeCount - 1) * treeSpacing / 2
-            var path = Path()
-            path.move(to: CGPoint(x: startX, y: 0))
-            path.addLine(to: CGPoint(x: startX + CGFloat(treeCount - 1) * treeSpacing, y: 0))
-            context.stroke(
-                path,
-                with: .color(CanopyColors.branchLine.opacity(0.5)),
-                style: StrokeStyle(lineWidth: 1.5)
-            )
-        }
-        .allowsHitTesting(false)
-    }
-}
-
 // MARK: - InlineTreeRenameField
 
 private struct InlineTreeRenameField: View {
+    @Binding var name: String
+    let onCommit: () -> Void
+    let onCancel: () -> Void
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        TextField("", text: $name)
+            .font(.system(size: 13, weight: .regular, design: .monospaced))
+            .foregroundColor(CanopyColors.chromeTextBright)
+            .multilineTextAlignment(.center)
+            .textFieldStyle(.plain)
+            .frame(width: 100, height: 22)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(CanopyColors.bloomPanelBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(CanopyColors.glowColor.opacity(0.5), lineWidth: 1)
+            )
+            .focused($isFocused)
+            .onAppear { isFocused = true }
+            .onSubmit { onCommit() }
+            .onExitCommand { onCancel() }
+    }
+}
+
+// MARK: - InlineNodeRenameField
+
+private struct InlineNodeRenameField: View {
     @Binding var name: String
     let onCommit: () -> Void
     let onCancel: () -> Void
