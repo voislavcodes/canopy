@@ -386,17 +386,20 @@ struct MainContentView: View {
         // mid-playback after an unlock or view mode change.
         let baseSample = AudioEngine.shared.graph.clockSamplePosition.pointee
 
-        // Region 1: current tree
+        // Region 1: current tree — let it play one more full cycle from now.
+        // Only set the region END so running sequencers aren't disrupted.
         let cycle1 = forestPlayback.computeCycleLength(tree: activeTree)
         let len1 = Int64(cycle1 * 60.0 * sampleRate / bpm)
+        let regionEnd = baseSample + len1
         timeline.appendRegion(TimelineRegion(
             treeID: activeTree.id,
-            startSample: baseSample, endSample: baseSample + len1,
+            startSample: baseSample, endSample: regionEnd,
             lengthInBeats: cycle1
         ))
 
-        // Set region bounds on active tree's units (already started by TransportState)
-        AudioEngine.shared.setActiveRegionBounds(start: baseSample, end: baseSample + len1)
+        // Only constrain the end — don't touch the start so playing sequencers
+        // keep running uninterrupted.
+        AudioEngine.shared.setActiveRegionEnd(regionEnd)
 
         // Region 2: next tree (pre-stage + arm)
         forestPlayback.computeNextTree(trees: trees)
