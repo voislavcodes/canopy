@@ -390,7 +390,11 @@ struct MainContentView: View {
         // Only set the region END so running sequencers aren't disrupted.
         let cycle1 = forestPlayback.computeCycleLength(tree: activeTree)
         let len1 = Int64(cycle1 * 60.0 * sampleRate / bpm)
-        let regionEnd = baseSample + len1
+        let treeStart = AudioEngine.shared.graph.treeStartClockSample
+        let elapsed = max(0, baseSample - treeStart)
+        let positionInCycle = len1 > 0 ? elapsed % len1 : 0
+        let remaining = positionInCycle == 0 ? len1 : (len1 - positionInCycle)
+        let regionEnd = baseSample + remaining
         timeline.appendRegion(TimelineRegion(
             treeID: activeTree.id,
             startSample: baseSample, endSample: regionEnd,
@@ -409,11 +413,11 @@ struct MainContentView: View {
             let len2 = Int64(cycle2 * 60.0 * sampleRate / bpm)
             timeline.appendRegion(TimelineRegion(
                 treeID: nextTree.id,
-                startSample: baseSample + len1, endSample: baseSample + len1 + len2,
+                startSample: regionEnd, endSample: regionEnd + len2,
                 lengthInBeats: cycle2
             ))
-            AudioEngine.shared.stageNextTree(nextTree, bpm: bpm) {
-                AudioEngine.shared.armStagedUnits(regionStart: baseSample + len1, regionEnd: baseSample + len1 + len2, bpm: bpm)
+            AudioEngine.shared.stageNextTree(nextTree, bpm: bpm, muteGraph: false) {
+                AudioEngine.shared.armStagedUnits(regionStart: regionEnd, regionEnd: regionEnd + len2, bpm: bpm)
             }
         }
 

@@ -342,6 +342,9 @@ struct Sequencer {
         self.loopCount = 0
         self.needsClockSync = true
         self._testSampleCounter = 0
+        self.regionStartSample = 0
+        self.regionEndSample = Int64.max
+        self.isArmed = false
         resetFlags()
     }
 
