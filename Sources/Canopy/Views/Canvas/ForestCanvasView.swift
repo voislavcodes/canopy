@@ -56,7 +56,6 @@ struct ForestCanvasView: View {
                     hoveredNodeID: hoveredNodeID,
                     projectState: projectState,
                     onNodeTap: { nodeID in handleNodeTap(nodeID) },
-                    onNameTap: { nodeID in handleNameTap(nodeID) },
                     onAddBranch: { nodeID in
                         if let node = projectState.findNode(id: nodeID) {
                             ensureInitialOffsets(for: node)
@@ -405,6 +404,8 @@ struct ForestCanvasView: View {
         let trees = projectState.project.trees
 
         // Hit test all nodes across all trees (in forest coordinates)
+        // Label zone: tap below the circle (dy > 20) → rename
+        // Circle zone: tap on/above → select
         for (treeIdx, tree) in trees.enumerated() {
             guard treeIdx < treeOffsets.count else { continue }
             let offset = treeOffsets[treeIdx]
@@ -415,7 +416,12 @@ struct ForestCanvasView: View {
                 let dx = canvas.x - fx
                 let dy = canvas.y - fy
                 if dx * dx + dy * dy <= hitRadius * hitRadius {
-                    handleNodeTap(node.id)
+                    if dy > 20 && abs(dx) < 35 {
+                        // Tap is on the label text below the circle
+                        handleNameTap(node.id)
+                    } else {
+                        handleNodeTap(node.id)
+                    }
                     return
                 }
             }
@@ -614,7 +620,6 @@ private struct ForestContentView: View {
     let hoveredNodeID: UUID?
     var projectState: ProjectState
     let onNodeTap: (UUID) -> Void
-    let onNameTap: (UUID) -> Void
     let onAddBranch: (UUID) -> Void
     let onPresetSelected: (NodePreset) -> Void
     let onPickerDismiss: () -> Void
@@ -672,17 +677,6 @@ private struct ForestContentView: View {
                             .onHover { isHovered in
                                 onHover(node.id, isHovered)
                             }
-                        }
-
-                        // Node name tap targets (click label text → rename)
-                        ForEach(nodes) { node in
-                            Text(node.name.lowercased())
-                                .font(.system(size: 13, weight: .regular, design: .monospaced))
-                                .foregroundColor(.clear)
-                                .frame(width: 60, height: 20)
-                                .contentShape(Rectangle())
-                                .position(x: node.position.x, y: node.position.y + 35)
-                                .onTapGesture { onNameTap(node.id) }
                         }
 
                         // Add branch button for hovered (non-selected) node
