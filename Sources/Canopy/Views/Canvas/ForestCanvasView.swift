@@ -611,6 +611,20 @@ private struct ForestContentView: View {
     let onNewTreeTap: () -> Void
     @Binding var showNewTreePopover: Bool
 
+    static func nodeColor(for node: Node) -> Color {
+        if let pid = node.presetID, let preset = NodePreset.find(pid) {
+            return CanopyColors.presetColor(preset.color)
+        }
+        switch node.type {
+        case .seed: return CanopyColors.nodeSeed
+        case .melodic: return CanopyColors.nodeMelodic
+        case .harmonic: return CanopyColors.nodeHarmonic
+        case .rhythmic: return CanopyColors.nodeRhythmic
+        case .effect: return CanopyColors.nodeEffect
+        case .group: return CanopyColors.nodeGroup
+        }
+    }
+
     var body: some View {
         ZStack {
             // Per-tree rendering
@@ -653,7 +667,8 @@ private struct ForestContentView: View {
                            let hoveredNode = nodes.first(where: { $0.id == hoverID }) {
                             AddBranchButton(
                                 parentPosition: CGPoint(x: hoveredNode.position.x, y: hoveredNode.position.y),
-                                children: []
+                                children: [],
+                                color: Self.nodeColor(for: hoveredNode)
                             ) {
                                 onAddBranch(hoveredNode.id)
                             }
@@ -687,7 +702,8 @@ private struct ForestContentView: View {
                            let selNode = nodes.first(where: { $0.id == selID }) {
                             AddBranchButton(
                                 parentPosition: CGPoint(x: selNode.position.x, y: selNode.position.y),
-                                children: selNode.children
+                                children: selNode.children,
+                                color: Self.nodeColor(for: selNode)
                             ) {
                                 onAddBranch(selNode.id)
                             }

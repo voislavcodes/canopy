@@ -5,6 +5,7 @@ import SwiftUI
 struct AddBranchButton: View {
     let parentPosition: CGPoint
     let children: [Node]
+    var color: Color = CanopyColors.glowColor
     let action: () -> Void
 
     private let size: CGFloat = 28
@@ -27,12 +28,12 @@ struct AddBranchButton: View {
                     .frame(width: size, height: size)
 
                 Circle()
-                    .stroke(CanopyColors.glowColor.opacity(0.5), lineWidth: 1)
+                    .stroke(color.opacity(0.5), lineWidth: 1)
                     .frame(width: size, height: size)
 
                 Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(CanopyColors.glowColor)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(color)
             }
         }
         .buttonStyle(.plain)
