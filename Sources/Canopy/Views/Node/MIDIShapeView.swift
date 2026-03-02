@@ -152,9 +152,16 @@ struct MIDIShapeView: View {
                 angle = CGFloat(beatFraction) * 2.0 * .pi - .pi / 2.0
             }
 
-            // Invert — flip velocity mapping
-            let velocityFactor = params.invertEnabled ? (1.0 - entry.value) : entry.value
-            let spikeR: CGFloat = minR + (maxR - minR) * CGFloat(velocityFactor)
+            // Invert — flip: valleys at outer edge, spikes point inward
+            let spikeR: CGFloat
+            let baseR: CGFloat
+            if params.invertEnabled {
+                spikeR = maxR - (maxR - minR) * CGFloat(entry.value)
+                baseR = maxR
+            } else {
+                spikeR = minR + (maxR - minR) * CGFloat(entry.value)
+                baseR = minR
+            }
 
             // Humanize — deterministic angular wobble
             let wobbledAngle: CGFloat
@@ -166,8 +173,8 @@ struct MIDIShapeView: View {
                 wobbledAngle = angle
             }
 
-            // Bloom — raise valley radius toward spike radius
-            let valleyR: CGFloat = minR + (spikeR - minR) * CGFloat(params.bloomAmount) * 0.6
+            // Bloom — push valley toward spike radius
+            let valleyR: CGFloat = baseR + (spikeR - baseR) * CGFloat(params.bloomAmount) * 0.6
 
             // Density — deterministic culling matching SequenceTransforms hash
             let effectiveR: CGFloat
