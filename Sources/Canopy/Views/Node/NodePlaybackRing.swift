@@ -68,7 +68,8 @@ struct NodePlaybackRing: View {
                     context.fill(Path(ellipseIn: dotRect), with: .color(color))
                 }
             }
-            .frame(width: NodeMetrics.ringRadius * 2 + 4, height: NodeMetrics.ringRadius * 2 + 4)
+            .frame(width: NodeMetrics.ringRadius * 2 + NodeMetrics.playheadDotRadius * 2 + 4,
+                   height: NodeMetrics.ringRadius * 2 + NodeMetrics.playheadDotRadius * 2 + 4)
         }
     }
 }
