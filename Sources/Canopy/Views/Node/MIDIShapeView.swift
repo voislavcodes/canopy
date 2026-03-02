@@ -54,14 +54,9 @@ struct MIDIShapeView: View {
             )
 
             if i == 0 {
-                // Start at the valley before the first spike
+                // Start at the valley before the first spike (same point the last valley lands on)
                 let prevBeat = sorted[count - 1].key
-                let midBeat: Double
-                if entry.key > prevBeat {
-                    midBeat = (prevBeat + entry.key + lengthInBeats) / 2.0
-                } else {
-                    midBeat = (prevBeat + entry.key) / 2.0
-                }
+                let midBeat: Double = (prevBeat + entry.key + lengthInBeats) / 2.0
                 let midAngle: CGFloat = CGFloat(midBeat / lengthInBeats) * 2.0 * .pi - .pi / 2.0
                 let valleyStart = CGPoint(
                     x: center.x + cos(midAngle) * minR,

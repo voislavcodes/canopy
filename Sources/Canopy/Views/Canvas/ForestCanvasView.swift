@@ -638,7 +638,7 @@ private struct ForestContentView: View {
                             NodeView(
                                 node: node,
                                 isSelected: selectedNodeID == node.id,
-                                isPlaying: activeTreeID == tree.id && isPlaying
+                                isPlaying: isPlaying
                             )
                             .onTapGesture { onNodeTap(node.id) }
                             .onHover { isHovered in
