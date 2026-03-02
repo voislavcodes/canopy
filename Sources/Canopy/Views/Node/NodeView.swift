@@ -52,7 +52,8 @@ struct NodeView: View {
                 MIDIShapeView(
                     notes: node.sequence.notes,
                     lengthInBeats: node.sequence.lengthInBeats,
-                    color: nodeColor
+                    color: nodeColor,
+                    params: MIDIShapeParams(from: node.sequence)
                 )
 
                 // Layer 4: Core dot
