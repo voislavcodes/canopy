@@ -20,6 +20,8 @@ struct NodePlaybackRing: View {
                 // 1. Outer ring stroke
                 let ringColor: Color
                 if isSelected && isPlaying {
+                    ringColor = color.opacity(0.85)
+                } else if isSelected {
                     ringColor = color.opacity(0.7)
                 } else if isPlaying {
                     ringColor = color.opacity(0.5)
