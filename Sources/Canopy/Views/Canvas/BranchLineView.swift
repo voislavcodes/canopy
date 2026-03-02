@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Renders lines connecting parent nodes to their children in canvas space.
+/// Renders dashed lines connecting parent nodes to their children in canvas space.
 /// Uses Shape-based rendering so branch lines animate when node positions change.
 struct BranchLineView: View {
     let nodes: [Node]
@@ -9,7 +9,25 @@ struct BranchLineView: View {
         ZStack {
             ForEach(branchPairs, id: \.id) { pair in
                 BranchLineShape(from: pair.parentPos, to: pair.childPos)
-                    .stroke(pair.lineColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    .stroke(pair.lineColor, style: StrokeStyle(lineWidth: 1.0, lineCap: .round, dash: [6, 4]))
+
+                // Crossbar at parent end
+                CrossbarShape(
+                    center: CGPoint(
+                        x: pair.parentPos.x,
+                        y: pair.parentPos.y - NodeMetrics.ringRadius - 4
+                    )
+                )
+                .stroke(pair.lineColor, lineWidth: 1.0)
+
+                // Crossbar at child end
+                CrossbarShape(
+                    center: CGPoint(
+                        x: pair.childPos.x,
+                        y: pair.childPos.y + NodeMetrics.ringRadius + 24
+                    )
+                )
+                .stroke(pair.lineColor, lineWidth: 1.0)
             }
         }
         .allowsHitTesting(false)
@@ -45,6 +63,7 @@ struct BranchPair: Identifiable {
     }
 }
 
+/// Straight dashed line from just below parent ring to just above child ring + labels.
 struct BranchLineShape: Shape {
     var from: NodePosition
     var to: NodePosition
@@ -59,11 +78,23 @@ struct BranchLineShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        let start = CGPoint(x: from.x, y: from.y - 22)
-        let end = CGPoint(x: to.x, y: to.y + 28)
-        let midY = (start.y + end.y) / 2
+        let start = CGPoint(x: from.x, y: from.y - NodeMetrics.ringRadius - 4)
+        let end = CGPoint(x: to.x, y: to.y + NodeMetrics.ringRadius + 24)
         path.move(to: start)
-        path.addCurve(to: end, control1: CGPoint(x: start.x, y: midY), control2: CGPoint(x: end.x, y: midY))
+        path.addLine(to: end)
+        return path
+    }
+}
+
+/// Short perpendicular crossbar mark at a point.
+struct CrossbarShape: Shape {
+    let center: CGPoint
+    private let halfWidth: CGFloat = 4
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: center.x - halfWidth, y: center.y))
+        path.addLine(to: CGPoint(x: center.x + halfWidth, y: center.y))
         return path
     }
 }

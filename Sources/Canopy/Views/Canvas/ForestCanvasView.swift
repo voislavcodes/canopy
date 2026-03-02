@@ -165,8 +165,8 @@ struct ForestCanvasView: View {
             var nodes: [Node] = []
             collectNodes(from: tree.rootNode, into: &nodes)
             let xs = nodes.map { CGFloat($0.position.x) }
-            let minX = (xs.min() ?? 0) - 40  // pad for node radius + label
-            let maxX = (xs.max() ?? 0) + 40
+            let minX = (xs.min() ?? 0) - 60  // pad for ring radius + label
+            let maxX = (xs.max() ?? 0) + 60
             extents.append((minX, maxX))
         }
 
@@ -391,7 +391,7 @@ struct ForestCanvasView: View {
 
     private func handleTap(at location: CGPoint, viewSize: CGSize, treeOffsets: [CGPoint]) {
         let canvas = screenToCanvas(location, viewSize: viewSize)
-        let hitRadius: CGFloat = 40
+        let hitRadius: CGFloat = 55
         let trees = projectState.project.trees
 
         // Hit test all nodes across all trees (in forest coordinates)
@@ -633,29 +633,12 @@ private struct ForestContentView: View {
                                 .transition(.opacity.animation(.easeOut(duration: 0.15)))
                         }
 
-                        // Active tree playing indicator (ring pulse on root)
-                        if activeTreeID == tree.id && isPlaying {
-                            Circle()
-                                .stroke(treeColor(tree).opacity(0.3), lineWidth: 2)
-                                .frame(width: 60, height: 60)
-                                .position(x: tree.rootNode.position.x, y: tree.rootNode.position.y)
-                                .allowsHitTesting(false)
-                        }
-
-                        // Next tree indicator (dim ring on root)
-                        if nextTreeID == tree.id && isPlaying {
-                            Circle()
-                                .stroke(treeColor(tree).opacity(0.12), lineWidth: 1.5)
-                                .frame(width: 60, height: 60)
-                                .position(x: tree.rootNode.position.x, y: tree.rootNode.position.y)
-                                .allowsHitTesting(false)
-                        }
-
-                        // Node circles
+                        // Node circles with playback ring
                         ForEach(nodes) { node in
                             NodeView(
                                 node: node,
-                                isSelected: selectedNodeID == node.id
+                                isSelected: selectedNodeID == node.id,
+                                isPlaying: activeTreeID == tree.id && isPlaying
                             )
                             .onTapGesture { onNodeTap(node.id) }
                             .onHover { isHovered in
@@ -743,12 +726,6 @@ private struct ForestContentView: View {
         trees.first.map { !$0.rootNode.sequence.notes.isEmpty || !$0.rootNode.children.isEmpty } ?? false
     }
 
-    private func treeColor(_ tree: NodeTree) -> Color {
-        if let pid = tree.rootNode.presetID, let preset = NodePreset.find(pid) {
-            return CanopyColors.presetColor(preset.color)
-        }
-        return CanopyColors.nodeSeed
-    }
 }
 
 // MARK: - NewTreeNodeView

@@ -12,7 +12,7 @@ struct AddBranchButton: View {
     /// Compute button position from parent position and children.
     /// Static so PresetPickerView can use the same positioning.
     static func buttonPosition(parentPosition: CGPoint, children: [Node]) -> CGPoint {
-        return CGPoint(x: parentPosition.x, y: parentPosition.y - 80)
+        return CGPoint(x: parentPosition.x, y: parentPosition.y - NodeMetrics.ringRadius - 34)
     }
 
     private var computedPosition: CGPoint {

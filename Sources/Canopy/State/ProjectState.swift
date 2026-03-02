@@ -771,8 +771,8 @@ class ProjectState: ObservableObject {
     // MARK: - Layout
 
     /// Spacing constants for tree layout.
-    private static let verticalSpacing: Double = 160
-    private static let minHorizontalSpacing: Double = 140
+    private static let verticalSpacing: Double = 200
+    private static let minHorizontalSpacing: Double = 170
     private static let selectedNodeClearance: Double = 600
 
     /// Compute the horizontal width needed to lay out a node's subtree.

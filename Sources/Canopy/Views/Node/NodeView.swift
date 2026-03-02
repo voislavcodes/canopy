@@ -1,13 +1,23 @@
 import SwiftUI
 
+/// Sizing constants for node visualization.
+enum NodeMetrics {
+    static let coreRadius: CGFloat = 14
+    static let midiShapeMinRadius: CGFloat = 18
+    static let midiShapeMaxRadius: CGFloat = 42
+    static let ringRadius: CGFloat = 50
+    static let tickLength: CGFloat = 6
+    static let playheadDotRadius: CGFloat = 4
+    static let frameWidth: CGFloat = 130
+    static let frameHeight: CGFloat = 140
+}
+
 struct NodeView: View {
     let node: Node
     let isSelected: Bool
-
-    private let nodeRadius: CGFloat = 22
+    let isPlaying: Bool
 
     private var nodeColor: Color {
-        // Prefer preset color over NodeType-based color
         if let pid = node.presetID, let preset = NodePreset.find(pid) {
             return CanopyColors.presetColor(preset.color)
         }
@@ -22,34 +32,57 @@ struct NodeView: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             ZStack {
+                // Layer 1: Selection glow (hugs outer ring)
                 if isSelected {
-                    NodeGlowEffect(radius: nodeRadius, color: nodeColor)
+                    NodeGlowEffect(radius: NodeMetrics.ringRadius, color: nodeColor)
                 }
 
-                // Node fill — color based on type
+                // Layer 2: Playback ring with ticks and playhead
+                NodePlaybackRing(
+                    nodeID: node.id,
+                    lengthInBeats: node.sequence.lengthInBeats,
+                    color: nodeColor,
+                    isPlaying: isPlaying,
+                    isSelected: isSelected
+                )
+
+                // Layer 3: MIDI fingerprint shape
+                MIDIShapeView(
+                    notes: node.sequence.notes,
+                    lengthInBeats: node.sequence.lengthInBeats,
+                    color: nodeColor
+                )
+
+                // Layer 4: Core dot
                 Circle()
                     .fill(
                         RadialGradient(
-                            colors: [
-                                nodeColor,
-                                nodeColor.opacity(0.8),
-                            ],
+                            colors: [nodeColor, nodeColor.opacity(0.8)],
                             center: .center,
                             startRadius: 0,
-                            endRadius: nodeRadius
+                            endRadius: NodeMetrics.coreRadius
                         )
                     )
-                    .frame(width: nodeRadius * 2, height: nodeRadius * 2)
+                    .frame(
+                        width: NodeMetrics.coreRadius * 2,
+                        height: NodeMetrics.coreRadius * 2
+                    )
             }
 
-            // Label below node
-            Text(node.name.lowercased())
-                .font(.system(size: 13, weight: .regular, design: .monospaced))
-                .foregroundColor(CanopyColors.nodeLabel)
+            // Labels below node
+            VStack(spacing: 2) {
+                Text(node.name.lowercased())
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.nodeLabel)
+
+                Text("\(Int(node.sequence.lengthInBeats))b")
+                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                    .foregroundColor(CanopyColors.nodeLabel.opacity(0.6))
+            }
         }
-        .frame(width: 60, height: 70)
+        .frame(width: NodeMetrics.frameWidth, height: NodeMetrics.frameHeight)
         .contentShape(Rectangle())
         .opacity(node.isMuted ? 0.35 : 1.0)
         .position(x: node.position.x, y: node.position.y)
