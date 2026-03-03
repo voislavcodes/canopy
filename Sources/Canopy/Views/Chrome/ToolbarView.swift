@@ -15,7 +15,9 @@ struct ToolbarView: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        ZStack {
+            // Left and right edges
+            HStack(spacing: 12) {
                 // FOREST / MEADOW / RIVER tabs — matching FX/MOD style
                 HStack(spacing: 12) {
                     Text("FOREST")
@@ -50,30 +52,6 @@ struct ToolbarView: View {
 
                 Spacer()
 
-                // Center group: trees icon + transport (ghosted — no bg, uniform color)
-                HStack(spacing: 12) {
-                    let hasMultipleTrees = projectState.project.trees.count >= 2
-
-                    Button(action: {
-                        if hasMultipleTrees { showTreesPopover.toggle() }
-                    }) {
-                        TreesIconView(enabled: hasMultipleTrees)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!hasMultipleTrees)
-                    .popover(isPresented: $showTreesPopover) {
-                        TreesPopoverView(
-                            projectState: projectState,
-                            forestPlayback: forestPlayback
-                        )
-                    }
-                    .help("Trees & playback mode")
-
-                    TransportView(transportState: transportState)
-                }
-
-                Spacer()
-
                 // Scale controls + keyboard toggle (right side)
                 scaleSection
 
@@ -97,6 +75,10 @@ struct ToolbarView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Computer keyboard MIDI input (A-L = notes, ; / ' = octave)")
+            }
+
+            // Center group: truly centered (ghosted — no bg, uniform color)
+            centerTransportGroup
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
@@ -107,6 +89,31 @@ struct ToolbarView: View {
                 .foregroundColor(CanopyColors.chromeBorder),
             alignment: .bottom
         )
+    }
+
+    // MARK: - Center Transport Group
+
+    private var centerTransportGroup: some View {
+        let hasMultipleTrees = projectState.project.trees.count >= 2
+
+        return HStack(spacing: 14) {
+            Button(action: {
+                if hasMultipleTrees { showTreesPopover.toggle() }
+            }) {
+                TreesIconView(enabled: hasMultipleTrees)
+            }
+            .buttonStyle(.plain)
+            .disabled(!hasMultipleTrees)
+            .popover(isPresented: $showTreesPopover) {
+                TreesPopoverView(
+                    projectState: projectState,
+                    forestPlayback: forestPlayback
+                )
+            }
+            .help("Trees & playback mode")
+
+            TransportView(transportState: transportState)
+        }
     }
 
     // MARK: - Ableton-Style Scale Section
@@ -307,9 +314,9 @@ private struct TreesIconView: View {
     var body: some View {
         Canvas { context, size in
             let y = size.height / 2
-            let leftX: CGFloat = 6
-            let rightX = size.width - 6
-            let r: CGFloat = 3.5
+            let leftX: CGFloat = 7
+            let rightX = size.width - 7
+            let r: CGFloat = 5.5
 
             // Line
             var line = Path()
@@ -325,7 +332,7 @@ private struct TreesIconView: View {
             let rightRect = CGRect(x: rightX - r, y: y - r, width: r * 2, height: r * 2)
             context.fill(Path(ellipseIn: rightRect), with: .color(dotColor))
         }
-        .frame(width: 30, height: 22)
+        .frame(width: 38, height: 22)
     }
 }
 

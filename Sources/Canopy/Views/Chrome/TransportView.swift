@@ -16,7 +16,7 @@ struct TransportView: View {
     @State private var localBPM: Double = 120
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             // Play/Stop toggle
             Button(action: { transportState.togglePlayback() }) {
                 Image(systemName: transportState.isPlaying ? "pause.fill" : "play.fill")
@@ -63,19 +63,11 @@ struct TransportView: View {
                         isEditingBPM = false
                     }
             } else {
-                HStack(alignment: .firstTextBaseline, spacing: 2) {
-                    Text("\(Int(displayBPM))")
-                        .font(.system(size: 16, weight: .bold, design: .monospaced))
-                        .foregroundColor(isDragging ? CanopyColors.glowColor : CanopyColors.chromeText)
-                        .frame(minWidth: 40)
-                    Text("BPM")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(CanopyColors.chromeText)
-                }
+                Text("\(Int(displayBPM))")
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundColor(isDragging ? CanopyColors.glowColor : CanopyColors.chromeText)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
             if !isEditingBPM {
