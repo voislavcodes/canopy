@@ -21,14 +21,14 @@ struct TransportView: View {
             Button(action: { transportState.togglePlayback() }) {
                 Image(systemName: transportState.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 14))
-                    .foregroundColor(transportState.isPlaying ? CanopyColors.glowColor : CanopyColors.transportIcon)
+                    .foregroundColor(transportState.isPlaying ? CanopyColors.glowColor : CanopyColors.chromeText)
             }
             .buttonStyle(.plain)
 
             Button(action: { transportState.stopPlayback() }) {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 14))
-                    .foregroundColor(CanopyColors.transportIcon)
+                    .foregroundColor(CanopyColors.chromeText)
             }
             .buttonStyle(.plain)
 
@@ -66,24 +66,16 @@ struct TransportView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text("\(Int(displayBPM))")
                         .font(.system(size: 16, weight: .bold, design: .monospaced))
-                        .foregroundColor(isDragging ? CanopyColors.glowColor : CanopyColors.chromeTextBright)
+                        .foregroundColor(isDragging ? CanopyColors.glowColor : CanopyColors.chromeText)
                         .frame(minWidth: 40)
                     Text("BPM")
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                        .foregroundColor(CanopyColors.chromeText)
                 }
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 5)
-                .fill(isDragging ? CanopyColors.glowColor.opacity(0.08) : CanopyColors.chromeBackground.opacity(0.5))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 5)
-                .stroke(isDragging ? CanopyColors.glowColor.opacity(0.3) : CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
-        )
         .contentShape(Rectangle())
         .onTapGesture {
             if !isEditingBPM {

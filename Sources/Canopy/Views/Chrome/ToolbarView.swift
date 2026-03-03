@@ -48,20 +48,19 @@ struct ToolbarView: View {
                         .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
                 )
 
-                // Trees icon — visible with 2+ trees
-                if projectState.project.trees.count >= 2 {
-                    Button(action: { showTreesPopover.toggle() }) {
-                        TreesIconView()
-                            .padding(.vertical, 4)
-                            .padding(.horizontal, 6)
+                Spacer()
+
+                // Center group: trees icon + transport (ghosted — no bg, uniform color)
+                HStack(spacing: 12) {
+                    let hasMultipleTrees = projectState.project.trees.count >= 2
+
+                    Button(action: {
+                        if hasMultipleTrees { showTreesPopover.toggle() }
+                    }) {
+                        TreesIconView(enabled: hasMultipleTrees)
                     }
                     .buttonStyle(.plain)
-                    .background(CanopyColors.bloomPanelBackground.opacity(0.85))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(CanopyColors.bloomPanelBorder.opacity(0.3), lineWidth: 1)
-                    )
+                    .disabled(!hasMultipleTrees)
                     .popover(isPresented: $showTreesPopover) {
                         TreesPopoverView(
                             projectState: projectState,
@@ -69,12 +68,9 @@ struct ToolbarView: View {
                         )
                     }
                     .help("Trees & playback mode")
+
+                    TransportView(transportState: transportState)
                 }
-
-                Spacer()
-
-                // Transport (centered via spacers)
-                TransportView(transportState: transportState)
 
                 Spacer()
 
@@ -302,6 +298,12 @@ struct ToolbarView: View {
 // MARK: - Trees Icon (●─●)
 
 private struct TreesIconView: View {
+    var enabled: Bool = true
+
+    private var dotColor: Color {
+        enabled ? CanopyColors.chromeText : CanopyColors.chromeText.opacity(0.3)
+    }
+
     var body: some View {
         Canvas { context, size in
             let y = size.height / 2
@@ -313,15 +315,15 @@ private struct TreesIconView: View {
             var line = Path()
             line.move(to: CGPoint(x: leftX + r, y: y))
             line.addLine(to: CGPoint(x: rightX - r, y: y))
-            context.stroke(line, with: .color(CanopyColors.glowColor.opacity(0.6)), lineWidth: 1.5)
+            context.stroke(line, with: .color(dotColor.opacity(0.6)), lineWidth: 1.5)
 
             // Left dot
             let leftRect = CGRect(x: leftX - r, y: y - r, width: r * 2, height: r * 2)
-            context.fill(Path(ellipseIn: leftRect), with: .color(CanopyColors.glowColor))
+            context.fill(Path(ellipseIn: leftRect), with: .color(dotColor))
 
             // Right dot
             let rightRect = CGRect(x: rightX - r, y: y - r, width: r * 2, height: r * 2)
-            context.fill(Path(ellipseIn: rightRect), with: .color(CanopyColors.glowColor))
+            context.fill(Path(ellipseIn: rightRect), with: .color(dotColor))
         }
         .frame(width: 30, height: 22)
     }
