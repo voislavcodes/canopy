@@ -200,7 +200,6 @@ class ProjectState: ObservableObject {
         let newTree = NodeTree(
             name: source.name + " copy",
             rootNode: deepCopyNode(source.rootNode),
-            transition: source.transition,
             scale: source.scale
         )
         project.trees.append(newTree)

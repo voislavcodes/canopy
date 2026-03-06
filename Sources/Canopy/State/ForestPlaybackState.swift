@@ -4,7 +4,8 @@ import Foundation
 /// Tracks which tree is currently playing and which comes next.
 class ForestPlaybackState: ObservableObject {
     @Published var playbackMode: TreePlaybackMode = .sequential
-    @Published var transitionMode: TreeTransitionMode = .instant
+    @Published var treeAttack: Double = 0.012   // seconds (~1 buffer at 512/44100)
+    @Published var treeRelease: Double = 0.37   // seconds (~32 buffers at 512/44100)
     @Published var activeTreeID: UUID?    // Currently playing tree (during playback)
     @Published var nextTreeID: UUID?      // Next tree (for visual indicator)
     @Published var isLockedToTree: Bool = false  // When true, advance is paused — locked tree loops
@@ -36,18 +37,6 @@ class ForestPlaybackState: ObservableObject {
             case .pingPong: return "Ping-pong"
             case .random: return "Random"
             case .brownian: return "Brownian"
-            }
-        }
-    }
-
-    enum TreeTransitionMode: String, CaseIterable {
-        case instant
-        case crossfade
-
-        var displayName: String {
-            switch self {
-            case .instant: return "Instant"
-            case .crossfade: return "Crossfade"
             }
         }
     }

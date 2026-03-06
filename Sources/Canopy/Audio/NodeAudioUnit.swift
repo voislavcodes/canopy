@@ -2874,13 +2874,24 @@ final class NodeAudioUnit {
     }
 
     /// Number of buffers over which to fade out (~370ms at 512/44100).
-    /// Long enough for voice release tails to ring out naturally during
-    /// region transitions, short enough for responsive manual stops.
-    static let fadeOutBuffers: Int32 = 32
+    /// Main thread writes, audio thread reads. Int32 is naturally atomic on ARM64/x86-64.
+    static var fadeOutBuffers: Int32 = 32
 
     /// Number of buffers over which to fade in (~12ms at 512/44100).
-    /// Just long enough to avoid a click; short enough for a natural attack.
-    static let fadeInBuffers: Int32 = 1
+    /// Main thread writes, audio thread reads. Int32 is naturally atomic on ARM64/x86-64.
+    static var fadeInBuffers: Int32 = 1
+
+    /// Update fade-out duration from seconds. Main thread only.
+    static func setFadeOutDuration(seconds: Double, sampleRate: Double, bufferSize: Int = 512) {
+        let bufferDuration = Double(bufferSize) / sampleRate
+        fadeOutBuffers = max(1, Int32(seconds / bufferDuration))
+    }
+
+    /// Update fade-in duration from seconds. Main thread only.
+    static func setFadeInDuration(seconds: Double, sampleRate: Double, bufferSize: Int = 512) {
+        let bufferDuration = Double(bufferSize) / sampleRate
+        fadeInBuffers = max(1, Int32(seconds / bufferDuration))
+    }
 
     // MARK: - Sample-Precise Activation/Deactivation
 

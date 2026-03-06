@@ -373,15 +373,21 @@ private struct TreesPopoverView: View {
             Divider()
                 .background(CanopyColors.chromeBorder)
 
-            // Transition mode
+            // Transition envelope
             Text("TRANSITION")
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(CanopyColors.chromeText.opacity(0.5))
 
-            HStack(spacing: 4) {
-                ForEach(ForestPlaybackState.TreeTransitionMode.allCases, id: \.self) { mode in
-                    transitionModePill(mode)
-                }
+            transitionSlider(label: "ATTACK", value: $forestPlayback.treeAttack) {
+                let sr = AudioEngine.shared.sampleRate
+                guard sr > 0 else { return }
+                NodeAudioUnit.setFadeInDuration(seconds: forestPlayback.treeAttack, sampleRate: sr)
+            }
+
+            transitionSlider(label: "RELEASE", value: $forestPlayback.treeRelease) {
+                let sr = AudioEngine.shared.sampleRate
+                guard sr > 0 else { return }
+                NodeAudioUnit.setFadeOutDuration(seconds: forestPlayback.treeRelease, sampleRate: sr)
             }
         }
         .padding(14)
@@ -414,25 +420,43 @@ private struct TreesPopoverView: View {
         .buttonStyle(.plain)
     }
 
-    private func transitionModePill(_ mode: ForestPlaybackState.TreeTransitionMode) -> some View {
-        let isSelected = forestPlayback.transitionMode == mode
-        return Button(action: { forestPlayback.transitionMode = mode }) {
-            Text(mode.displayName)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundColor(isSelected ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.6))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(isSelected ? CanopyColors.glowColor.opacity(0.12) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke(
-                            isSelected ? CanopyColors.glowColor.opacity(0.4) : CanopyColors.chromeBorder.opacity(0.2),
-                            lineWidth: 0.5
-                        )
+    private func transitionSlider(label: String, value: Binding<Double>, onCommit: @escaping () -> Void) -> some View {
+        VStack(spacing: 2) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                Spacer()
+                Text(value.wrappedValue < 0.1
+                     ? String(format: "%.0fms", value.wrappedValue * 1000)
+                     : String(format: "%.1fs", value.wrappedValue))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.7))
+            }
+            GeometryReader { geo in
+                let width = geo.size.width
+                let fraction = CGFloat(value.wrappedValue / 2.0)
+                let filledWidth = max(0, min(width, width * fraction))
+
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
+                        .frame(height: 6)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(CanopyColors.glowColor.opacity(0.5))
+                        .frame(width: filledWidth, height: 6)
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { drag in
+                            let frac = Double(max(0, min(1, drag.location.x / width)))
+                            value.wrappedValue = frac * 2.0
+                        }
+                        .onEnded { _ in onCommit() }
                 )
+            }
+            .frame(height: 6)
         }
-        .buttonStyle(.plain)
     }
 
     private func treeRow(tree: NodeTree, index: Int) -> some View {

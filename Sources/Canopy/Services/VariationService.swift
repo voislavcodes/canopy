@@ -14,7 +14,6 @@ enum VariationService {
         var newTree = NodeTree(
             name: tree.name + " " + variation.displayName.lowercased(),
             rootNode: deepCopyNode(tree.rootNode),
-            transition: tree.transition,
             scale: tree.scale,
             sourceTreeID: tree.id,
             variationType: variation
