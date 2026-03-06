@@ -184,7 +184,7 @@ struct SynthControlsPanel: View {
             HStack {
                 Text("FILTER")
                     .font(.system(size: 11 * cs, weight: .medium, design: .monospaced))
-                    .foregroundColor(localFilterEnabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.5))
+                    .foregroundColor(localFilterEnabled ? accentColor : CanopyColors.chromeText.opacity(0.5))
                 Spacer()
                 Button(action: {
                     localFilterEnabled.toggle()
@@ -192,17 +192,17 @@ struct SynthControlsPanel: View {
                 }) {
                     Text(localFilterEnabled ? "ON" : "OFF")
                         .font(.system(size: 10 * cs, weight: .bold, design: .monospaced))
-                        .foregroundColor(localFilterEnabled ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.4))
+                        .foregroundColor(localFilterEnabled ? accentColor : CanopyColors.chromeText.opacity(0.4))
                         .padding(.horizontal, 6 * cs)
                         .padding(.vertical, 2 * cs)
                         .background(
                             RoundedRectangle(cornerRadius: 3 * cs)
-                                .fill(localFilterEnabled ? CanopyColors.glowColor.opacity(0.1) : Color.clear)
+                                .fill(localFilterEnabled ? accentColor.opacity(0.1) : Color.clear)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 3 * cs)
                                 .stroke(
-                                    localFilterEnabled ? CanopyColors.glowColor.opacity(0.5) : CanopyColors.bloomPanelBorder.opacity(0.3),
+                                    localFilterEnabled ? accentColor.opacity(0.5) : CanopyColors.bloomPanelBorder.opacity(0.3),
                                     lineWidth: 1
                                 )
                         )
@@ -288,17 +288,17 @@ struct SynthControlsPanel: View {
                 }) {
                     Text(label)
                         .font(.system(size: 12 * cs, weight: .medium, design: .monospaced))
-                        .foregroundColor(current == wf ? CanopyColors.glowColor : CanopyColors.chromeText)
+                        .foregroundColor(current == wf ? accentColor : CanopyColors.chromeText)
                         .padding(.horizontal, 8 * cs)
                         .padding(.vertical, 4 * cs)
                         .background(
                             RoundedRectangle(cornerRadius: 4 * cs)
-                                .fill(current == wf ? CanopyColors.glowColor.opacity(0.1) : Color.clear)
+                                .fill(current == wf ? accentColor.opacity(0.1) : Color.clear)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 4 * cs)
                                 .stroke(
-                                    current == wf ? CanopyColors.glowColor.opacity(0.5) : CanopyColors.bloomPanelBorder.opacity(0.3),
+                                    current == wf ? accentColor.opacity(0.5) : CanopyColors.bloomPanelBorder.opacity(0.3),
                                     lineWidth: 1
                                 )
                         )
@@ -330,7 +330,7 @@ struct SynthControlsPanel: View {
 
                 // Filled portion
                 RoundedRectangle(cornerRadius: 3 * cs)
-                    .fill(CanopyColors.glowColor.opacity(0.6))
+                    .fill(accentColor.opacity(0.6))
                     .frame(width: filledWidth, height: 8 * cs)
             }
             .gesture(
@@ -368,7 +368,7 @@ struct SynthControlsPanel: View {
                         .fill(CanopyColors.bloomPanelBorder.opacity(0.3))
 
                     RoundedRectangle(cornerRadius: 2 * cs)
-                        .fill(CanopyColors.glowColor.opacity(0.4))
+                        .fill(accentColor.opacity(0.4))
                         .frame(height: filledHeight)
                 }
                 .gesture(
@@ -410,7 +410,7 @@ struct SynthControlsPanel: View {
 
                 // Indicator
                 Circle()
-                    .fill(CanopyColors.glowColor.opacity(0.8))
+                    .fill(accentColor.opacity(0.8))
                     .frame(width: 10 * cs, height: 10 * cs)
                     .position(x: indicatorX, y: 4 * cs)
             }

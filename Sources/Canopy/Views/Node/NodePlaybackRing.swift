@@ -26,7 +26,7 @@ struct NodePlaybackRing: View {
                 } else if isPlaying {
                     ringColor = color.opacity(0.5)
                 } else {
-                    ringColor = CanopyColors.branchLine.opacity(0.4)
+                    ringColor = color.opacity(0.25)
                 }
 
                 let ringPath = Path(ellipseIn: CGRect(

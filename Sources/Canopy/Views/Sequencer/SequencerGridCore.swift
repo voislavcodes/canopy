@@ -28,6 +28,8 @@ struct GridRenderContext {
     let showVelocityRow: Bool
     /// Step duration in beats for this grid (from the node's stepRate).
     let sd: Double
+    /// Accent color for active cells, playhead, and velocity row.
+    var accentColor: Color = CanopyColors.gridCellActive
 }
 
 // MARK: - Grid Core
@@ -224,7 +226,7 @@ enum SequencerGridCore {
                         return charCol == phCol - 1 || charCol == phCol + 1
                     }()
                     let sepColor = isPlayheadAdj
-                        ? CanopyColors.glowColor.opacity(0.3 * Double(rc.pulse))
+                        ? rc.accentColor.opacity(0.3 * Double(rc.pulse))
                         : borderColor
                     drawChar(context, "║", at: CGPoint(x: x, y: y), size: rc.fontSize, color: sepColor)
                 } else if let step = stepIdx {
@@ -243,9 +245,9 @@ enum SequencerGridCore {
 
                     if isContinuation {
                         char = "─"
-                        let baseCol: Color = rc.isArpActive ? arpCyan : (rc.hasEuclidean ? euclideanGreen : CanopyColors.gridCellActive)
+                        let baseCol: Color = rc.isArpActive ? arpCyan : (rc.hasEuclidean ? euclideanGreen : rc.accentColor)
                         color = isPlayhead
-                            ? CanopyColors.glowColor.opacity(Double(rc.pulse))
+                            ? rc.accentColor.opacity(Double(rc.pulse))
                             : baseCol.opacity(0.4 * dimFactor)
                     } else if isActive {
                         if ratchetCount > 1 {
@@ -259,15 +261,15 @@ enum SequencerGridCore {
                         } else {
                             char = "█"
                         }
-                        let baseCol: Color = rc.isArpActive ? arpCyan : (rc.hasEuclidean ? euclideanGreen : CanopyColors.gridCellActive)
+                        let baseCol: Color = rc.isArpActive ? arpCyan : (rc.hasEuclidean ? euclideanGreen : rc.accentColor)
                         color = isPlayhead
-                            ? CanopyColors.glowColor.opacity(Double(rc.pulse))
+                            ? rc.accentColor.opacity(Double(rc.pulse))
                             : baseCol.opacity((probability * 0.8 + 0.2) * dimFactor)
                     } else {
                         char = "·"
                         let arpDim = rc.arpPitches.contains(pitch) ? 0.08 : 0.0
                         color = isPlayhead
-                            ? CanopyColors.glowColor.opacity(0.4 * Double(rc.pulse))
+                            ? rc.accentColor.opacity(0.4 * Double(rc.pulse))
                             : CanopyColors.chromeText.opacity((enabled ? 0.15 : 0.06) + arpDim)
                     }
 
@@ -314,7 +316,7 @@ enum SequencerGridCore {
                 else if vel < 0.90 { ch = "▆" }
                 else { ch = "▇" }
 
-                let velColor = CanopyColors.glowColor.opacity((vel > 0 ? 0.5 : 0.1) * dimFactor)
+                let velColor = rc.accentColor.opacity((vel > 0 ? 0.5 : 0.1) * dimFactor)
                 drawChar(context, ch, at: CGPoint(x: x, y: velY), size: rc.fontSize, color: velColor)
             }
         }
@@ -323,7 +325,7 @@ enum SequencerGridCore {
         let sd = rc.sd
         let handleBaseColor: Color = rc.isArpActive
             ? Color(red: 0.2, green: 0.7, blue: 0.8)
-            : CanopyColors.gridCellActive
+            : rc.accentColor
         for note in rc.notes {
             let startStep = Int(round(note.startBeat / sd))
             let endStep: Int

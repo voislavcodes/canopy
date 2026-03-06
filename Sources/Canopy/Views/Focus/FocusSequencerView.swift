@@ -336,7 +336,8 @@ struct FocusSequencerView: View {
             spanDragState: pageLocalSpan,
             notes: pageNotes,
             showVelocityRow: false,
-            sd: sd
+            sd: sd,
+            accentColor: accentColor
         )
         let canvasSize = SequencerGridCore.canvasSize(for: rc)
 

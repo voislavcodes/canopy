@@ -83,7 +83,8 @@ struct DrumSequencerPanel: View {
                             cellSize: cellSize,
                             cellSpacing: cellSpacing,
                             cellCornerRadius: cellCornerRadius,
-                            cs: cs
+                            cs: cs,
+                            accentColor: accentColor
                         )
                     }
                 }
@@ -516,6 +517,7 @@ private struct SequencerPlayhead: View {
     let cellSpacing: CGFloat
     let cellCornerRadius: CGFloat
     let cs: CGFloat
+    var accentColor: Color = CanopyColors.glowColor
 
     private static let pollInterval: TimeInterval = 1.0 / 30.0
 
@@ -531,7 +533,7 @@ private struct SequencerPlayhead: View {
             let totalHeight = gridHeight + 2 * cs + 5 * cs
 
             RoundedRectangle(cornerRadius: cellCornerRadius)
-                .fill(CanopyColors.glowColor.opacity(isPlaying ? 0.2 : 0))
+                .fill(accentColor.opacity(isPlaying ? 0.2 : 0))
                 .frame(width: cellSize, height: totalHeight)
                 .offset(x: xOffset, y: 0)
                 .allowsHitTesting(false)

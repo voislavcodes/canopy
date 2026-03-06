@@ -503,7 +503,7 @@ struct ForestPitchedPanel: View {
             let isHit = i < pattern.count && pattern[i]
             let isPlayhead = i == playheadStep
             let color: Color
-            if isPlayhead { color = CanopyColors.glowColor.opacity(pulse) }
+            if isPlayhead { color = accentColor.opacity(pulse) }
             else if isHit { color = euclideanGreen }
             else { color = CanopyColors.chromeText.opacity(0.2) }
             let char = isHit ? "\u{25CF}" : "\u{25CB}"
@@ -548,7 +548,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = CanopyColors.glowColor.opacity(op)
+        let color = accentColor.opacity(op)
         let shimmerTick = Int(fmod(time * 8, 1000))
 
         for row in 0..<4 {
@@ -580,7 +580,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let activeColor = CanopyColors.glowColor.opacity(op)
+        let activeColor = accentColor.opacity(op)
 
         let rowCount = value > 16 ? 2 : 1
         for rowIdx in 0..<rowCount {
@@ -619,7 +619,7 @@ struct ForestPitchedPanel: View {
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
         let color: Color
-        if value < 0.3 { color = CanopyColors.glowColor.opacity(op) }
+        if value < 0.3 { color = accentColor.opacity(op) }
         else if value < 0.6 { color = Color(red: 0.6, green: 0.7, blue: 0.3).opacity(op) }
         else { color = Color(red: 0.8, green: 0.5, blue: 0.2).opacity(op) }
         let chaosChars = ["\u{2500}", "~", "\u{223F}", "\u{2248}"]
@@ -644,7 +644,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = CanopyColors.glowColor.opacity(op)
+        let color = accentColor.opacity(op)
 
         // RNG art: vertical arrow spread
         let segSpacing: CGFloat = fontSize * 1.2
@@ -680,7 +680,7 @@ struct ForestPitchedPanel: View {
 
                 let segColor: Color
                 if isLit {
-                    segColor = CanopyColors.glowColor.opacity(isOctDrag ? 0.9 : 0.7)
+                    segColor = accentColor.opacity(isOctDrag ? 0.9 : 0.7)
                 } else if isMid {
                     segColor = CanopyColors.chromeText.opacity(isOctDrag ? 0.5 : 0.35)
                 } else {
@@ -720,7 +720,7 @@ struct ForestPitchedPanel: View {
             if isTarget { op = 1.0 }
             else if isAdjacent { op = 0.5 }
             else { op = 0.25 }
-            let color = isTarget ? CanopyColors.glowColor.opacity(op) : CanopyColors.chromeText.opacity(op)
+            let color = isTarget ? accentColor.opacity(op) : CanopyColors.chromeText.opacity(op)
             let weight: Font.Weight = isTarget ? .bold : .regular
             context.draw(
                 Text(Self.fifthLabels[i]).font(.system(size: fontSize, weight: weight, design: .monospaced)).foregroundColor(color),
@@ -779,7 +779,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = isOn ? CanopyColors.glowColor.opacity(op) : CanopyColors.chromeText.opacity(0.3)
+        let color = isOn ? accentColor.opacity(op) : CanopyColors.chromeText.opacity(0.3)
 
         // Horizontal pivot line
         let lineW: CGFloat = 7
@@ -816,7 +816,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = CanopyColors.glowColor.opacity(op)
+        let color = accentColor.opacity(op)
 
         for row in 0..<4 {
             for col in 0..<6 {
@@ -843,7 +843,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = isOn ? CanopyColors.glowColor.opacity(op) : CanopyColors.chromeText.opacity(0.35)
+        let color = isOn ? accentColor.opacity(op) : CanopyColors.chromeText.opacity(0.35)
 
         let arrow = isOn ? "\u{2190}" : "\u{2192}"
         let arrows = String(repeating: "\(arrow) ", count: 4)
@@ -863,7 +863,7 @@ struct ForestPitchedPanel: View {
         let center = CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.38)
         let radius = min(rect.width, rect.height) * 0.18
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = CanopyColors.glowColor.opacity(op)
+        let color = accentColor.opacity(op)
 
         // Ring
         let ringChars = ["\u{256D}", "\u{2500}", "\u{256E}", "\u{2502}", "\u{256F}", "\u{2500}", "\u{2570}", "\u{2502}"]
@@ -890,7 +890,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = CanopyColors.glowColor.opacity(op)
+        let color = accentColor.opacity(op)
 
         let shimmerTick = Int(fmod(time * 4, 1000))
 
@@ -923,7 +923,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = CanopyColors.glowColor.opacity(op)
+        let color = accentColor.opacity(op)
 
         let arrows: String
         switch dir {
@@ -955,7 +955,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = CanopyColors.glowColor.opacity(op)
+        let color = accentColor.opacity(op)
 
         // Show 3 rows of dot pairs with offset increasing
         for row in 0..<3 {
@@ -982,7 +982,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = CanopyColors.glowColor.opacity(op)
+        let color = accentColor.opacity(op)
 
         let maxBars = 6
         let filledCount = max(1, Int(round(value * Double(maxBars))))
@@ -1008,7 +1008,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = active ? 1.0 : 0.55
-        let color = isOn ? CanopyColors.glowColor.opacity(op) : CanopyColors.chromeText.opacity(0.3)
+        let color = isOn ? accentColor.opacity(op) : CanopyColors.chromeText.opacity(0.3)
 
         if isOn {
             // Cascading arrows
@@ -1038,7 +1038,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = (active && arpOn) ? 1.0 : (arpOn ? 0.55 : 0.2)
-        let color = CanopyColors.glowColor.opacity(op)
+        let color = accentColor.opacity(op)
 
         let rate = node?.sequence.arpConfig?.rate ?? .sixteenth
         let tickCount: Int
@@ -1083,7 +1083,7 @@ struct ForestPitchedPanel: View {
         let centerX = rect.midX
         let artCenterY = rect.minY + rect.height * 0.38
         let op: CGFloat = (active && arpOn) ? 1.0 : (arpOn ? 0.55 : 0.2)
-        let color = CanopyColors.glowColor.opacity(op)
+        let color = accentColor.opacity(op)
 
         let octaves = node?.sequence.arpConfig?.octaveRange ?? 1
         let barH = fontSize * 1.0
@@ -1540,11 +1540,11 @@ struct ForestPitchedPanel: View {
                     HStack {
                         Text(rate.displayLabel)
                             .font(.system(size: 12, weight: rate == currentRate ? .bold : .regular, design: .monospaced))
-                            .foregroundColor(rate == currentRate ? CanopyColors.glowColor : CanopyColors.chromeText)
+                            .foregroundColor(rate == currentRate ? accentColor : CanopyColors.chromeText)
                         Spacer()
                         if rate == currentRate {
                             Text("\u{2713}")
-                                .foregroundColor(CanopyColors.glowColor)
+                                .foregroundColor(accentColor)
                         }
                     }
                     .padding(.horizontal, 10)
