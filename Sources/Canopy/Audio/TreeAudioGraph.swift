@@ -60,6 +60,8 @@ final class TreeAudioGraph {
             engine.detach(unit.sourceNode)
         }
         units.removeAll()
+        stagedIDs.removeAll()
+        stagedTreeID = nil
     }
 
     /// Crossfade swap: build new tree's graph alongside old one, activate new
@@ -118,6 +120,8 @@ final class TreeAudioGraph {
             engine.detach(unit.sourceNode)
         }
         units.removeAll()
+        stagedIDs.removeAll()
+        stagedTreeID = nil
     }
 
     // MARK: - Pre-staging for Zero-Gap Transitions
