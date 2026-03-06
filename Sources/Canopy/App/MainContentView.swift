@@ -462,25 +462,17 @@ struct MainContentView: View {
             AudioEngine.shared.drainUnits(for: nodes.map { $0.id })
         }
 
-        // 3. Sync FX, modulation, master bus for new tree
-        if let newTree = projectState.project.trees.first(where: { $0.id == newTreeID }) {
-            var nodes: [Node] = []
-            collectNodes(from: newTree.rootNode, into: &nodes)
-            for node in nodes {
-                if !node.effects.isEmpty {
-                    projectState.syncNodeFXToEngine(nodeID: node.id)
-                }
-            }
-        }
-        projectState.syncModulationToEngine()
-        projectState.syncMasterBusToEngine()
+        // Note: Do NOT re-sync master bus, node FX, or modulation here.
+        // Per-node FX chains are already configured during stageNextTree() → configureNodePatchRecursive().
+        // Master bus and modulation are project-level state that persists across tree transitions.
+        // Rebuilding the master FX chain here would destroy accumulated reverb/delay state and cause clicks.
 
-        // 4. Update UI state
+        // 3. Update UI state
         forestPlayback.activeTreeID = newTreeID
         projectState.selectedTreeID = newTreeID
         forestPlayback.computeNextTree(trees: projectState.project.trees)
 
-        // 5. Prune old timeline regions
+        // 4. Prune old timeline regions
         let currentSample = AudioEngine.shared.graph.clockSamplePosition.pointee
         forestPlayback.timeline?.pruneRegionsBefore(currentSample)
     }
