@@ -65,8 +65,19 @@ final class EuclideanTests: XCTestCase {
         let pattern = EuclideanRhythm.generate(steps: 8, pulses: 1)
         let pulseCount = pattern.filter { $0 }.count
         XCTAssertEqual(pulseCount, 1)
-        // Exactly one pulse somewhere in the pattern
-        XCTAssertTrue(pattern.contains(true))
+        // First pulse must be on beat 0
+        XCTAssertTrue(pattern[0])
+    }
+
+    func testFirstBeatAlwaysHit() {
+        // With no rotation, the first beat should always be a hit
+        for steps in 1...16 {
+            for pulses in 1...steps {
+                let pattern = EuclideanRhythm.generate(steps: steps, pulses: pulses, rotation: 0)
+                XCTAssertTrue(pattern[0],
+                              "E(\(pulses),\(steps)) should have a hit on beat 0")
+            }
+        }
     }
 
     // MARK: - Rotation

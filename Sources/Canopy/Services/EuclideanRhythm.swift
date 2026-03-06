@@ -16,8 +16,11 @@ enum EuclideanRhythm {
         if pulses == 0 { return Array(repeating: false, count: steps) }
         if pulses == steps { return Array(repeating: true, count: steps) }
 
-        // Bjorklund's algorithm
+        // Bjorklund's algorithm (normalize so first hit is at index 0)
         var pattern = bjorklund(steps: steps, pulses: pulses)
+        if let firstHit = pattern.firstIndex(of: true), firstHit > 0 {
+            pattern = Array(pattern[firstHit...]) + Array(pattern[..<firstHit])
+        }
 
         // Apply rotation
         if rotation != 0 {
