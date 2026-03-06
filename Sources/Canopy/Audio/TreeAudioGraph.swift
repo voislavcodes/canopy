@@ -383,14 +383,16 @@ final class TreeAudioGraph {
     }
 
     /// Fade all active units to silence, then stop sequencers. Click-free.
+    /// Uses a fixed fast fade (not the user-configurable transition release).
     /// Units stay in faded state (outputting zeros) until the next startAll().
     func stopAllWithFade() {
-        // Request fade-out on every active unit (not staged)
+        // Request fast stop-fade on every active unit (not staged)
         for (id, unit) in units where !stagedIDs.contains(id) {
-            unit.requestFadeOut()
+            unit.requestStopFade()
         }
-        // Wait for all to finish (typically < 12ms)
-        for _ in 0..<30 {
+        // Wait for stop fade to finish (~46ms for 4 buffers)
+        let maxWait = Int(Double(NodeAudioUnit.stopFadeBuffers) * 512.0 / 44100.0 / 0.001) + 15
+        for _ in 0..<maxWait {
             let allDone = units.filter({ !stagedIDs.contains($0.key) }).values.allSatisfy { $0.isFadedOut }
             if allDone { break }
             Thread.sleep(forTimeInterval: 0.001)

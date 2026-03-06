@@ -531,7 +531,7 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &voices, detune: detune)
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -541,7 +541,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Voice-tail rendering for post-deactivation frames (release envelopes)
@@ -834,7 +834,7 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &drumKit, detune: 0)
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -844,7 +844,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Voice-tail rendering for post-deactivation frames
@@ -1157,7 +1157,7 @@ final class NodeAudioUnit {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &quake, detune: 0)
                 orbit.stop()
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -1167,7 +1167,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Voice-tail rendering for post-deactivation frames
@@ -1475,7 +1475,7 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &westCoast, detune: 0)
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -1485,7 +1485,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             for frame in range.activeEnd..<Int(frameCount) {
@@ -1790,7 +1790,7 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &flow, detune: 0)
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -1800,7 +1800,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Voice-tail rendering for post-deactivation frames (release envelopes)
@@ -2108,7 +2108,7 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &swarm, detune: 0)
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -2118,7 +2118,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Voice-tail rendering for post-deactivation frames (release envelopes)
@@ -2432,7 +2432,7 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &tide, detune: 0)
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -2442,7 +2442,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Voice-tail rendering for post-deactivation frames (release envelopes)
@@ -2798,7 +2798,7 @@ final class NodeAudioUnit {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &spore, detune: 0)
                 sporeSeq.stop()
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -2808,7 +2808,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Voice-tail rendering for post-deactivation frames (release envelopes)
@@ -2972,13 +2972,25 @@ final class NodeAudioUnit {
         }
     }
 
-    /// Request a multi-buffer fade-out. The render callback will ramp to zero
-    /// over ~185ms (16 buffers) then output silence until removed.
+    /// Request a multi-buffer fade-out using the current transition release duration.
+    /// State encoding packs total and remaining into one Int32: (total << 16) | remaining.
+    /// This lets applyFade compute gain without reading the static var (which may change).
     func requestFadeOut() {
         let current = _fadeState.pointee
-        // Don't re-trigger if already fading (>0) or faded out (-1)
         if current == 0 {
-            _fadeState.pointee = Self.fadeOutBuffers
+            let bufs = Self.fadeOutBuffers
+            _fadeState.pointee = (bufs << 16) | bufs
+        }
+    }
+
+    /// Request a fast fixed fade-out for transport stop (~46ms / 4 buffers).
+    /// Decoupled from the user-configurable transition release duration.
+    static let stopFadeBuffers: Int32 = 4
+    func requestStopFade() {
+        let current = _fadeState.pointee
+        if current == 0 {
+            let bufs = Self.stopFadeBuffers
+            _fadeState.pointee = (bufs << 16) | bufs
         }
     }
 
@@ -3018,10 +3030,12 @@ final class NodeAudioUnit {
         guard state != 0 else { return }
         let frames = Int(frameCount)
         if state > 0 {
-            // Multi-buffer fade-out: linear ramp across buffers
-            let total = Float(fadeOutBuffers)
-            let gainStart = Float(state) / total
-            let gainEnd = Float(state - 1) / total
+            // Multi-buffer fade-out: linear ramp across buffers.
+            // State packs (total << 16) | remaining — extract both.
+            let total = Float(state >> 16)
+            let remaining = Float(state & 0xFFFF)
+            let gainStart = remaining / total
+            let gainEnd = (remaining - 1) / total
             let divisor = Float(max(1, frames - 1))
             for frame in 0..<frames {
                 let t = Float(frame) / divisor
@@ -3030,8 +3044,8 @@ final class NodeAudioUnit {
                     abl[buf].mData?.assumingMemoryBound(to: Float.self)[frame] *= gain
                 }
             }
-            let next = state - 1
-            fadeState.pointee = next > 0 ? next : -1
+            let nextRemaining = (state & 0xFFFF) - 1
+            fadeState.pointee = nextRemaining > 0 ? state - 1 : -1
         } else if state < -1 {
             // Multi-buffer fade-in: ramp from 0→1 over fadeInBuffers buffers
             let fadeInTotal = Float(fadeInBuffers)
@@ -3732,7 +3746,7 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &schmynth, detune: 0)
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -3742,7 +3756,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Voice-tail rendering for post-deactivation frames (release envelopes)
@@ -4010,7 +4024,7 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &fuse, detune: 0)
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -4020,7 +4034,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Voice-tail rendering for post-deactivation frames (release envelopes)
@@ -4270,7 +4284,7 @@ final class NodeAudioUnit {
             if range.shouldDeactivate {
                 deactivateAtSamplePtr.pointee = 0
                 seq.stopSoft(receiver: &volt, detune: 0)
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Forest timeline region transitions — fade in/out for click-free audio
@@ -4280,7 +4294,7 @@ final class NodeAudioUnit {
             }
             if seq.didAutoStopFromRegion {
                 seq.didAutoStopFromRegion = false
-                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = Self.fadeOutBuffers }
+                if fadeStatePtr.pointee == 0 { fadeStatePtr.pointee = (Self.fadeOutBuffers << 16) | Self.fadeOutBuffers }
             }
 
             // Voice-tail rendering for post-deactivation frames (release envelopes)
