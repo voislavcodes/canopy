@@ -68,7 +68,7 @@ struct MainContentView: View {
         .onChange(of: projectState.selectedTreeID) { _ in
             DispatchQueue.main.async { handleTreeSelectionChange() }
         }
-        .onChange(of: transportState.isPlaying) { isPlaying in
+        .onReceive(transportState.$isPlaying.removeDuplicates().dropFirst()) { isPlaying in
             DispatchQueue.main.async {
                 if isPlaying {
                     handlePlaybackStart()
@@ -192,7 +192,23 @@ struct MainContentView: View {
         forestPlayback.nextTreeID = nil
         forestPlayback.isLockedToTree = false
         forestPlayback.timeline = nil
-        AudioEngine.shared.clearStagedTree()
+
+        // Full reset in forest with 2+ trees: dismiss bloom, select tree[0]
+        let trees = projectState.project.trees
+        if viewModeManager.isForest && trees.count >= 2 {
+            projectState.selectedNodeID = nil
+            projectState.selectedTreeID = trees.first?.id
+        }
+
+        // Tear down and rebuild so the graph is ready for a clean start.
+        syncTreeToEngine()
+
+        // Rapid stop→play: if play was pressed before this handler ran,
+        // the rebuild killed the sequencers that startPlayback() started.
+        // Restart them on the fresh graph.
+        if transportState.isPlaying {
+            AudioEngine.shared.startAllSequencers(bpm: transportState.bpm)
+        }
     }
 
     /// Called when view mode changes (forest ↔ focus ↔ meadow).
