@@ -760,41 +760,32 @@ private struct TreeConnectorLines: View {
     let trees: [NodeTree]
     let treeOffsets: [CGPoint]
 
+    private let ringEdge = NodeMetrics.ringRadius + NodeMetrics.playheadDotRadius + 2
+
     var body: some View {
-        Canvas { context, size in
-            let ringEdge = NodeMetrics.ringRadius + NodeMetrics.playheadDotRadius + 2
-            for i in 0..<(trees.count - 1) {
-                guard i + 1 < treeOffsets.count else { continue }
-                let rootA = trees[i].rootNode.position
-                let rootB = trees[i + 1].rootNode.position
-                let ax = treeOffsets[i].x + rootA.x
-                let ay = treeOffsets[i].y + rootA.y
-                let bx = treeOffsets[i + 1].x + rootB.x
-                let by = treeOffsets[i + 1].y + rootB.y
+        ForEach(0..<max(0, trees.count - 1), id: \.self) { i in
+            let rootA = trees[i].rootNode.position
+            let rootB = trees[i + 1].rootNode.position
+            let ax = treeOffsets[i].x + rootA.x
+            let ay = treeOffsets[i].y + rootA.y
+            let bx = treeOffsets[i + 1].x + rootB.x
+            let by = treeOffsets[i + 1].y + rootB.y
+            let startX = ax + ringEdge
+            let endX = bx - ringEdge
+            let midY = (ay + by) / 2
 
-                let dx = bx - ax
-                let dy = by - ay
-                let dist = sqrt(dx * dx + dy * dy)
-                guard dist > ringEdge * 2 else { continue }
-
-                let nx = dx / dist
-                let ny = dy / dist
-                let startX = ax + nx * ringEdge
-                let startY = ay + ny * ringEdge
-                let endX = bx - nx * ringEdge
-                let endY = by - ny * ringEdge
-
-                var path = Path()
-                path.move(to: CGPoint(x: startX, y: startY))
-                path.addLine(to: CGPoint(x: endX, y: endY))
-                context.stroke(
-                    path,
-                    with: .color(CanopyColors.branchLine.opacity(0.25)),
+            if endX > startX {
+                Path { path in
+                    path.move(to: CGPoint(x: startX, y: midY))
+                    path.addLine(to: CGPoint(x: endX, y: midY))
+                }
+                .stroke(
+                    CanopyColors.branchLine.opacity(0.25),
                     style: StrokeStyle(lineWidth: 1, dash: [6, 5])
                 )
+                .allowsHitTesting(false)
             }
         }
-        .allowsHitTesting(false)
     }
 }
 
