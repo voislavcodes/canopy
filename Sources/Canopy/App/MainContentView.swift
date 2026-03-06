@@ -247,6 +247,10 @@ struct MainContentView: View {
             forestPlayback.nextTreeID = nil
             forestPlayback.timeline = nil
             AudioEngine.shared.clearStagedTree()
+            // Reset region end so active sequencers don't auto-stop at the
+            // old forest boundary. Without this, switching to Focus near a
+            // region boundary kills playback permanently.
+            AudioEngine.shared.setActiveRegionEnd(Int64.max)
         }
     }
 
