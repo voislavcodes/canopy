@@ -630,6 +630,11 @@ private struct ForestContentView: View {
 
     var body: some View {
         ZStack {
+            // Inter-tree dashed connectors
+            if trees.count > 1 {
+                TreeConnectorLines(trees: trees, treeOffsets: treeOffsets)
+            }
+
             // Per-tree rendering
             ForEach(Array(trees.enumerated()), id: \.element.id) { index, tree in
                 if index < treeOffsets.count {
@@ -746,6 +751,51 @@ private struct ForestContentView: View {
         trees.first.map { !$0.rootNode.sequence.notes.isEmpty || !$0.rootNode.children.isEmpty } ?? false
     }
 
+}
+
+// MARK: - TreeConnectorLines
+
+/// Subtle dashed lines connecting adjacent tree roots at their ring edges.
+private struct TreeConnectorLines: View {
+    let trees: [NodeTree]
+    let treeOffsets: [CGPoint]
+
+    var body: some View {
+        Canvas { context, size in
+            let ringEdge = NodeMetrics.ringRadius + NodeMetrics.playheadDotRadius + 2
+            for i in 0..<(trees.count - 1) {
+                guard i + 1 < treeOffsets.count else { continue }
+                let rootA = trees[i].rootNode.position
+                let rootB = trees[i + 1].rootNode.position
+                let ax = treeOffsets[i].x + rootA.x
+                let ay = treeOffsets[i].y + rootA.y
+                let bx = treeOffsets[i + 1].x + rootB.x
+                let by = treeOffsets[i + 1].y + rootB.y
+
+                let dx = bx - ax
+                let dy = by - ay
+                let dist = sqrt(dx * dx + dy * dy)
+                guard dist > ringEdge * 2 else { continue }
+
+                let nx = dx / dist
+                let ny = dy / dist
+                let startX = ax + nx * ringEdge
+                let startY = ay + ny * ringEdge
+                let endX = bx - nx * ringEdge
+                let endY = by - ny * ringEdge
+
+                var path = Path()
+                path.move(to: CGPoint(x: startX, y: startY))
+                path.addLine(to: CGPoint(x: endX, y: endY))
+                context.stroke(
+                    path,
+                    with: .color(CanopyColors.branchLine.opacity(0.25)),
+                    style: StrokeStyle(lineWidth: 1, dash: [6, 5])
+                )
+            }
+        }
+        .allowsHitTesting(false)
+    }
 }
 
 // MARK: - NewTreeNodeView
