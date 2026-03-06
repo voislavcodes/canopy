@@ -770,8 +770,11 @@ private struct TreeConnectorLines: View {
             let rootB = trees[i + 1].rootNode.position
             let ax = treeOffsets[i].x + rootA.x
             let bx = treeOffsets[i + 1].x + rootB.x
-            let ay = treeOffsets[i].y + rootA.y
-            let by = treeOffsets[i + 1].y + rootB.y
+            // The visual ring center is offset above position.y because
+            // NodeView's frame includes labels below the ring.
+            let ringCenterOffset: CGFloat = -16
+            let ay = treeOffsets[i].y + rootA.y + ringCenterOffset
+            let by = treeOffsets[i + 1].y + rootB.y + ringCenterOffset
             let startX = ax + ringEdge
             let endX = bx - ringEdge
             let midY = (ay + by) / 2
