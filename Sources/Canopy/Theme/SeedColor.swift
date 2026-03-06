@@ -147,17 +147,17 @@ enum SeedColor {
     // MARK: - Tier 2: Branch Drift
 
     /// Drift from an arbitrary HSL base for child branches.
-    /// ±7° hue, ±9% sat, ±8% lit — tighter ranges so children stay close to seed color.
+    /// ±15° hue, ±14% sat, ±12% lit — visible variety while staying in the seed's family.
     static func driftedColor(baseH: Double, baseS: Double, baseL: Double, seedId: Int) -> Color {
         let rH = seededRandom(seedId)
         let rS = seededRandom(seedId &+ 100)
         let rL = seededRandom(seedId &+ 200)
 
-        var h = baseH + (rH * 14.0 - 7.0)
+        var h = baseH + (rH * 30.0 - 15.0)
         h = h.truncatingRemainder(dividingBy: 360.0)
         if h < 0 { h += 360.0 }
-        let s = max(0.0, min(1.0, baseS + (rS * 0.18 - 0.09)))
-        let l = max(0.15, min(0.85, baseL + (rL * 0.16 - 0.08)))
+        let s = max(0.0, min(1.0, baseS + (rS * 0.28 - 0.14)))
+        let l = max(0.15, min(0.85, baseL + (rL * 0.24 - 0.12)))
 
         return hslToColor(h: h, s: s, l: l)
     }
