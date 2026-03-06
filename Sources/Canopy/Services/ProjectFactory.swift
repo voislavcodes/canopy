@@ -2,10 +2,15 @@ import Foundation
 
 enum ProjectFactory {
     static func newProject() -> CanopyProject {
+        let bpm = Double(Int.random(in: 60...170))
+        let root = PitchClass.allCases.randomElement()!
+        let mode = ScaleMode.allCases.filter { $0 != .chromatic }.randomElement()!
+        let key = MusicalKey(root: root, mode: mode)
+
         let seedNode = Node(
             name: "Seed",
             type: .seed,
-            key: MusicalKey(root: .C, mode: .minor),
+            key: key,
             sequence: NoteSequence(lengthInBeats: 4),
             patch: SoundPatch(
                 name: "Sine Seed",
@@ -26,8 +31,8 @@ enum ProjectFactory {
 
         return CanopyProject(
             name: "Untitled",
-            bpm: 120,
-            globalKey: MusicalKey(root: .C, mode: .minor),
+            bpm: bpm,
+            globalKey: key,
             trees: [tree],
             arrangements: [arrangement]
         )
