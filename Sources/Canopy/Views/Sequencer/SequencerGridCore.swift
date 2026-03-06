@@ -189,7 +189,7 @@ enum SequencerGridCore {
         let pitchRowCount = rc.pitches.count
         let isPlaying = rc.playheadStep >= 0
 
-        let euclideanGreen = Color(red: 0.2, green: 0.7, blue: 0.4)
+        let euclideanGreen = rc.accentColor
         let arpCyan = Color(red: 0.2, green: 0.7, blue: 0.8)
         let borderColor = CanopyColors.chromeText.opacity(0.15)
 

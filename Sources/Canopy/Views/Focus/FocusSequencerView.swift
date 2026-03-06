@@ -185,16 +185,16 @@ struct FocusSequencerView: View {
                 }) {
                     Text("\(rangeStart)-\(rangeEnd)")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundColor(isActive ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.4))
+                        .foregroundColor(isActive ? accentColor : CanopyColors.chromeText.opacity(0.4))
                         .padding(.horizontal, 6)
                         .frame(height: 20)
                         .background(
                             RoundedRectangle(cornerRadius: 3)
-                                .fill(isActive ? CanopyColors.glowColor.opacity(0.15) : Color.clear)
+                                .fill(isActive ? accentColor.opacity(0.15) : Color.clear)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 3)
-                                .stroke(isActive ? CanopyColors.glowColor.opacity(0.3) : CanopyColors.bloomPanelBorder.opacity(0.15), lineWidth: 0.5)
+                                .stroke(isActive ? accentColor.opacity(0.3) : CanopyColors.bloomPanelBorder.opacity(0.15), lineWidth: 0.5)
                         )
                 }
                 .buttonStyle(.plain)
@@ -220,7 +220,7 @@ struct FocusSequencerView: View {
                 let y = CGFloat(row) * rh + rh / 2
                 let x = cw / 2
                 if row == thumbRow {
-                    SequencerGridCore.drawChar(context, "\u{2588}", at: CGPoint(x: x, y: y), size: fontSize, color: CanopyColors.glowColor.opacity(0.6))
+                    SequencerGridCore.drawChar(context, "\u{2588}", at: CGPoint(x: x, y: y), size: fontSize, color: accentColor.opacity(0.6))
                 } else {
                     SequencerGridCore.drawChar(context, "\u{2502}", at: CGPoint(x: x, y: y), size: fontSize, color: CanopyColors.chromeText.opacity(0.15))
                 }
@@ -254,7 +254,7 @@ struct FocusSequencerView: View {
                 let highlight = scaleAwareEnabled ? isRoot : isC
                 Text(name)
                     .font(.system(size: max(7, fontSize * 0.6), weight: highlight ? .bold : .regular, design: .monospaced))
-                    .foregroundColor(highlight ? CanopyColors.glowColor.opacity(0.7) : CanopyColors.chromeText.opacity(0.35))
+                    .foregroundColor(highlight ? accentColor.opacity(0.7) : CanopyColors.chromeText.opacity(0.35))
                     .frame(width: 28, height: rh, alignment: .trailing)
             }
         }
@@ -389,12 +389,12 @@ struct FocusSequencerView: View {
                     let dashPattern: [CGFloat] = [3, 3]
                     context.stroke(
                         Path(rect),
-                        with: .color(CanopyColors.glowColor.opacity(0.6)),
+                        with: .color(accentColor.opacity(0.6)),
                         style: StrokeStyle(lineWidth: 1, dash: dashPattern)
                     )
                     context.fill(
                         Path(rect),
-                        with: .color(CanopyColors.glowColor.opacity(0.08))
+                        with: .color(accentColor.opacity(0.08))
                     )
                 }
             }
@@ -643,7 +643,7 @@ struct FocusSequencerView: View {
                     let y = rh / 2
                     let ch = Self.dotChar(for: avgVel)
                     SequencerGridCore.drawChar(context, ch, at: CGPoint(x: x, y: y),
-                                               size: fontSize, color: CanopyColors.glowColor.opacity(0.3 + avgVel * 0.5))
+                                               size: fontSize, color: accentColor.opacity(0.3 + avgVel * 0.5))
                 }
             }
             .frame(width: canvasWidth, height: rh)
@@ -698,7 +698,7 @@ struct FocusSequencerView: View {
                     let y = rh / 2
                     let ch = Self.dotChar(for: prob)
                     SequencerGridCore.drawChar(context, ch, at: CGPoint(x: x, y: y),
-                                               size: fontSize, color: CanopyColors.glowColor.opacity(0.2 + prob * 0.35))
+                                               size: fontSize, color: accentColor.opacity(0.2 + prob * 0.35))
                 }
             }
             .frame(width: canvasWidth, height: rh)

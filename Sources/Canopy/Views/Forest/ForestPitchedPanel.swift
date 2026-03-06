@@ -44,7 +44,7 @@ struct ForestPitchedPanel: View {
 
     // MARK: - Constants
 
-    private let euclideanGreen = Color(red: 0.2, green: 0.7, blue: 0.4)
+    private var euclideanGreen: Color { accentColor }
     private static let fifthLabels = ["C", "G", "D", "A", "E", "B", "F#", "Db", "Ab", "Eb", "Bb", "F"]
     private static let fifthSemitones = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5]
     private static let pageNames = ["GENERATE", "TRANSFORM", "PLAY"]
