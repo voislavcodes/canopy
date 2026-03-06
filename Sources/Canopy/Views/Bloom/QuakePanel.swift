@@ -6,6 +6,7 @@ import SwiftUI
 struct QuakePanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
+    let accentColor: Color
 
     @State private var selectedVoiceIndex: Int = 0
 
@@ -121,7 +122,7 @@ struct QuakePanel: View {
 
     private var voiceSelector: some View {
         let names = QuakeVoiceManager.voiceNames
-        let quakeColor = CanopyColors.nodeRhythmic
+        let quakeColor = accentColor
 
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3 * cs), count: 4), spacing: 3 * cs) {
             ForEach(0..<QuakeVoiceManager.voiceCount, id: \.self) { i in
@@ -155,7 +156,7 @@ struct QuakePanel: View {
     // MARK: - Physics Sliders
 
     private var physicsSliders: some View {
-        let quakeColor = CanopyColors.nodeRhythmic
+        let quakeColor = accentColor
 
         return VStack(spacing: 5 * cs) {
             paramSlider(label: "MASS", value: $localMass, range: 0...1, color: quakeColor, format: { "\(Int($0 * 100))%" }) {
@@ -188,7 +189,7 @@ struct QuakePanel: View {
 
     private var outputControls: some View {
         VStack(spacing: 5 * cs) {
-            paramSlider(label: "VOL", value: $localVolume, range: 0...1, color: CanopyColors.nodeRhythmic, format: { "\(Int($0 * 100))%" }) {
+            paramSlider(label: "VOL", value: $localVolume, range: 0...1, color: accentColor, format: { "\(Int($0 * 100))%" }) {
                 commitConfig { $0.volume = localVolume }
             } onDrag: {
                 guard let nodeID = projectState.selectedNodeID else { return }
@@ -226,7 +227,7 @@ struct QuakePanel: View {
                     .position(x: width / 2, y: 4 * cs)
 
                 Circle()
-                    .fill(CanopyColors.nodeRhythmic.opacity(0.8))
+                    .fill(accentColor.opacity(0.8))
                     .frame(width: 10 * cs, height: 10 * cs)
                     .position(x: indicatorX, y: 4 * cs)
             }

@@ -5,6 +5,7 @@ import SwiftUI
 /// between Forest (bloom) and Focus modes.
 struct ForestEngineView: View {
     @ObservedObject var projectState: ProjectState
+    let accentColor: Color
 
     var body: some View {
         if let node = projectState.selectedNode {
@@ -16,27 +17,27 @@ struct ForestEngineView: View {
     private func enginePanel(for node: Node) -> some View {
         switch node.patch.soundType {
         case .quake:
-            QuakePanel(projectState: projectState)
+            QuakePanel(projectState: projectState, accentColor: accentColor)
         case .drumKit:
-            DrumVoicePanel(projectState: projectState)
+            DrumVoicePanel(projectState: projectState, accentColor: accentColor)
         case .westCoast:
-            WestCoastPanel(projectState: projectState)
+            WestCoastPanel(projectState: projectState, accentColor: accentColor)
         case .flow:
-            FlowPanel(projectState: projectState)
+            FlowPanel(projectState: projectState, accentColor: accentColor)
         case .tide:
-            TidePanel(projectState: projectState)
+            TidePanel(projectState: projectState, accentColor: accentColor)
         case .swarm:
-            SwarmPanel(projectState: projectState)
+            SwarmPanel(projectState: projectState, accentColor: accentColor)
         case .spore:
-            SporePanel(projectState: projectState)
+            SporePanel(projectState: projectState, accentColor: accentColor)
         case .fuse:
-            FusePanel(projectState: projectState)
+            FusePanel(projectState: projectState, accentColor: accentColor)
         case .volt:
-            VoltPanel(projectState: projectState)
+            VoltPanel(projectState: projectState, accentColor: accentColor)
         case .schmynth:
-            SchmynthPanel(projectState: projectState)
+            SchmynthPanel(projectState: projectState, accentColor: accentColor)
         default:
-            SynthControlsPanel(projectState: projectState)
+            SynthControlsPanel(projectState: projectState, accentColor: accentColor)
         }
     }
 }

@@ -5,6 +5,7 @@ import SwiftUI
 struct ForestSequencerView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
+    let accentColor: Color
 
     var body: some View {
         if let node = projectState.selectedNode {
@@ -17,13 +18,13 @@ struct ForestSequencerView: View {
     private func sequencerPanel(for seqType: SequencerType) -> some View {
         switch seqType {
         case .sporeSeq:
-            SporeSeqPanel(projectState: projectState)
+            SporeSeqPanel(projectState: projectState, accentColor: accentColor)
         case .orbit:
-            OrbitSequencerPanel(projectState: projectState, transportState: transportState)
+            OrbitSequencerPanel(projectState: projectState, transportState: transportState, accentColor: accentColor)
         case .drum:
-            DrumSequencerPanel(projectState: projectState, transportState: transportState)
+            DrumSequencerPanel(projectState: projectState, transportState: transportState, accentColor: accentColor)
         case .pitched:
-            ForestPitchedPanel(projectState: projectState, transportState: transportState)
+            ForestPitchedPanel(projectState: projectState, transportState: transportState, accentColor: accentColor)
         }
     }
 

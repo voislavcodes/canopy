@@ -281,6 +281,7 @@ struct ForestCanvasView: View {
     private func forestBloomContent(node: Node, viewSize: CGSize, treeOffsets: [CGPoint]) -> some View {
         let _ = ensureInitialOffsets(for: node)
         let nodeForest = forestPositionForNode(node, treeOffsets: treeOffsets)
+        let bloomAccentColor = resolveNodeAccentColor(node.id)
 
         let synthUserOffset = bloomState.storedOffset(panel: .synth, nodeID: node.id)
         let seqUserOffset = bloomState.storedOffset(panel: .sequencer, nodeID: node.id)
@@ -315,15 +316,15 @@ struct ForestCanvasView: View {
             )
 
             DraggableBloomPanel(panel: .synth, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: synthScreen) {
-                ForestEngineView(projectState: projectState)
+                ForestEngineView(projectState: projectState, accentColor: bloomAccentColor)
             }
 
             DraggableBloomPanel(panel: .sequencer, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: seqScreen) {
-                ForestSequencerView(projectState: projectState, transportState: transportState)
+                ForestSequencerView(projectState: projectState, transportState: transportState, accentColor: bloomAccentColor)
             }
 
             DraggableBloomPanel(panel: .input, nodeID: node.id, bloomState: bloomState, canvasScale: scale, screenPosition: keyboardScreen) {
-                ForestKeyboardView(projectState: projectState, transportState: transportState)
+                ForestKeyboardView(projectState: projectState, transportState: transportState, accentColor: bloomAccentColor)
             }
         }
     }
@@ -580,6 +581,18 @@ struct ForestCanvasView: View {
         }
     }
 
+    // MARK: - Color Resolution
+
+    /// Resolve the accent color for a node by finding its tree and computing the drifted color.
+    private func resolveNodeAccentColor(_ nodeID: UUID) -> Color {
+        if let (index, _) = projectState.treeContainingNode(nodeID),
+           index < projectState.project.trees.count {
+            let tree = projectState.project.trees[index]
+            return SeedColor.colorForNode(nodeID, in: tree)
+        }
+        return CanopyColors.nodeSeed
+    }
+
     // MARK: - Private Helpers
 
     private func collectNodes(from node: Node, into result: inout [Node]) {
@@ -611,18 +624,8 @@ private struct ForestContentView: View {
     let onNewTreeTap: () -> Void
     @Binding var showNewTreePopover: Bool
 
-    static func nodeColor(for node: Node) -> Color {
-        if let pid = node.presetID, let preset = NodePreset.find(pid) {
-            return CanopyColors.presetColor(preset.color)
-        }
-        switch node.type {
-        case .seed: return CanopyColors.nodeSeed
-        case .melodic: return CanopyColors.nodeMelodic
-        case .harmonic: return CanopyColors.nodeHarmonic
-        case .rhythmic: return CanopyColors.nodeRhythmic
-        case .effect: return CanopyColors.nodeEffect
-        case .group: return CanopyColors.nodeGroup
-        }
+    static func nodeColor(for node: Node, in tree: NodeTree) -> Color {
+        SeedColor.colorForNode(node.id, in: tree)
     }
 
     var body: some View {
@@ -635,7 +638,7 @@ private struct ForestContentView: View {
 
                     ZStack {
                         // Branch lines
-                        BranchLineView(nodes: nodes)
+                        BranchLineView(nodes: nodes, tree: tree)
 
                         // Bloom zone behind selected node
                         if let selID = selectedNodeID,
@@ -652,7 +655,8 @@ private struct ForestContentView: View {
                             NodeView(
                                 node: node,
                                 isSelected: selectedNodeID == node.id,
-                                isPlaying: isPlaying
+                                isPlaying: isPlaying,
+                                nodeColor: Self.nodeColor(for: node, in: tree)
                             )
                             .onTapGesture { onNodeTap(node.id) }
                             .onHover { isHovered in
@@ -668,7 +672,7 @@ private struct ForestContentView: View {
                             AddBranchButton(
                                 parentPosition: CGPoint(x: hoveredNode.position.x, y: hoveredNode.position.y),
                                 children: [],
-                                color: Self.nodeColor(for: hoveredNode)
+                                color: Self.nodeColor(for: hoveredNode, in: tree)
                             ) {
                                 onAddBranch(hoveredNode.id)
                             }
@@ -703,7 +707,7 @@ private struct ForestContentView: View {
                             AddBranchButton(
                                 parentPosition: CGPoint(x: selNode.position.x, y: selNode.position.y),
                                 children: selNode.children,
-                                color: Self.nodeColor(for: selNode)
+                                color: Self.nodeColor(for: selNode, in: tree)
                             ) {
                                 onAddBranch(selNode.id)
                             }

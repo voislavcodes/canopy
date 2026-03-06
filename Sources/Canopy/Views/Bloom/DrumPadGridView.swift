@@ -7,6 +7,7 @@ struct DrumPadGridView: View {
     var selectedNodeID: UUID?
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
+    let accentColor: Color
 
     @State private var pressedPads: Set<Int> = []
 
@@ -68,7 +69,7 @@ struct DrumPadGridView: View {
     private func drumPad(index: Int) -> some View {
         let isPressed = pressedPads.contains(index)
         let pitch = midiPitches[index]
-        let drumColor = CanopyColors.nodeRhythmic
+        let drumColor = accentColor
 
         return VStack(spacing: 2 * cs) {
             RoundedRectangle(cornerRadius: 6 * cs)
@@ -136,7 +137,7 @@ struct DrumPadGridView: View {
 
             Slider(value: $projectState.captureQuantizeStrength, in: 0...1)
                 .frame(width: 60)
-                .tint(CanopyColors.nodeRhythmic)
+                .tint(accentColor)
 
             Text("\(Int(projectState.captureQuantizeStrength * 100))%")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
@@ -160,7 +161,7 @@ struct DrumPadGridView: View {
                 .background(
                     RoundedRectangle(cornerRadius: 3)
                         .fill(isActive
-                              ? CanopyColors.nodeRhythmic.opacity(0.5)
+                              ? accentColor.opacity(0.5)
                               : Color.clear)
                 )
         }

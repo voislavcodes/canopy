@@ -7,6 +7,7 @@ struct OrbitSequencerPanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
     @ObservedObject var transportState: TransportState
+    let accentColor: Color
 
     // Local drag state
     @State private var localGravity: Double = 0.3
@@ -183,7 +184,7 @@ struct OrbitSequencerPanel: View {
     // MARK: - Parameter Sliders
 
     private var orbitSliders: some View {
-        let orbitColor = CanopyColors.nodeRhythmic
+        let orbitColor = accentColor
 
         return VStack(spacing: 5 * cs) {
             paramSlider(label: "GRAVITY", value: $localGravity, range: 0...1, color: orbitColor, format: { "\(Int($0 * 100))%" }) {

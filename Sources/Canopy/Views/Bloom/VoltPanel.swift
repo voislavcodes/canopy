@@ -77,7 +77,7 @@ struct VoltPanel: View {
         return kit.voices[selectedSlot]
     }
 
-    private let accentColor = CanopyColors.nodeVolt
+    let accentColor: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {

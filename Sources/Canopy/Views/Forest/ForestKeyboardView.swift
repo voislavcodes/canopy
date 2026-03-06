@@ -5,6 +5,7 @@ import SwiftUI
 struct ForestKeyboardView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
+    let accentColor: Color
 
     var body: some View {
         if let node = projectState.selectedNode {
@@ -20,14 +21,16 @@ struct ForestKeyboardView: View {
             DrumPadGridView(
                 selectedNodeID: projectState.selectedNodeID,
                 projectState: projectState,
-                transportState: transportState
+                transportState: transportState,
+                accentColor: accentColor
             )
         case .keyboard:
             KeyboardBarView(
                 baseOctave: $projectState.keyboardOctave,
                 selectedNodeID: projectState.selectedNodeID,
                 projectState: projectState,
-                transportState: transportState
+                transportState: transportState,
+                accentColor: accentColor
             )
         }
     }

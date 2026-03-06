@@ -6,6 +6,7 @@ import SwiftUI
 struct DrumVoicePanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
+    let accentColor: Color
 
     @State private var selectedVoiceIndex: Int = 0
 
@@ -124,7 +125,7 @@ struct DrumVoicePanel: View {
 
     private var voiceSelector: some View {
         let names = FMDrumKit.voiceNames
-        let drumColor = CanopyColors.nodeRhythmic
+        let drumColor = accentColor
 
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3 * cs), count: 4), spacing: 3 * cs) {
             ForEach(0..<FMDrumKit.voiceCount, id: \.self) { i in
@@ -153,7 +154,7 @@ struct DrumVoicePanel: View {
 
     @ViewBuilder
     private func voiceSliders(kit: DrumKitConfig) -> some View {
-        let drumColor = CanopyColors.nodeRhythmic
+        let drumColor = accentColor
 
         VStack(spacing: 5 * cs) {
             paramSlider(label: "FREQ", value: $localCarrierFreq, range: 20...2000, logarithmic: true, color: drumColor, format: { "\(Int($0))Hz" }) {
@@ -210,7 +211,7 @@ struct DrumVoicePanel: View {
 
     private var globalControls: some View {
         VStack(spacing: 5 * cs) {
-            paramSlider(label: "VOL", value: $localVolume, range: 0...1, color: CanopyColors.nodeRhythmic, format: { "\(Int($0 * 100))%" }) {
+            paramSlider(label: "VOL", value: $localVolume, range: 0...1, color: accentColor, format: { "\(Int($0 * 100))%" }) {
                 commitPatch { $0.volume = localVolume }
             } onDrag: {
                 guard let nodeID = projectState.selectedNodeID else { return }
@@ -248,7 +249,7 @@ struct DrumVoicePanel: View {
                     .position(x: width / 2, y: 4 * cs)
 
                 Circle()
-                    .fill(CanopyColors.nodeRhythmic.opacity(0.8))
+                    .fill(accentColor.opacity(0.8))
                     .frame(width: 10 * cs, height: 10 * cs)
                     .position(x: indicatorX, y: 4 * cs)
             }

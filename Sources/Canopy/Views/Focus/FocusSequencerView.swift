@@ -6,6 +6,7 @@ import SwiftUI
 struct FocusSequencerView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
+    var accentColor: Color = CanopyColors.gridCellActive
 
     /// MIDI range for the touch strip (C1 to C7)
     private let midiLow = 24
@@ -164,7 +165,8 @@ struct FocusSequencerView: View {
             ForestPitchedPanel(
                 projectState: projectState,
                 transportState: transportState,
-                layoutMode: .focus
+                layoutMode: .focus,
+                accentColor: accentColor
             )
             .frame(width: sidebarWidth)
         }

@@ -10,6 +10,7 @@ struct ForestPitchedPanel: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
     var layoutMode: LayoutMode = .forest
+    var accentColor: Color = CanopyColors.gridCellActive
     @Environment(\.canvasScale) var cs
 
     private let panelWidth: CGFloat = 390

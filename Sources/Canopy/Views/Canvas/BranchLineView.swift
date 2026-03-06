@@ -4,6 +4,7 @@ import SwiftUI
 /// Uses Shape-based rendering so branch lines animate when node positions change.
 struct BranchLineView: View {
     let nodes: [Node]
+    let tree: NodeTree
 
     var body: some View {
         ZStack {
@@ -39,7 +40,7 @@ struct BranchLineView: View {
                 BranchPair(
                     parentID: node.id, childID: child.id,
                     parentPos: node.position, childPos: child.position,
-                    childPresetID: child.presetID
+                    childColor: SeedColor.colorForNode(child.id, in: tree)
                 )
             }
         }
@@ -51,15 +52,12 @@ struct BranchPair: Identifiable {
     let childID: UUID
     let parentPos: NodePosition
     let childPos: NodePosition
-    let childPresetID: String?
+    let childColor: Color
     var id: String { "\(parentID)-\(childID)" }
 
-    /// Tint toward child's preset color at low opacity, fall back to default.
+    /// Tint toward child's drifted color at low opacity.
     var lineColor: Color {
-        if let pid = childPresetID, let preset = NodePreset.find(pid) {
-            return CanopyColors.presetColor(preset.color).opacity(0.4)
-        }
-        return CanopyColors.branchLine
+        childColor.opacity(0.4)
     }
 }
 

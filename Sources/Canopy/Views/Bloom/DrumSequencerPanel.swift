@@ -5,6 +5,7 @@ import SwiftUI
 struct DrumSequencerPanel: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
+    let accentColor: Color
     @Environment(\.canvasScale) var cs
 
     private let voiceCount = FMDrumKit.voiceCount
@@ -172,7 +173,7 @@ struct DrumSequencerPanel: View {
         let gridWidth = CGFloat(dCols) * stride - spacing
         let gridHeight = CGFloat(vc) * stride - spacing
 
-        let drumColor = CanopyColors.nodeRhythmic
+        let drumColor = accentColor
         let borderColor = CanopyColors.bloomPanelBorder
         let inactiveColor = CanopyColors.gridCellInactive
 
@@ -242,7 +243,7 @@ struct DrumSequencerPanel: View {
                 let dimFactor: Double = enabled ? 1.0 : 0.25
 
                 RoundedRectangle(cornerRadius: 1 * cs)
-                    .fill(CanopyColors.nodeRhythmic.opacity((maxVel > 0 ? 0.5 : 0.1) * dimFactor))
+                    .fill(accentColor.opacity((maxVel > 0 ? 0.5 : 0.1) * dimFactor))
                     .frame(width: cellSize, height: max(1, maxBarHeight * CGFloat(maxVel)))
             }
         }
@@ -261,7 +262,7 @@ struct DrumSequencerPanel: View {
 
             dragValue(
                 label: "E", value: pulses, range: 0...columns,
-                color: euclidean != nil ? CanopyColors.nodeRhythmic : CanopyColors.chromeText.opacity(0.4)
+                color: euclidean != nil ? accentColor : CanopyColors.chromeText.opacity(0.4)
             ) { applyEuclidean(pulses: $0, rotation: rotation) }
 
             dragValue(
@@ -287,11 +288,11 @@ struct DrumSequencerPanel: View {
                 Button(action: { setDirection(dir) }) {
                     Text(symbol)
                         .font(.system(size: 11 * cs, weight: .medium, design: .monospaced))
-                        .foregroundColor(isActive ? CanopyColors.nodeRhythmic : CanopyColors.chromeText.opacity(0.4))
+                        .foregroundColor(isActive ? accentColor : CanopyColors.chromeText.opacity(0.4))
                         .frame(width: 22 * cs, height: 18 * cs)
                         .background(
                             RoundedRectangle(cornerRadius: 3 * cs)
-                                .fill(isActive ? CanopyColors.nodeRhythmic.opacity(0.15) : Color.clear)
+                                .fill(isActive ? accentColor.opacity(0.15) : Color.clear)
                         )
                 }
                 .buttonStyle(.plain)
@@ -410,7 +411,7 @@ struct DrumSequencerPanel: View {
             let filledWidth = max(0, min(width, width * fraction))
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 3 * cs).fill(CanopyColors.bloomPanelBorder.opacity(0.3)).frame(height: 8 * cs)
-                RoundedRectangle(cornerRadius: 3 * cs).fill(CanopyColors.nodeRhythmic.opacity(0.6)).frame(width: filledWidth, height: 8 * cs)
+                RoundedRectangle(cornerRadius: 3 * cs).fill(accentColor.opacity(0.6)).frame(width: filledWidth, height: 8 * cs)
             }
             .gesture(
                 DragGesture(minimumDistance: 0)

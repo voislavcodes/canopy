@@ -44,7 +44,7 @@ struct FlowPanel: View {
         return nil
     }
 
-    private let accentColor = CanopyColors.nodeFlow
+    let accentColor: Color
 
     /// Compute Reynolds number from current parameters.
     private var reynoldsNumber: Double {

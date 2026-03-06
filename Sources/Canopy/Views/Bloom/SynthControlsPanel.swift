@@ -9,6 +9,7 @@ import SwiftUI
 struct SynthControlsPanel: View {
     @Environment(\.canvasScale) var cs
     @ObservedObject var projectState: ProjectState
+    let accentColor: Color
 
     // MARK: - Local drag state (view-local, zero cascade)
 

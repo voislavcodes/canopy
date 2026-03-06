@@ -16,7 +16,9 @@ enum VariationService {
             rootNode: deepCopyNode(tree.rootNode),
             scale: tree.scale,
             sourceTreeID: tree.id,
-            variationType: variation
+            variationType: variation,
+            anchor: tree.anchor,
+            colorSeedId: Int.random(in: 0..<1_000_000)
         )
 
         applyToNode(&newTree.rootNode, variation: variation, scale: scale)

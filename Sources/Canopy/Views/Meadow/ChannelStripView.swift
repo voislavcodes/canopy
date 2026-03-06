@@ -5,6 +5,7 @@ struct ChannelStripView: View {
     let node: Node
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
+    let nodeColor: Color
     @EnvironmentObject var viewModeManager: ViewModeManager
 
     @State private var isDragging = false
@@ -20,13 +21,6 @@ struct ChannelStripView: View {
 
     private let stripWidth: CGFloat = 60
     private let faderHeight: CGFloat = 140
-
-    private var nodeColor: Color {
-        if let pid = node.presetID, let preset = NodePreset.find(pid) {
-            return CanopyColors.presetColor(preset.color)
-        }
-        return CanopyColors.nodeSeed
-    }
 
     private var engineBadge: String {
         switch node.patch.soundType {

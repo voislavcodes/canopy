@@ -16,20 +16,7 @@ struct NodeView: View {
     let node: Node
     let isSelected: Bool
     let isPlaying: Bool
-
-    private var nodeColor: Color {
-        if let pid = node.presetID, let preset = NodePreset.find(pid) {
-            return CanopyColors.presetColor(preset.color)
-        }
-        switch node.type {
-        case .seed: return CanopyColors.nodeSeed
-        case .melodic: return CanopyColors.nodeMelodic
-        case .harmonic: return CanopyColors.nodeHarmonic
-        case .rhythmic: return CanopyColors.nodeRhythmic
-        case .effect: return CanopyColors.nodeEffect
-        case .group: return CanopyColors.nodeGroup
-        }
-    }
+    let nodeColor: Color
 
     var body: some View {
         VStack(spacing: 4) {
@@ -76,11 +63,11 @@ struct NodeView: View {
             VStack(spacing: 2) {
                 Text(node.name.lowercased())
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundColor(CanopyColors.nodeLabel)
+                    .foregroundColor(nodeColor.opacity(0.7))
 
                 Text("\(Int(node.sequence.lengthInBeats))b")
                     .font(.system(size: 10, weight: .regular, design: .monospaced))
-                    .foregroundColor(CanopyColors.nodeLabel.opacity(0.6))
+                    .foregroundColor(nodeColor.opacity(0.45))
             }
         }
         .frame(width: NodeMetrics.frameWidth, height: NodeMetrics.frameHeight)

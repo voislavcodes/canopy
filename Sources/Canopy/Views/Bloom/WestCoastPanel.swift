@@ -52,7 +52,7 @@ struct WestCoastPanel: View {
         return nil
     }
 
-    private let accentColor = CanopyColors.nodeWest
+    let accentColor: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {

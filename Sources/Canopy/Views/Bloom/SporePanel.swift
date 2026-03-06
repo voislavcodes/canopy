@@ -49,7 +49,7 @@ struct SporePanel: View {
         return nil
     }
 
-    private let accentColor = CanopyColors.nodeSpore
+    let accentColor: Color
 
     private let funcShapeLabels = ["OFF", "SIN", "TRI", "SAW\u{2193}", "SAW\u{2191}", "SQR", "S&H"]
     private let funcDivOptions = [1, 2, 4, 8, 16]

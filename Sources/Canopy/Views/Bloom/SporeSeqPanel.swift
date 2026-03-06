@@ -21,7 +21,7 @@ struct SporeSeqPanel: View {
         node?.sporeSeqConfig
     }
 
-    private let accentColor = CanopyColors.nodeSpore
+    let accentColor: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {

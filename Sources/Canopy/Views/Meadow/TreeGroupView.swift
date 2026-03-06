@@ -11,10 +11,7 @@ struct TreeGroupView: View {
     @State private var isCollapsed = false
 
     private var treeColor: Color {
-        if let pid = tree.rootNode.presetID, let preset = NodePreset.find(pid) {
-            return CanopyColors.presetColor(preset.color)
-        }
-        return CanopyColors.nodeSeed
+        tree.driftedColor
     }
 
     var body: some View {
@@ -40,7 +37,8 @@ struct TreeGroupView: View {
                         ChannelStripView(
                             node: node,
                             projectState: projectState,
-                            transportState: transportState
+                            transportState: transportState,
+                            nodeColor: SeedColor.colorForNode(node.id, in: tree)
                         )
                     }
                 }

@@ -32,7 +32,7 @@ struct SwarmPanel: View {
         return nil
     }
 
-    private let accentColor = CanopyColors.nodeSwarm
+    let accentColor: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * cs) {

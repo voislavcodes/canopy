@@ -168,7 +168,12 @@ class ProjectState: ObservableObject {
             ),
             position: NodePosition(x: 0, y: 0)
         )
-        let tree = NodeTree(name: treeName, rootNode: seedNode)
+        let tree = NodeTree(
+            name: treeName,
+            rootNode: seedNode,
+            anchor: SeedColor.SeedAnchor.allCases.randomElement()!,
+            colorSeedId: Int.random(in: 0..<1_000_000)
+        )
         project.trees.append(tree)
         markDirty()
         return tree
@@ -200,7 +205,9 @@ class ProjectState: ObservableObject {
         let newTree = NodeTree(
             name: source.name + " copy",
             rootNode: deepCopyNode(source.rootNode),
-            scale: source.scale
+            scale: source.scale,
+            anchor: source.anchor,
+            colorSeedId: Int.random(in: 0..<1_000_000)
         )
         project.trees.append(newTree)
         markDirty()

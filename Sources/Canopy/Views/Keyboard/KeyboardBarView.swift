@@ -16,7 +16,7 @@ struct KeyboardBarView: View {
     private static let whiteKeyOffsets = [0, 2, 4, 5, 7, 9, 11]
     private static let blackKeyAfterWhite = [0, 2, 5, 7, 9]
 
-    private let accentColor = Color(red: 0.4, green: 0.75, blue: 0.5)
+    let accentColor: Color
 
     /// Combined pressed notes from mouse/touch and computer keyboard.
     private var allPressedNotes: Set<Int> {
