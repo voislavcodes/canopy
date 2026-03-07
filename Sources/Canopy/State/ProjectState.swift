@@ -207,7 +207,11 @@ class ProjectState: ObservableObject {
             rootNode: deepCopyNode(source.rootNode),
             scale: source.scale,
             anchor: source.anchor,
-            colorSeedId: Int.random(in: 0..<1_000_000)
+            colorSeedId: Int.random(in: 0..<1_000_000),
+            volume: source.volume,
+            pan: source.pan,
+            isMuted: source.isMuted,
+            isSolo: source.isSolo
         )
         project.trees.append(newTree)
         markDirty()
@@ -657,6 +661,38 @@ class ProjectState: ObservableObject {
         syncMasterFXToEngine()
     }
 
+    // MARK: - Tree Volume / Pan
+
+    /// Set tree-level volume multiplier and push to audio engine.
+    func setTreeVolume(_ treeID: UUID, volume: Double) {
+        guard let idx = project.trees.firstIndex(where: { $0.id == treeID }) else { return }
+        project.trees[idx].volume = max(0, min(1, volume))
+        syncTreeVolumeToEngine(treeID)
+        markDirty()
+    }
+
+    /// Set tree-level pan offset and push to audio engine.
+    func setTreePan(_ treeID: UUID, pan: Double) {
+        guard let idx = project.trees.firstIndex(where: { $0.id == treeID }) else { return }
+        project.trees[idx].pan = max(-1, min(1, pan))
+        syncTreePanToEngine(treeID)
+        markDirty()
+    }
+
+    /// Push tree volume to all nodes in the tree.
+    private func syncTreeVolumeToEngine(_ treeID: UUID) {
+        guard let tree = project.trees.first(where: { $0.id == treeID }) else { return }
+        let nodeIDs = nodesForTree(treeID).map { $0.id }
+        AudioEngine.shared.setTreeVolume(Float(tree.volume), nodeIDs: nodeIDs)
+    }
+
+    /// Push tree pan to all nodes in the tree.
+    private func syncTreePanToEngine(_ treeID: UUID) {
+        guard let tree = project.trees.first(where: { $0.id == treeID }) else { return }
+        let nodeIDs = nodesForTree(treeID).map { $0.id }
+        AudioEngine.shared.setTreePan(Float(tree.pan), nodeIDs: nodeIDs)
+    }
+
     // MARK: - Mute / Solo
 
     /// Toggle mute state on a node and sync to audio engine.
@@ -680,21 +716,41 @@ class ProjectState: ObservableObject {
         syncMuteSoloToEngine()
     }
 
-    /// Resolve effective mute for all nodes in the selected tree and push to audio engine.
-    /// Solo logic: if any node is soloed, only soloed nodes play.
-    /// Mute overrides solo: if a node is both soloed and muted, it's silent.
-    func syncMuteSoloToEngine() {
-        let nodes = allNodesForSelectedTree()
-        let anySoloed = nodes.contains { $0.isSolo }
+    /// Toggle tree-level mute and sync to audio engine.
+    func toggleTreeMute(treeID: UUID) {
+        guard let idx = project.trees.firstIndex(where: { $0.id == treeID }) else { return }
+        project.trees[idx].isMuted.toggle()
+        syncMuteSoloToEngine()
+        markDirty()
+    }
 
-        for node in nodes {
-            let effectiveMute: Bool
-            if anySoloed {
-                effectiveMute = node.isMuted || !node.isSolo
-            } else {
-                effectiveMute = node.isMuted
+    /// Toggle tree-level solo and sync to audio engine.
+    func toggleTreeSolo(treeID: UUID) {
+        guard let idx = project.trees.firstIndex(where: { $0.id == treeID }) else { return }
+        project.trees[idx].isSolo.toggle()
+        syncMuteSoloToEngine()
+        markDirty()
+    }
+
+    /// Resolve effective mute for all nodes across ALL trees and push to audio engine.
+    /// Two-level logic: tree mute/solo is resolved first, then node mute/solo within each tree.
+    func syncMuteSoloToEngine() {
+        let anyTreeSoloed = project.trees.contains { $0.isSolo }
+
+        for tree in project.trees {
+            let treeMuted = tree.isMuted || (anyTreeSoloed && !tree.isSolo)
+            let nodes = nodesForTree(tree.id)
+            let anyNodeSoloed = nodes.contains { $0.isSolo }
+
+            for node in nodes {
+                let nodeMuted: Bool
+                if anyNodeSoloed {
+                    nodeMuted = node.isMuted || !node.isSolo
+                } else {
+                    nodeMuted = node.isMuted
+                }
+                AudioEngine.shared.setNodeMuted(treeMuted || nodeMuted, nodeID: node.id)
             }
-            AudioEngine.shared.setNodeMuted(effectiveMute, nodeID: node.id)
         }
     }
 

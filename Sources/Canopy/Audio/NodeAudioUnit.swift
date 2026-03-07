@@ -65,6 +65,11 @@ final class NodeAudioUnit {
 
     var orbitBodyAngles: (Float, Float, Float, Float, Float, Float) { _orbitBodyAngles.pointee }
 
+    /// Tree-level volume multiplier (0.0–1.0). Written from main thread, read from audio thread.
+    private let _treeVolume = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+    /// Tree-level pan offset (-1.0 to +1.0). Written from main thread, read from audio thread.
+    private let _treePan = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+
     init(nodeID: UUID, sampleRate: Double, isDrumKit: Bool = false, isWestCoast: Bool = false, isFlow: Bool = false, isTide: Bool = false, isSwarm: Bool = false, isQuake: Bool = false, isSpore: Bool = false, isFuse: Bool = false, isVolt: Bool = false, isSchmynth: Bool = false,
          clockSamplePosition: UnsafeMutablePointer<Int64>, clockIsRunning: UnsafeMutablePointer<Bool>) {
         self.nodeID = nodeID
@@ -84,12 +89,16 @@ final class NodeAudioUnit {
         _deactivateAtSample.initialize(to: 0)
         _activateAtSample.initialize(to: Int64.max)
         _activateBPM.initialize(to: 0)
+        _treeVolume.initialize(to: 1.0)
+        _treePan.initialize(to: 0.0)
 
         let cmdBuffer = self.commandBuffer
         let beatPtr = self._currentBeat
         let playingPtr = self._isPlaying
         let panPtr = self._pan
         let orbitAnglesPtr = self._orbitBodyAngles
+        let treeVolPtr = self._treeVolume
+        let treePanPtr = self._treePan
         let fadeStatePtr = self._fadeState
         let startOffsetPtr = self._startOffset
         let deactivateAtSamplePtr = self._deactivateAtSample
@@ -112,7 +121,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         } else if isVolt {
             self.sourceNode = Self.makeVoltSourceNode(
@@ -125,7 +135,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         } else if isFuse {
             self.sourceNode = Self.makeFuseSourceNode(
@@ -138,7 +149,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         } else if isSpore {
             self.sourceNode = Self.makeSporeSourceNode(
@@ -151,7 +163,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         } else if isQuake {
             self.sourceNode = Self.makeQuakeSourceNode(
@@ -164,7 +177,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         } else if isSwarm {
             self.sourceNode = Self.makeSwarmSourceNode(
@@ -177,7 +191,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         } else if isTide {
             self.sourceNode = Self.makeTideSourceNode(
@@ -190,7 +205,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         } else if isFlow {
             self.sourceNode = Self.makeFlowSourceNode(
@@ -203,7 +219,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         } else if isWestCoast {
             self.sourceNode = Self.makeWestCoastSourceNode(
@@ -216,7 +233,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         } else if isDrumKit {
             self.sourceNode = Self.makeDrumKitSourceNode(
@@ -229,7 +247,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         } else {
             self.sourceNode = Self.makeOscillatorSourceNode(
@@ -242,7 +261,8 @@ final class NodeAudioUnit {
                 activateBPMPtr: activateBPMPtr,
                 mutedPtr: mutedPtr,
                 meterRmsLPtr: meterRmsLPtr, meterRmsRPtr: meterRmsRPtr,
-                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr
+                meterPeakLPtr: meterPeakLPtr, meterPeakRPtr: meterPeakRPtr,
+                treeVolPtr: treeVolPtr, treePanPtr: treePanPtr
             )
         }
     }
@@ -266,7 +286,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var voices = VoiceManager(voiceCount: 8)
         var seq = Sequencer()
@@ -289,7 +311,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
             // Equal-power pan law: L = cos(angle), R = sin(angle)
             // angle = (pan + 1) / 2 * pi/2
             let angle = Double((pan + 1) * 0.5) * .pi * 0.5
@@ -498,11 +520,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -518,11 +540,11 @@ final class NodeAudioUnit {
                     let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -551,11 +573,11 @@ final class NodeAudioUnit {
                 let sample = filter.process(raw)
                 let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -590,7 +612,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var drumKit = FMDrumKit.defaultKit()
         var seq = Sequencer()
@@ -606,7 +630,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
             let angle = Double((pan + 1) * 0.5) * .pi * 0.5
             let gainL = Float(cos(angle))
             let gainR = Float(sin(angle))
@@ -802,11 +826,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -821,11 +845,11 @@ final class NodeAudioUnit {
                     let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -854,11 +878,11 @@ final class NodeAudioUnit {
                 let sample = filter.process(raw)
                 let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -893,7 +917,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var quake = QuakeVoiceManager.defaultKit()
         var seq = Sequencer()
@@ -912,7 +938,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
             let angle = Double((pan + 1) * 0.5) * .pi * 0.5
             let gainL = Float(cos(angle))
             let gainR = Float(sin(angle))
@@ -1119,11 +1145,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -1143,11 +1169,11 @@ final class NodeAudioUnit {
                     let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -1177,11 +1203,11 @@ final class NodeAudioUnit {
                 let sample = filter.process(raw)
                 let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -1221,7 +1247,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var westCoast = WestCoastVoiceManager()
         var seq = Sequencer()
@@ -1237,7 +1265,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
             let angle = Double((pan + 1) * 0.5) * .pi * 0.5
             let gainL = Float(cos(angle))
             let gainR = Float(sin(angle))
@@ -1443,11 +1471,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -1462,11 +1490,11 @@ final class NodeAudioUnit {
                     let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -1494,11 +1522,11 @@ final class NodeAudioUnit {
                 let sample = filter.process(raw)
                 let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -1532,7 +1560,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var flow = FlowVoiceManager()
         var seq = Sequencer()
@@ -1548,7 +1578,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
 
             // Drain command buffer
             while let cmd = cmdBuffer.pop() {
@@ -1751,11 +1781,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * modGainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * modGainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -1777,11 +1807,11 @@ final class NodeAudioUnit {
                     (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * gainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -1815,11 +1845,11 @@ final class NodeAudioUnit {
                 var sampleR = filter.process(rawR * volF)
                 (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -1853,7 +1883,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var swarm = SwarmVoiceManager()
         var seq = Sequencer()
@@ -1870,7 +1902,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
 
             // Drain command buffer
             while let cmd = cmdBuffer.pop() {
@@ -2069,11 +2101,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * modGainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * modGainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -2095,11 +2127,11 @@ final class NodeAudioUnit {
                     (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * gainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -2133,11 +2165,11 @@ final class NodeAudioUnit {
                 var sampleR = filter.process(rawR * volF)
                 (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -2171,7 +2203,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var tide = TideVoiceManager()
         var seq = Sequencer()
@@ -2187,7 +2221,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
 
             // Drain command buffer
             while let cmd = cmdBuffer.pop() {
@@ -2393,11 +2427,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * modGainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * modGainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -2419,11 +2453,11 @@ final class NodeAudioUnit {
                     (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * gainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -2457,11 +2491,11 @@ final class NodeAudioUnit {
                 var sampleR = filter.process(rawR * volF)
                 (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -2495,7 +2529,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var spore = SporeVoiceManager()
         var seq = Sequencer()
@@ -2513,7 +2549,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
 
             // Drain command buffer
             while let cmd = cmdBuffer.pop() {
@@ -2750,11 +2786,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * modGainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * modGainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -2784,11 +2820,11 @@ final class NodeAudioUnit {
                     (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * gainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * gainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -2823,11 +2859,11 @@ final class NodeAudioUnit {
                 var sampleR = filter.process(rawR * volF)
                 (sampleL, sampleR) = fxChain.processStereo(sampleL: sampleL, sampleR: sampleR, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleL * tailGainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = sampleR * tailGainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (sampleL + sampleR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -2871,6 +2907,10 @@ final class NodeAudioUnit {
         _activateAtSample.deallocate()
         _activateBPM.deinitialize(count: 1)
         _activateBPM.deallocate()
+        _treeVolume.deinitialize(count: 1)
+        _treeVolume.deallocate()
+        _treePan.deinitialize(count: 1)
+        _treePan.deallocate()
     }
 
     /// Number of buffers over which to fade out (~370ms at 512/44100).
@@ -3264,6 +3304,14 @@ final class NodeAudioUnit {
         _muted.pointee = muted
     }
 
+    func setTreeVolume(_ volume: Float) {
+        _treeVolume.pointee = max(0, min(1, volume))
+    }
+
+    func setTreePan(_ pan: Float) {
+        _treePan.pointee = max(-1, min(1, pan))
+    }
+
     func configureFilter(enabled: Bool, cutoff: Double, resonance: Double) {
         commandBuffer.push(.setFilter(enabled: enabled, cutoff: cutoff, resonance: resonance))
     }
@@ -3525,7 +3573,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var schmynth = SchmynthVoiceManager()
         var seq = Sequencer()
@@ -3541,7 +3591,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
             let angle = Double((pan + 1) * 0.5) * .pi * 0.5
             let gainL = Float(cos(angle))
             let gainR = Float(sin(angle))
@@ -3714,11 +3764,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -3733,11 +3783,11 @@ final class NodeAudioUnit {
                     let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -3766,11 +3816,11 @@ final class NodeAudioUnit {
                 let sample = filter.process(raw)
                 let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -3804,7 +3854,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var fuse = FuseVoiceManager()
         var seq = Sequencer()
@@ -3820,7 +3872,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
             let angle = Double((pan + 1) * 0.5) * .pi * 0.5
             let gainL = Float(cos(angle))
             let gainR = Float(sin(angle))
@@ -3992,11 +4044,11 @@ final class NodeAudioUnit {
                     let modGainR = Float(sin(modAngle))
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * modGainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * modGainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -4011,11 +4063,11 @@ final class NodeAudioUnit {
                     let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                     if ablPointer.count >= 2 {
-                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                        ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                        ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                     } else {
                         for buf in 0..<ablPointer.count {
-                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                            ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                         }
                     }
                 }
@@ -4044,11 +4096,11 @@ final class NodeAudioUnit {
                 let sample = filter.process(raw)
                 let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -4082,7 +4134,9 @@ final class NodeAudioUnit {
         meterRmsLPtr: UnsafeMutablePointer<Float>,
         meterRmsRPtr: UnsafeMutablePointer<Float>,
         meterPeakLPtr: UnsafeMutablePointer<Float>,
-        meterPeakRPtr: UnsafeMutablePointer<Float>
+        meterPeakRPtr: UnsafeMutablePointer<Float>,
+        treeVolPtr: UnsafeMutablePointer<Float>,
+        treePanPtr: UnsafeMutablePointer<Float>
     ) -> AVAudioSourceNode {
         var volt = VoltVoiceManager()
         var seq = Sequencer()
@@ -4098,7 +4152,7 @@ final class NodeAudioUnit {
 
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let pan = panPtr.pointee
+            let pan = max(Float(-1), min(Float(1), panPtr.pointee + treePanPtr.pointee))
             let angle = Double((pan + 1) * 0.5) * .pi * 0.5
             let gainL = Float(cos(angle))
             let gainR = Float(sin(angle))
@@ -4272,11 +4326,11 @@ final class NodeAudioUnit {
                 let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
 
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }
@@ -4304,11 +4358,11 @@ final class NodeAudioUnit {
                 let sample = filter.process(raw)
                 let (fxL, fxR) = fxChain.processStereo(sampleL: sample, sampleR: sample, sampleRate: srF)
                 if ablPointer.count >= 2 {
-                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL
-                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR
+                    ablPointer[0].mData?.assumingMemoryBound(to: Float.self)[frame] = fxL * gainL * treeVolPtr.pointee
+                    ablPointer[1].mData?.assumingMemoryBound(to: Float.self)[frame] = fxR * gainR * treeVolPtr.pointee
                 } else {
                     for buf in 0..<ablPointer.count {
-                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5
+                        ablPointer[buf].mData?.assumingMemoryBound(to: Float.self)[frame] = (fxL + fxR) * 0.5 * treeVolPtr.pointee
                     }
                 }
             }

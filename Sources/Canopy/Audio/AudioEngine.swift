@@ -314,6 +314,20 @@ final class AudioEngine {
         graph.unit(for: nodeID)?.setMuted(muted)
     }
 
+    /// Set tree-level volume multiplier on specific nodes.
+    func setTreeVolume(_ volume: Float, nodeIDs: [UUID]) {
+        for nodeID in nodeIDs {
+            graph.unit(for: nodeID)?.setTreeVolume(volume)
+        }
+    }
+
+    /// Set tree-level pan offset on specific nodes.
+    func setTreePan(_ pan: Float, nodeIDs: [UUID]) {
+        for nodeID in nodeIDs {
+            graph.unit(for: nodeID)?.setTreePan(pan)
+        }
+    }
+
     /// Poll level meters for a specific node.
     func nodeMeterLevels(nodeID: UUID) -> (rmsL: Float, rmsR: Float, peakL: Float, peakR: Float) {
         guard let unit = graph.unit(for: nodeID) else { return (0, 0, 0, 0) }

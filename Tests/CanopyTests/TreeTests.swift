@@ -319,4 +319,72 @@ final class TreeTests: XCTestCase {
         let c2Reset = state.findNode(id: child2.id)!
         XCTAssertEqual(c2Reset.position.x, 70, accuracy: 0.01)
     }
+
+    // MARK: - Tree Volume/Pan/Mute/Solo Codable
+
+    func testTreeMixerFieldsCodableRoundTrip() throws {
+        var tree = NodeTree(name: "Test")
+        tree.volume = 0.75
+        tree.pan = -0.3
+        tree.isMuted = true
+        tree.isSolo = true
+
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(tree)
+
+        let decoder = JSONDecoder()
+        let decoded = try decoder.decode(NodeTree.self, from: data)
+
+        XCTAssertEqual(decoded.volume, 0.75, accuracy: 0.001)
+        XCTAssertEqual(decoded.pan, -0.3, accuracy: 0.001)
+        XCTAssertTrue(decoded.isMuted)
+        XCTAssertTrue(decoded.isSolo)
+    }
+
+    func testTreeMixerFieldsBackwardCompat() throws {
+        // Encode a tree, strip the new fields, then decode — should default gracefully
+        var tree = NodeTree(name: "Legacy")
+        tree.volume = 0.5
+        tree.pan = 0.2
+
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(tree)
+
+        // Decode into a dictionary, remove new fields, re-encode
+        var dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        dict.removeValue(forKey: "volume")
+        dict.removeValue(forKey: "pan")
+        dict.removeValue(forKey: "isMuted")
+        dict.removeValue(forKey: "isSolo")
+        let strippedData = try JSONSerialization.data(withJSONObject: dict)
+
+        let decoded = try JSONDecoder().decode(NodeTree.self, from: strippedData)
+
+        // Should default to volume=1.0, pan=0.0, isMuted=false, isSolo=false
+        XCTAssertEqual(decoded.volume, 1.0)
+        XCTAssertEqual(decoded.pan, 0.0)
+        XCTAssertFalse(decoded.isMuted)
+        XCTAssertFalse(decoded.isSolo)
+    }
+
+    func testDuplicateTreeCopiesMixerFields() {
+        let state = ProjectState()
+        let treeID = state.project.trees[0].id
+        state.setTreeVolume(treeID, volume: 0.6)
+        state.setTreePan(treeID, pan: 0.5)
+
+        guard let idx = state.project.trees.firstIndex(where: { $0.id == treeID }) else {
+            XCTFail("Tree not found")
+            return
+        }
+        state.project.trees[idx].isMuted = true
+
+        guard let copy = state.duplicateTree(id: treeID) else {
+            XCTFail("Duplicate failed")
+            return
+        }
+        XCTAssertEqual(copy.volume, 0.6, accuracy: 0.001)
+        XCTAssertEqual(copy.pan, 0.5, accuracy: 0.001)
+        XCTAssertTrue(copy.isMuted)
+    }
 }
