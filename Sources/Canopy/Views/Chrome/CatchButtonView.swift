@@ -13,7 +13,7 @@ struct CatchButtonView: View {
 
                 CatchButterflyIcon(palette: SeedColor.sessionPalette, size: 22)
                     .opacity(pulse)
-                    .frame(width: 36, height: 24)
+                    .frame(width: 24, height: 24)
             }
         }
         .buttonStyle(.plain)
@@ -21,6 +21,5 @@ struct CatchButtonView: View {
         .popover(isPresented: $catchState.showPopover) {
             CatchPopoverView(catchState: catchState)
         }
-        .padding(.leading, 16)
     }
 }
