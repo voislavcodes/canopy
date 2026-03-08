@@ -153,47 +153,8 @@ struct ForestCanvasView: View {
 
     // MARK: - Tree Layout
 
-    /// Compute horizontal offsets for each tree so they don't overlap.
-    /// Each tree's nodes use local coordinates (root at 0,0). The offset positions
-    /// trees left-to-right with enough spacing for their node extents.
     private func computeTreeOffsets(trees: [NodeTree]) -> [CGPoint] {
-        guard !trees.isEmpty else { return [] }
-
-        // Compute horizontal extent of each tree
-        var extents: [(minX: CGFloat, maxX: CGFloat)] = []
-        for tree in trees {
-            var nodes: [Node] = []
-            collectNodes(from: tree.rootNode, into: &nodes)
-            let xs = nodes.map { CGFloat($0.position.x) }
-            let minX = (xs.min() ?? 0) - 60  // pad for ring radius + label
-            let maxX = (xs.max() ?? 0) + 60
-            extents.append((minX, maxX))
-        }
-
-        // Place trees sequentially with gaps
-        let gap: CGFloat = 80
-        var offsets: [CGPoint] = []
-        var cursor: CGFloat = 0
-
-        for (i, ext) in extents.enumerated() {
-            if i == 0 {
-                // First tree: center its local coordinates at cursor
-                let centerX = -ext.minX  // shifts so minX lands at 0
-                cursor = centerX + ext.maxX + gap
-                offsets.append(CGPoint(x: centerX, y: 0))
-            } else {
-                // Next tree starts after cursor, shifted so its minX aligns at cursor
-                let x = cursor - ext.minX
-                cursor = x + ext.maxX + gap
-                offsets.append(CGPoint(x: x, y: 0))
-            }
-        }
-
-        // Center the whole set
-        let totalMin = offsets.enumerated().map { (i, o) in o.x + extents[i].minX }.min() ?? 0
-        let totalMax = offsets.enumerated().map { (i, o) in o.x + extents[i].maxX }.max() ?? 0
-        let totalCenter = (totalMin + totalMax) / 2
-        return offsets.map { CGPoint(x: $0.x - totalCenter, y: $0.y) }
+        CanvasLayout.computeTreeOffsets(trees: trees)
     }
 
     /// Convert a node's local position to forest coordinates using tree offsets.
@@ -593,14 +554,6 @@ struct ForestCanvasView: View {
         return CanopyColors.nodeSeed
     }
 
-    // MARK: - Private Helpers
-
-    private func collectNodes(from node: Node, into result: inout [Node]) {
-        result.append(node)
-        for child in node.children {
-            collectNodes(from: child, into: &result)
-        }
-    }
 }
 
 // MARK: - ForestContentView (value-type inputs)
@@ -751,58 +704,6 @@ private struct ForestContentView: View {
         trees.first.map { !$0.rootNode.sequence.notes.isEmpty || !$0.rootNode.children.isEmpty } ?? false
     }
 
-}
-
-// MARK: - TreeConnectorLines
-
-/// Subtle dashed lines connecting adjacent tree roots at their ring edges.
-/// Each line is a fixed-height rectangle positioned via .offset() to match
-/// the same coordinate system the per-tree ZStacks use.
-private struct TreeConnectorLines: View {
-    let trees: [NodeTree]
-    let treeOffsets: [CGPoint]
-
-    private let ringEdge = NodeMetrics.ringRadius + NodeMetrics.playheadDotRadius + 4
-
-    var body: some View {
-        ForEach(0..<max(0, trees.count - 1), id: \.self) { i in
-            let rootA = trees[i].rootNode.position
-            let rootB = trees[i + 1].rootNode.position
-            let ax = treeOffsets[i].x + rootA.x
-            let bx = treeOffsets[i + 1].x + rootB.x
-            // The visual ring center is offset above position.y because
-            // NodeView's frame includes labels below the ring.
-            let ringCenterOffset: CGFloat = -17.5
-            let ay = treeOffsets[i].y + rootA.y + ringCenterOffset
-            let by = treeOffsets[i + 1].y + rootB.y + ringCenterOffset
-            let startX = ax + ringEdge
-            let endX = bx - ringEdge
-            let midY = (ay + by) / 2
-            let lineWidth = endX - startX
-            let midX = (startX + endX) / 2
-
-            if lineWidth > 0 {
-                DashedLine()
-                    .stroke(
-                        CanopyColors.branchLine.opacity(0.25),
-                        style: StrokeStyle(lineWidth: 1, dash: [6, 5])
-                    )
-                    .frame(width: lineWidth, height: 1)
-                    .position(x: midX, y: midY)
-                    .allowsHitTesting(false)
-            }
-        }
-    }
-}
-
-/// A horizontal line shape from leading edge to trailing edge.
-private struct DashedLine: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: rect.minX, y: rect.midY))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-        return p
-    }
 }
 
 // MARK: - NewTreeNodeView

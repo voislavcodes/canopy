@@ -1,16 +1,12 @@
 import SwiftUI
 
-/// Inner ring: volume dot + loudness arc + beat ticks.
-/// Radius = MeadowMetrics.innerRingRadius (56pt).
+/// Inner ring: volume dot + loudness arc + beat ticks. Display only — gestures handled by MeadowPanRing.
+/// Radius = MeadowMetrics.innerRingRadius (68pt).
 struct MeadowVolumeRing: View {
     let tree: NodeTree
     @ObservedObject var projectState: ProjectState
 
     @State private var smoothedLevel: Double = 0
-    @State private var isDragging = false
-    @State private var dragMode: DragMode = .angular
-
-    private enum DragMode { case angular, vertical }
 
     private var treeColor: Color { tree.driftedColor }
     private let radius = MeadowMetrics.innerRingRadius
@@ -23,10 +19,7 @@ struct MeadowVolumeRing: View {
                 }
         }
         .frame(width: radius * 2 + 20, height: radius * 2 + 20)
-        .gesture(volumeDragGesture)
-        .onTapGesture(count: 2) {
-            projectState.setTreeVolume(tree.id, volume: 1.0)
-        }
+        .allowsHitTesting(false)
     }
 
     private var ringCanvas: some View {
@@ -105,37 +98,6 @@ struct MeadowVolumeRing: View {
         context.stroke(Path(ellipseIn: dotRect), with: .color(Color.black.opacity(0.6)), lineWidth: 1)
     }
 
-    private var volumeDragGesture: some Gesture {
-        DragGesture(minimumDistance: 2)
-            .onChanged { value in
-                if !isDragging {
-                    isDragging = true
-                    projectState.selectTree(tree.id)
-
-                    let frame = radius * 2 + 20
-                    let center = CGPoint(x: frame / 2, y: frame / 2)
-                    let dist = hypot(value.startLocation.x - center.x, value.startLocation.y - center.y)
-                    dragMode = dist < 20 ? .vertical : .angular
-                }
-
-                switch dragMode {
-                case .angular:
-                    let frame = radius * 2 + 20
-                    let center = CGPoint(x: frame / 2, y: frame / 2)
-                    let angle = atan2(value.location.y - center.y, value.location.x - center.x)
-                    let vol = angleToVolume(angle)
-                    projectState.setTreeVolume(tree.id, volume: vol)
-                case .vertical:
-                    let delta = -value.translation.height / 200.0
-                    let newVol = max(0, min(1, tree.volume + delta))
-                    projectState.setTreeVolume(tree.id, volume: newVol)
-                }
-            }
-            .onEnded { _ in
-                isDragging = false
-            }
-    }
-
     private func updateLevel() {
         let nodes = projectState.nodesForTree(tree.id)
         var sumSq: Float = 0
@@ -154,10 +116,4 @@ struct MeadowVolumeRing: View {
         volume * 2.0 * .pi - .pi / 2.0
     }
 
-    /// Map angle (radians) back to volume (0-1).
-    private func angleToVolume(_ angle: Double) -> Double {
-        let normalized = angle + .pi / 2.0
-        let wrapped = normalized < 0 ? normalized + 2.0 * .pi : normalized
-        return max(0, min(1, wrapped / (2.0 * .pi)))
-    }
 }

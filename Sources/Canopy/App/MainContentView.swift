@@ -34,7 +34,7 @@ struct MainContentView: View {
             case .focus:
                 FocusView(projectState: projectState, transportState: transportState)
             case .meadow:
-                MeadowView(projectState: projectState, transportState: transportState)
+                MeadowView(projectState: projectState, canvasState: canvasState, transportState: transportState)
             }
 
             BottomLaneView(projectState: projectState)

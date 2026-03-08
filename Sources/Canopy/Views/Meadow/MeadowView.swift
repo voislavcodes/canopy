@@ -1,54 +1,74 @@
 import SwiftUI
+import AppKit
 
-/// Meadow mixer view: dual-ring controls around tree shapes with SHORE master at far right.
+/// Meadow mixer view: same canvas as Forest with mixer ring overlays on root nodes.
 struct MeadowView: View {
     @ObservedObject var projectState: ProjectState
+    @ObservedObject var canvasState: CanvasState
     var transportState: TransportState
     @EnvironmentObject var viewModeManager: ViewModeManager
 
+    @State private var scrollMonitor: Any?
     @State private var keyMonitor: Any?
+
+    private let dotSpacing: CGFloat = 40
+    private let dotSize: CGFloat = 2
+    private let canvasCornerRadius: CGFloat = 16
 
     var body: some View {
         let trees = projectState.project.trees
 
-        GeometryReader { geo in
-            ZStack {
-                CanopyColors.canvasBackground
+        GeometryReader { geometry in
+            let viewSize = geometry.size
+            let treeOffsets = CanvasLayout.computeTreeOffsets(trees: trees)
 
-                // Click empty to deselect
-                Color.clear.contentShape(Rectangle())
-                    .onTapGesture { projectState.selectTree(nil) }
+            ZStack {
+                // Layer 0: background
+                CanopyColors.canvasBackground
+                    .ignoresSafeArea()
+
+                // Layer 1: canvas area with dot grid + border
+                canvasArea(viewSize: viewSize)
 
                 if trees.isEmpty {
                     emptyState
                 } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .center, spacing: treeSpacing(count: trees.count, width: geo.size.width)) {
-                            ForEach(trees) { tree in
-                                MeadowTreeRingView(
-                                    tree: tree,
-                                    projectState: projectState,
-                                    transportState: transportState
-                                )
-                            }
+                    // Layer 2: scaled content — node hierarchies + branches
+                    MeadowContentView(
+                        trees: trees,
+                        treeOffsets: treeOffsets,
+                        selectedTreeID: projectState.selectedTreeID,
+                        isPlaying: transportState.isPlaying,
+                        projectState: projectState
+                    )
+                    .offset(CGSize(width: viewSize.width / 2, height: viewSize.height / 2))
+                    .offset(canvasState.offset)
+                    .scaleEffect(canvasState.scale)
 
-                            // Separator
-                            Rectangle()
-                                .fill(CanopyColors.chromeBorder.opacity(0.4))
-                                .frame(width: 1, height: 160)
-
-                            // SHORE master
-                            MeadowShoreView(projectState: projectState)
-                        }
-                        .padding(.horizontal, 32)
-                        .frame(minHeight: geo.size.height)
-                    }
+                    // Layer 3: mixer overlays in screen space
+                    mixerOverlays(viewSize: viewSize, treeOffsets: treeOffsets)
                 }
             }
+            .contentShape(Rectangle())
+            .gesture(
+                MagnificationGesture()
+                    .onChanged { value in
+                        canvasState.scale = canvasState.lastScale * value
+                        canvasState.clampScale()
+                    }
+                    .onEnded { _ in
+                        canvasState.lastScale = canvasState.scale
+                    }
+            )
+            .onTapGesture { location in
+                handleTap(at: location, viewSize: viewSize, treeOffsets: treeOffsets)
+            }
+            .onAppear { installScrollMonitor(); installKeyMonitor() }
+            .onDisappear { removeScrollMonitor(); removeKeyMonitor() }
         }
-        .onAppear { installKeyMonitor() }
-        .onDisappear { removeKeyMonitor() }
     }
+
+    // MARK: - Empty State
 
     private var emptyState: some View {
         VStack {
@@ -61,13 +81,164 @@ struct MeadowView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Adaptive spacing between tree rings based on available width.
-    private func treeSpacing(count: Int, width: CGFloat) -> CGFloat {
-        let ringWidth: CGFloat = MeadowMetrics.outerRingRadius * 2 + 24
-        let totalRings = CGFloat(count + 1) * ringWidth // +1 for SHORE
-        let available = width - totalRings - 64 // padding
-        let spacing = max(24, available / CGFloat(count + 1))
-        return min(spacing, 60)
+    // MARK: - Canvas Background
+
+    private func canvasArea(viewSize: CGSize) -> some View {
+        let inset: CGFloat = 16
+        return ZStack {
+            Canvas { context, size in
+                let cols = Int(size.width / dotSpacing) + 1
+                let rows = Int(size.height / dotSpacing) + 1
+                let offsetX = (size.width - CGFloat(cols - 1) * dotSpacing) / 2
+                let offsetY = (size.height - CGFloat(rows - 1) * dotSpacing) / 2
+
+                for row in 0..<rows {
+                    for col in 0..<cols {
+                        let x = offsetX + CGFloat(col) * dotSpacing
+                        let y = offsetY + CGFloat(row) * dotSpacing
+                        let rect = CGRect(x: x - dotSize / 2, y: y - dotSize / 2, width: dotSize, height: dotSize)
+                        context.fill(Path(ellipseIn: rect), with: .color(CanopyColors.dotGrid))
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: canvasCornerRadius))
+
+            RoundedRectangle(cornerRadius: canvasCornerRadius)
+                .stroke(CanopyColors.canvasBorder.opacity(0.5), lineWidth: 1)
+        }
+        .padding(inset)
+    }
+
+    // MARK: - Coordinate Transforms
+
+    private func canvasToScreen(_ point: CGPoint, viewSize: CGSize) -> CGPoint {
+        let centerX = viewSize.width / 2
+        let centerY = viewSize.height / 2
+        let scaleAnchor = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        return CGPoint(
+            x: (point.x + canvasState.offset.width + (centerX - scaleAnchor.x)) * canvasState.scale + scaleAnchor.x,
+            y: (point.y + canvasState.offset.height + (centerY - scaleAnchor.y)) * canvasState.scale + scaleAnchor.y
+        )
+    }
+
+    private func screenToCanvas(_ point: CGPoint, viewSize: CGSize) -> CGPoint {
+        let centerX = viewSize.width / 2
+        let centerY = viewSize.height / 2
+        let scaleAnchor = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        return CGPoint(
+            x: (point.x - scaleAnchor.x) / canvasState.scale - canvasState.offset.width - (centerX - scaleAnchor.x),
+            y: (point.y - scaleAnchor.y) / canvasState.scale - canvasState.offset.height - (centerY - scaleAnchor.y)
+        )
+    }
+
+    // MARK: - Mixer Overlays (screen space)
+
+    @ViewBuilder
+    private func mixerOverlays(viewSize: CGSize, treeOffsets: [CGPoint]) -> some View {
+        let trees = projectState.project.trees
+
+        ForEach(Array(trees.enumerated()), id: \.element.id) { index, tree in
+            if index < treeOffsets.count {
+                let rootPos = CGPoint(
+                    x: treeOffsets[index].x + tree.rootNode.position.x,
+                    y: treeOffsets[index].y + tree.rootNode.position.y - 17.5
+                )
+                let screenPos = canvasToScreen(rootPos, viewSize: viewSize)
+
+                // Volume ring
+                MeadowVolumeRing(tree: tree, projectState: projectState)
+                    .scaleEffect(canvasState.scale)
+                    .position(screenPos)
+
+                // Pan ring
+                MeadowPanRing(tree: tree, projectState: projectState)
+                    .scaleEffect(canvasState.scale)
+                    .position(screenPos)
+
+                // Mixer label
+                MeadowMixerLabel(tree: tree, projectState: projectState)
+                    .scaleEffect(canvasState.scale)
+                    .position(x: screenPos.x, y: screenPos.y + 98 * canvasState.scale)
+            }
+        }
+
+        // SHORE master
+        let shoreCanvasPos = shorePosition(treeOffsets: treeOffsets, trees: trees)
+        let shoreScreen = canvasToScreen(shoreCanvasPos, viewSize: viewSize)
+        MeadowShoreView(projectState: projectState)
+            .scaleEffect(canvasState.scale)
+            .position(shoreScreen)
+    }
+
+    // MARK: - SHORE Position
+
+    private func shorePosition(treeOffsets: [CGPoint], trees: [NodeTree]) -> CGPoint {
+        guard let lastOffset = treeOffsets.last, let lastTree = trees.last else {
+            return CGPoint(x: 160, y: 0)
+        }
+        let lastNodes = CanvasLayout.collectNodes(from: lastTree.rootNode)
+        let maxX = lastNodes.map { CGFloat($0.position.x) }.max() ?? 0
+        return CGPoint(x: lastOffset.x + maxX + 140, y: 0)
+    }
+
+    // MARK: - Interactions
+
+    private func handleTap(at location: CGPoint, viewSize: CGSize, treeOffsets: [CGPoint]) {
+        let canvas = screenToCanvas(location, viewSize: viewSize)
+        let hitRadius: CGFloat = 55
+        let trees = projectState.project.trees
+
+        // Hit test all nodes across all trees (in forest coordinates)
+        for (treeIdx, tree) in trees.enumerated() {
+            guard treeIdx < treeOffsets.count else { continue }
+            let offset = treeOffsets[treeIdx]
+            let nodes = CanvasLayout.collectNodes(from: tree.rootNode)
+            for node in nodes {
+                let fx = offset.x + node.position.x
+                let fy = offset.y + node.position.y
+                let dx = canvas.x - fx
+                let dy = canvas.y - fy
+                if dx * dx + dy * dy <= hitRadius * hitRadius {
+                    projectState.selectTree(tree.id)
+                    return
+                }
+            }
+        }
+
+        // Background tap — deselect tree
+        projectState.selectTree(nil)
+    }
+
+    // MARK: - Scroll Panning
+
+    private func installScrollMonitor() {
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak canvasState] event in
+            guard let canvasState = canvasState else { return event }
+
+            if event.modifierFlags.contains(.command) {
+                let zoomDelta = event.scrollingDeltaY * 0.01
+                canvasState.scale += zoomDelta
+                canvasState.clampScale()
+                canvasState.lastScale = canvasState.scale
+            } else {
+                canvasState.offset = CGSize(
+                    width: canvasState.offset.width + event.scrollingDeltaX,
+                    height: canvasState.offset.height + event.scrollingDeltaY
+                )
+                canvasState.lastOffset = canvasState.offset
+                if let windowSize = event.window?.contentView?.frame.size {
+                    canvasState.clampOffset(viewSize: windowSize)
+                }
+            }
+            return event
+        }
+    }
+
+    private func removeScrollMonitor() {
+        if let monitor = scrollMonitor {
+            NSEvent.removeMonitor(monitor)
+            scrollMonitor = nil
+        }
     }
 
     // MARK: - Keyboard Shortcuts
@@ -147,6 +318,58 @@ struct MeadowView: View {
         if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
             keyMonitor = nil
+        }
+    }
+}
+
+// MARK: - MeadowContentView
+
+private struct MeadowContentView: View {
+    let trees: [NodeTree]
+    let treeOffsets: [CGPoint]
+    let selectedTreeID: UUID?
+    let isPlaying: Bool
+    var projectState: ProjectState
+
+    var body: some View {
+        ZStack {
+            // Inter-tree connectors
+            if trees.count > 1 {
+                TreeConnectorLines(trees: trees, treeOffsets: treeOffsets)
+            }
+
+            // Per-tree rendering
+            ForEach(Array(trees.enumerated()), id: \.element.id) { index, tree in
+                if index < treeOffsets.count {
+                    let offset = treeOffsets[index]
+                    let nodes = CanvasLayout.collectNodes(from: tree.rootNode)
+                    let isTreeSelected = selectedTreeID == tree.id
+                    let anyTreeSoloed = trees.contains { $0.isSolo }
+                    let dimmed = tree.isMuted || (anyTreeSoloed && !tree.isSolo)
+                    let dimOpacity: Double = tree.isMuted ? 0.35 : (dimmed ? 0.15 : 1.0)
+
+                    ZStack {
+                        // Branch lines
+                        BranchLineView(nodes: nodes, tree: tree)
+
+                        // All nodes via NodeView
+                        ForEach(nodes) { node in
+                            NodeView(
+                                node: node,
+                                isSelected: isTreeSelected && node.id == tree.rootNode.id,
+                                isPlaying: isPlaying,
+                                nodeColor: SeedColor.colorForNode(node.id, in: tree),
+                                showGlow: false
+                            )
+                            .onTapGesture {
+                                projectState.selectTree(tree.id)
+                            }
+                        }
+                    }
+                    .opacity(dimOpacity)
+                    .offset(x: offset.x, y: offset.y)
+                }
+            }
         }
     }
 }

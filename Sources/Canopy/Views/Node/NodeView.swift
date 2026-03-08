@@ -17,12 +17,13 @@ struct NodeView: View {
     let isSelected: Bool
     let isPlaying: Bool
     let nodeColor: Color
+    var showGlow: Bool = true
 
     var body: some View {
         VStack(spacing: 4) {
             ZStack {
                 // Layer 1: Selection glow (hugs outer ring)
-                if isSelected {
+                if isSelected && showGlow {
                     NodeGlowEffect(radius: NodeMetrics.ringRadius, color: nodeColor)
                 }
 

@@ -1,12 +1,15 @@
+import AppKit
 import SwiftUI
 
-/// Outer ring: pan dot + pan arc + L/R labels.
-/// Radius = MeadowMetrics.outerRingRadius (68pt).
+/// Outer ring: pan dot + pan arc + L/R labels. Handles all drag gestures (volume + pan).
+/// Radius = MeadowMetrics.outerRingRadius (86pt).
 struct MeadowPanRing: View {
     let tree: NodeTree
     @ObservedObject var projectState: ProjectState
 
     @State private var isDragging = false
+    @State private var dragStartVolume: Double = 0
+    @State private var dragStartPan: Double = 0
 
     private var treeColor: Color { tree.driftedColor }
     private let radius = MeadowMetrics.outerRingRadius
@@ -79,24 +82,34 @@ struct MeadowPanRing: View {
             context.stroke(Path(ellipseIn: dotRect), with: .color(Color.black.opacity(0.5)), lineWidth: 0.8)
         }
         .frame(width: radius * 2 + 24, height: radius * 2 + 24)
-        .gesture(panDragGesture)
+        .gesture(unifiedDragGesture)
         .onTapGesture(count: 2) {
-            projectState.setTreePan(tree.id, pan: 0)
+            if NSEvent.modifierFlags.contains(.command) {
+                projectState.setTreePan(tree.id, pan: 0)
+            } else {
+                projectState.setTreeVolume(tree.id, volume: 1.0)
+            }
         }
     }
 
-    private var panDragGesture: some Gesture {
+    private var unifiedDragGesture: some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
                 if !isDragging {
                     isDragging = true
+                    dragStartVolume = tree.volume
+                    dragStartPan = tree.pan
                     projectState.selectTree(tree.id)
                 }
-                let frame = radius * 2 + 24
-                let center = CGPoint(x: frame / 2, y: frame / 2)
-                let angle = atan2(value.location.y - center.y, value.location.x - center.x)
-                let pan = angleToPan(angle)
-                projectState.setTreePan(tree.id, pan: pan)
+                if NSEvent.modifierFlags.contains(.command) {
+                    // CMD + drag → pan (vertical: up = right, down = left)
+                    let pan = dragStartPan - value.translation.height / 200.0
+                    projectState.setTreePan(tree.id, pan: max(-1, min(1, pan)))
+                } else {
+                    // Plain drag → volume (vertical: up = louder)
+                    let vol = dragStartVolume - value.translation.height / 200.0
+                    projectState.setTreeVolume(tree.id, volume: max(0, min(1, vol)))
+                }
             }
             .onEnded { _ in
                 isDragging = false
@@ -106,12 +119,5 @@ struct MeadowPanRing: View {
     /// Map pan (-1...+1) to angle. 0 = top, +1 = 135deg clockwise, -1 = 135deg counterclockwise.
     private func panToAngle(_ pan: Double) -> Double {
         pan * (panRangeDeg * .pi / 180.0) - .pi / 2.0
-    }
-
-    /// Map angle back to pan (-1...+1).
-    private func angleToPan(_ angle: Double) -> Double {
-        let offset = angle + .pi / 2.0
-        let rangeRad = panRangeDeg * .pi / 180.0
-        return max(-1, min(1, offset / rangeRad))
     }
 }
