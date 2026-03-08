@@ -637,12 +637,12 @@ private struct ShelfChipView: View {
     let onTap: () -> Void
     let onDelete: () -> Void
 
-    private static let chipColor = Color(red: 0.8, green: 0.65, blue: 0.3)
+    private var catchPalette: SeedColor.ButterflyPalette { SeedColor.paletteForCatch(loop.id) }
+    private var catchColor: Color { SeedColor.colorForCatch(loop.id) }
 
     var body: some View {
         HStack(spacing: 5) {
-            Text("🦋")
-                .font(.system(size: 10))
+            CatchButterflyIcon(palette: catchPalette, size: 12)
 
             Text(loop.name.lowercased())
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -670,12 +670,12 @@ private struct ShelfChipView: View {
         .padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: 5)
-                .fill(isSelected ? Self.chipColor.opacity(0.1) : CanopyColors.chromeBackground)
+                .fill(isSelected ? catchColor.opacity(0.1) : CanopyColors.chromeBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 5)
                 .stroke(
-                    isSelected ? Self.chipColor.opacity(0.6) : CanopyColors.chromeBorder,
+                    isSelected ? catchColor.opacity(0.6) : CanopyColors.chromeBorder,
                     lineWidth: 1
                 )
         )
@@ -937,17 +937,17 @@ private struct ShelfPopoverPanel: View {
     @State private var previewPlayer: AVAudioPlayer?
     @State private var waveformPreview: [Float] = []
 
-    private static let chipColor = Color(red: 0.8, green: 0.65, blue: 0.3)
+    private var catchPalette: SeedColor.ButterflyPalette { SeedColor.paletteForCatch(loop.id) }
+    private var catchColor: Color { SeedColor.colorForCatch(loop.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Header
             HStack {
-                Text("🦋")
-                    .font(.system(size: 12))
+                CatchButterflyIcon(palette: catchPalette, size: 16)
                 TextField("", text: $editingName)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundColor(Self.chipColor)
+                    .foregroundColor(catchColor)
                     .textFieldStyle(.plain)
                     .onSubmit { commitName() }
                 Spacer()
@@ -1006,7 +1006,7 @@ private struct ShelfPopoverPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Self.chipColor.opacity(0.3), lineWidth: 1)
+                .stroke(catchColor.opacity(0.3), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
         .background(
@@ -1040,10 +1040,10 @@ private struct ShelfPopoverPanel: View {
                 if let key = meta.detectedKey {
                     Text(key.displayName)
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(Self.chipColor.opacity(0.8))
+                        .foregroundColor(catchColor.opacity(0.8))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
-                        .background(Self.chipColor.opacity(0.1))
+                        .background(catchColor.opacity(0.1))
                         .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
                 if let bpm = meta.detectedBPM {
@@ -1086,7 +1086,7 @@ private struct ShelfPopoverPanel: View {
                 )
                 context.fill(
                     Path(roundedRect: rect, cornerRadius: 1),
-                    with: .color(Self.chipColor.opacity(0.6))
+                    with: .color(catchColor.opacity(0.6))
                 )
             }
         }

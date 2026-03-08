@@ -162,6 +162,96 @@ enum SeedColor {
         return hslToColor(h: h, s: s, l: l)
     }
 
+    // MARK: - Butterfly Palette
+
+    /// A 5-color palette derived from a single base color for multi-layer butterfly rendering.
+    struct ButterflyPalette {
+        let outerWing: Color    // Primary wing fill
+        let innerWing: Color    // Inner wing spot/accent (shifted hue)
+        let lowerWing: Color    // Lower wings (warmer/cooler shift)
+        let vein: Color         // Wing edge detail (darker, desaturated)
+        let body: Color         // Body + antennae (darkest)
+    }
+
+    /// Generates a 5-color butterfly palette from a single base color.
+    /// Each slot gets a different HSL offset to create natural wing variation.
+    static func butterflyPalette(from baseColor: Color) -> ButterflyPalette {
+        let hsl = colorToHSL(baseColor)
+
+        let outerWing = baseColor
+
+        // innerWing: +45° hue, +15% sat, +10% lightness — distinct accent, visibly different
+        var innerH = (hsl.h + 45.0).truncatingRemainder(dividingBy: 360.0)
+        if innerH < 0 { innerH += 360.0 }
+        let innerWing = hslToColor(
+            h: innerH,
+            s: min(1.0, hsl.s + 0.15),
+            l: min(0.85, hsl.l + 0.10)
+        )
+
+        // lowerWing: -30° hue, +5% sat, -12% lightness — noticeably warmer/darker
+        var lowerH = (hsl.h - 30.0).truncatingRemainder(dividingBy: 360.0)
+        if lowerH < 0 { lowerH += 360.0 }
+        let lowerWing = hslToColor(
+            h: lowerH,
+            s: min(1.0, hsl.s + 0.05),
+            l: max(0.1, hsl.l - 0.12)
+        )
+
+        // vein: same hue, -30% sat, -25% lightness — desaturated dark
+        let vein = hslToColor(
+            h: hsl.h,
+            s: max(0.0, hsl.s - 0.30),
+            l: max(0.1, hsl.l - 0.25)
+        )
+
+        // body: same hue, -40% sat, -35% lightness — near-dark
+        let body = hslToColor(
+            h: hsl.h,
+            s: max(0.0, hsl.s - 0.40),
+            l: max(0.08, hsl.l - 0.35)
+        )
+
+        return ButterflyPalette(
+            outerWing: outerWing,
+            innerWing: innerWing,
+            lowerWing: lowerWing,
+            vein: vein,
+            body: body
+        )
+    }
+
+    // MARK: - Session Color
+
+    /// A random color generated once per app launch, using the seed color palette.
+    /// Each Canopy session gets a unique butterfly tint.
+    static let sessionColor: Color = {
+        let sessionId = deterministicSeedId(from: UUID())
+        let anchorIndex = sessionId % SeedAnchor.allCases.count
+        let anchor = SeedAnchor.allCases[anchorIndex]
+        return driftedColor(anchor: anchor, seedId: sessionId)
+    }()
+
+    /// Session butterfly palette — derived from sessionColor, stable for the app's lifetime.
+    static let sessionPalette: ButterflyPalette = butterflyPalette(from: sessionColor)
+
+    // MARK: - Convenience: Color for Catch
+
+    /// Returns a deterministic color for a catch (HarvestedLoop) from the full anchor palette.
+    /// Same UUID always produces the same color across sessions.
+    static func colorForCatch(_ catchId: UUID) -> Color {
+        let seedId = deterministicSeedId(from: catchId)
+        let anchorIndex = seedId % SeedAnchor.allCases.count
+        let anchor = SeedAnchor.allCases[anchorIndex]
+        return driftedColor(anchor: anchor, seedId: seedId)
+    }
+
+    /// Returns a deterministic butterfly palette for a catch.
+    /// Same UUID always produces the same palette across sessions.
+    static func paletteForCatch(_ catchId: UUID) -> ButterflyPalette {
+        return butterflyPalette(from: colorForCatch(catchId))
+    }
+
     // MARK: - Convenience: Color for Any Node
 
     /// Returns the resolved color for any node in a tree.

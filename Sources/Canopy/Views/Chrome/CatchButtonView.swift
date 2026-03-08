@@ -11,10 +11,9 @@ struct CatchButtonView: View {
                 let phase = context.date.timeIntervalSinceReferenceDate
                 let pulse = 0.6 + 0.4 * (0.5 + 0.5 * sin(phase * .pi))
 
-                Text("🦋")
-                    .font(.system(size: 13))
+                CatchButterflyIcon(palette: SeedColor.sessionPalette, size: 22)
                     .opacity(pulse)
-                    .frame(width: 26, height: 22)
+                    .frame(width: 36, height: 24)
             }
         }
         .buttonStyle(.plain)
@@ -22,5 +21,6 @@ struct CatchButtonView: View {
         .popover(isPresented: $catchState.showPopover) {
             CatchPopoverView(catchState: catchState)
         }
+        .padding(.leading, 16)
     }
 }

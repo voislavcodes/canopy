@@ -78,8 +78,7 @@ struct CatchPopoverView: View {
 
                     Button(action: { catchState.catchAndSave(projectState: projectState) }) {
                         HStack(spacing: 4) {
-                            Text("🦋")
-                                .font(.system(size: 11))
+                            CatchButterflyIcon(palette: SeedColor.sessionPalette, size: 14)
                             Text("Catch")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                         }
@@ -179,8 +178,7 @@ struct CatchPopoverView: View {
 
     private func catchRow(_ loop: HarvestedLoop) -> some View {
         HStack(spacing: 6) {
-            Text("🦋")
-                .font(.system(size: 10))
+            CatchButterflyIcon(palette: SeedColor.paletteForCatch(loop.id), size: 12)
 
             Text(loop.name.lowercased())
                 .font(.system(size: 11, weight: .regular, design: .monospaced))
