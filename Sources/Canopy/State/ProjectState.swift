@@ -693,6 +693,26 @@ class ProjectState: ObservableObject {
         AudioEngine.shared.setTreePan(Float(tree.pan), nodeIDs: nodeIDs)
     }
 
+    // MARK: - Node Volume / Pan
+
+    /// Set per-node patch volume and push to audio engine.
+    func setNodeVolume(_ nodeID: UUID, volume: Double) {
+        let clamped = max(0, min(1, volume))
+        updateNode(id: nodeID) { node in
+            node.patch.setMixVolume(clamped)
+        }
+        AudioEngine.shared.setNodeVolume(Float(clamped), nodeID: nodeID)
+    }
+
+    /// Set per-node patch pan and push to audio engine.
+    func setNodePan(_ nodeID: UUID, pan: Double) {
+        let clamped = max(-1, min(1, pan))
+        updateNode(id: nodeID) { node in
+            node.patch.pan = clamped
+        }
+        AudioEngine.shared.setNodePan(Float(clamped), nodeID: nodeID)
+    }
+
     // MARK: - Mute / Solo
 
     /// Toggle mute state on a node and sync to audio engine.

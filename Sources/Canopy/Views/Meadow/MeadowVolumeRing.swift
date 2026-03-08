@@ -3,12 +3,13 @@ import SwiftUI
 /// Inner ring: volume dot + loudness arc + beat ticks. Display only — gestures handled by MeadowPanRing.
 /// Radius = MeadowMetrics.innerRingRadius (68pt).
 struct MeadowVolumeRing: View {
-    let tree: NodeTree
-    @ObservedObject var projectState: ProjectState
+    let volume: Double
+    let beats: Int
+    let color: Color
+    let meterNodeIDs: [UUID]
 
     @State private var smoothedLevel: Double = 0
 
-    private var treeColor: Color { tree.driftedColor }
     private let radius = MeadowMetrics.innerRingRadius
 
     var body: some View {
@@ -42,11 +43,10 @@ struct MeadowVolumeRing: View {
                 width: r * 2, height: r * 2
             ))
         }
-        context.stroke(ringPath, with: .color(treeColor.opacity(0.3)), lineWidth: 1.5)
+        context.stroke(ringPath, with: .color(color.opacity(0.3)), lineWidth: 1.5)
     }
 
     private func drawBeatTicks(context: inout GraphicsContext, center: CGPoint, r: CGFloat) {
-        let beats = Int(tree.rootNode.sequence.lengthInBeats)
         guard beats > 0 else { return }
 
         for beat in 0..<beats {
@@ -66,16 +66,16 @@ struct MeadowVolumeRing: View {
             var tickPath = Path()
             tickPath.move(to: start)
             tickPath.addLine(to: end)
-            context.stroke(tickPath, with: .color(treeColor.opacity(isDownbeat ? 0.35 : 0.2)), lineWidth: tickWidth)
+            context.stroke(tickPath, with: .color(color.opacity(isDownbeat ? 0.35 : 0.2)), lineWidth: tickWidth)
         }
     }
 
     private func drawVolumeArc(context: inout GraphicsContext, center: CGPoint, r: CGFloat) {
-        guard tree.volume > 0.001 else { return }
-        let volAngle = volumeToAngle(tree.volume)
+        guard volume > 0.001 else { return }
+        let volAngle = volumeToAngle(volume)
         var arcPath = Path()
         arcPath.addArc(center: center, radius: r, startAngle: .radians(-.pi / 2), endAngle: .radians(volAngle), clockwise: false)
-        context.stroke(arcPath, with: .color(treeColor.opacity(0.15)), lineWidth: 1)
+        context.stroke(arcPath, with: .color(color.opacity(0.15)), lineWidth: 1)
     }
 
     private func drawLoudnessArc(context: inout GraphicsContext, center: CGPoint, r: CGFloat) {
@@ -83,31 +83,30 @@ struct MeadowVolumeRing: View {
         let loudnessAngle = volumeToAngle(smoothedLevel)
         var loudPath = Path()
         loudPath.addArc(center: center, radius: r, startAngle: .radians(-.pi / 2), endAngle: .radians(loudnessAngle), clockwise: false)
-        context.stroke(loudPath, with: .color(treeColor.opacity(0.25)), lineWidth: MeadowMetrics.loudnessArcWidth)
+        context.stroke(loudPath, with: .color(color.opacity(0.25)), lineWidth: MeadowMetrics.loudnessArcWidth)
     }
 
     private func drawVolumeDot(context: inout GraphicsContext, center: CGPoint, r: CGFloat) {
-        let volAngle = volumeToAngle(tree.volume)
+        let volAngle = volumeToAngle(volume)
         let dotCenter = CGPoint(
             x: center.x + cos(volAngle) * Double(r),
             y: center.y + sin(volAngle) * Double(r)
         )
         let dotR = MeadowMetrics.volumeDotRadius
         let dotRect = CGRect(x: dotCenter.x - dotR, y: dotCenter.y - dotR, width: dotR * 2, height: dotR * 2)
-        context.fill(Path(ellipseIn: dotRect), with: .color(treeColor))
+        context.fill(Path(ellipseIn: dotRect), with: .color(color))
         context.stroke(Path(ellipseIn: dotRect), with: .color(Color.black.opacity(0.6)), lineWidth: 1)
     }
 
     private func updateLevel() {
-        let nodes = projectState.nodesForTree(tree.id)
         var sumSq: Float = 0
-        for node in nodes {
-            let m = AudioEngine.shared.nodeMeterLevels(nodeID: node.id)
+        for nodeID in meterNodeIDs {
+            let m = AudioEngine.shared.nodeMeterLevels(nodeID: nodeID)
             let peak = max(m.rmsL, m.rmsR)
             sumSq += peak * peak
         }
         let rawLevel = Double(sqrt(sumSq))
-        let clamped = min(rawLevel, tree.volume)
+        let clamped = min(rawLevel, volume)
         smoothedLevel = smoothedLevel * MeadowMetrics.smoothingFactor + clamped * (1 - MeadowMetrics.smoothingFactor)
     }
 
@@ -115,5 +114,4 @@ struct MeadowVolumeRing: View {
     private func volumeToAngle(_ volume: Double) -> Double {
         volume * 2.0 * .pi - .pi / 2.0
     }
-
 }

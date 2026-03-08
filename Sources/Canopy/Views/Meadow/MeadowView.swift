@@ -139,26 +139,67 @@ struct MeadowView: View {
 
         ForEach(Array(trees.enumerated()), id: \.element.id) { index, tree in
             if index < treeOffsets.count {
-                let rootPos = CGPoint(
-                    x: treeOffsets[index].x + tree.rootNode.position.x,
-                    y: treeOffsets[index].y + tree.rootNode.position.y - 17.5
-                )
-                let screenPos = canvasToScreen(rootPos, viewSize: viewSize)
+                let offset = treeOffsets[index]
+                let allNodes = CanvasLayout.collectNodes(from: tree.rootNode)
 
-                // Volume ring
-                MeadowVolumeRing(tree: tree, projectState: projectState)
-                    .scaleEffect(canvasState.scale)
-                    .position(screenPos)
+                ForEach(allNodes) { node in
+                    let nodePos = CGPoint(
+                        x: offset.x + node.position.x,
+                        y: offset.y + node.position.y - 17.5
+                    )
+                    let screenPos = canvasToScreen(nodePos, viewSize: viewSize)
+                    let isRoot = node.id == tree.rootNode.id
+                    let nodeColor = SeedColor.colorForNode(node.id, in: tree)
 
-                // Pan ring
-                MeadowPanRing(tree: tree, projectState: projectState)
-                    .scaleEffect(canvasState.scale)
-                    .position(screenPos)
+                    if isRoot {
+                        // Root: tree-level volume/pan, full label
+                        let allNodeIDs = allNodes.map { $0.id }
+                        MeadowVolumeRing(
+                            volume: tree.volume,
+                            beats: Int(node.sequence.lengthInBeats),
+                            color: nodeColor,
+                            meterNodeIDs: allNodeIDs
+                        )
+                        .scaleEffect(canvasState.scale)
+                        .position(screenPos)
 
-                // Mixer label
-                MeadowMixerLabel(tree: tree, projectState: projectState)
-                    .scaleEffect(canvasState.scale)
-                    .position(x: screenPos.x, y: screenPos.y + 98 * canvasState.scale)
+                        MeadowPanRing(
+                            volume: tree.volume,
+                            pan: tree.pan,
+                            color: nodeColor,
+                            onVolumeChange: { projectState.setTreeVolume(tree.id, volume: $0) },
+                            onPanChange: { projectState.setTreePan(tree.id, pan: $0) },
+                            onSelect: { projectState.selectTree(tree.id) }
+                        )
+                        .scaleEffect(canvasState.scale)
+                        .position(screenPos)
+
+                        MeadowMixerLabel(tree: tree, projectState: projectState)
+                            .scaleEffect(canvasState.scale)
+                            .position(x: screenPos.x, y: screenPos.y + 90 * canvasState.scale)
+                    } else {
+                        // Branch: per-node patch volume/pan
+                        MeadowVolumeRing(
+                            volume: node.patch.volume,
+                            beats: Int(node.sequence.lengthInBeats),
+                            color: nodeColor,
+                            meterNodeIDs: [node.id]
+                        )
+                        .scaleEffect(canvasState.scale)
+                        .position(screenPos)
+
+                        MeadowPanRing(
+                            volume: node.patch.volume,
+                            pan: node.patch.pan,
+                            color: nodeColor,
+                            onVolumeChange: { projectState.setNodeVolume(node.id, volume: $0) },
+                            onPanChange: { projectState.setNodePan(node.id, pan: $0) },
+                            onSelect: { projectState.selectTree(tree.id) }
+                        )
+                        .scaleEffect(canvasState.scale)
+                        .position(screenPos)
+                    }
+                }
             }
         }
 
@@ -178,7 +219,7 @@ struct MeadowView: View {
         }
         let lastNodes = CanvasLayout.collectNodes(from: lastTree.rootNode)
         let maxX = lastNodes.map { CGFloat($0.position.x) }.max() ?? 0
-        return CGPoint(x: lastOffset.x + maxX + 140, y: 0)
+        return CGPoint(x: lastOffset.x + maxX + 240, y: 0)
     }
 
     // MARK: - Interactions
@@ -359,7 +400,8 @@ private struct MeadowContentView: View {
                                 isSelected: isTreeSelected && node.id == tree.rootNode.id,
                                 isPlaying: isPlaying,
                                 nodeColor: SeedColor.colorForNode(node.id, in: tree),
-                                showGlow: false
+                                showGlow: false,
+                                showLabels: false
                             )
                             .onTapGesture {
                                 projectState.selectTree(tree.id)

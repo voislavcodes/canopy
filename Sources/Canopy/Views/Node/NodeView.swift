@@ -18,6 +18,7 @@ struct NodeView: View {
     let isPlaying: Bool
     let nodeColor: Color
     var showGlow: Bool = true
+    var showLabels: Bool = true
 
     var body: some View {
         VStack(spacing: 4) {
@@ -70,6 +71,7 @@ struct NodeView: View {
                     .font(.system(size: 10, weight: .regular, design: .monospaced))
                     .foregroundColor(nodeColor.opacity(0.45))
             }
+            .opacity(showLabels ? 1 : 0)
         }
         .frame(width: NodeMetrics.frameWidth, height: NodeMetrics.frameHeight)
         .contentShape(Rectangle())

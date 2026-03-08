@@ -9,10 +9,6 @@ struct MeadowMixerLabel: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            Text(volumePanText)
-                .font(.system(size: 10, weight: .regular, design: .monospaced))
-                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
-
             HStack(spacing: 8) {
                 Text("S")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -33,16 +29,4 @@ struct MeadowMixerLabel: View {
         }
     }
 
-    private var volumePanText: String {
-        let volPct = Int(tree.volume * 100)
-        let panStr: String
-        if abs(tree.pan) < 0.01 {
-            panStr = "C"
-        } else if tree.pan < 0 {
-            panStr = "L\(Int(abs(tree.pan) * 100))"
-        } else {
-            panStr = "R\(Int(tree.pan * 100))"
-        }
-        return "\(volPct)% \u{00B7} \(panStr)"
-    }
 }

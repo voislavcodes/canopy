@@ -13,8 +13,8 @@ enum CanvasLayout {
         for tree in trees {
             let nodes = collectNodes(from: tree.rootNode)
             let xs = nodes.map { CGFloat($0.position.x) }
-            let minX = (xs.min() ?? 0) - 60  // pad for ring radius + label
-            let maxX = (xs.max() ?? 0) + 60
+            let minX = (xs.min() ?? 0) - 100  // pad for outer ring radius (86) + L/R labels
+            let maxX = (xs.max() ?? 0) + 100
             extents.append((minX, maxX))
         }
 
