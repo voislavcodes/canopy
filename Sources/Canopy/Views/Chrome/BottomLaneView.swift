@@ -1,8 +1,9 @@
+import AVFoundation
 import SwiftUI
 
 /// Tab for the bottom lane: FX (effects chain) or MOD (LFO modulation).
 private enum BottomLaneTab {
-    case fx, mod
+    case fx, mod, shelf
 }
 
 /// Preference key to report FX chip frames from children up to the strip.
@@ -29,7 +30,15 @@ private struct LFOChipFrameKey: PreferenceKey {
     }
 }
 
-/// Single bottom lane with tabbed FX / MOD views.
+/// Preference key to report Shelf chip frames.
+private struct ShelfChipFrameKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+/// Single bottom lane with tabbed FX / MOD / SHELF views.
 ///
 /// FX tab (default): shows the selected node's or master bus effect chain.
 /// MOD tab: shows project-level LFOs as draggable chips.
@@ -48,6 +57,11 @@ struct BottomLaneView: View {
     // LFO state
     @State private var lfoChipFrames: [UUID: CGRect] = [:]
     @State private var lfoPopoverHeight: CGFloat = 300
+
+    // Shelf state
+    @State private var shelfChipFrames: [UUID: CGRect] = [:]
+    @State private var selectedCatchID: UUID?
+    @State private var shelfPopoverHeight: CGFloat = 200
 
     private let stripCoordSpace = "bottomLaneStrip"
 
@@ -76,22 +90,26 @@ struct BottomLaneView: View {
                 // Tab switch
                 tabSwitch
 
-                // Add button
-                addButton
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: AddButtonFrameKey.self,
-                                value: geo.frame(in: .named(stripCoordSpace))
-                            )
-                        }
-                    )
+                // Add button (FX and MOD only)
+                if activeTab != .shelf {
+                    addButton
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: AddButtonFrameKey.self,
+                                    value: geo.frame(in: .named(stripCoordSpace))
+                                )
+                            }
+                        )
+                }
 
                 // Tab content
                 if activeTab == .fx {
                     fxContent
-                } else {
+                } else if activeTab == .mod {
                     modContent
+                } else {
+                    shelfContent
                 }
 
                 Spacer(minLength: 0)
@@ -105,12 +123,15 @@ struct BottomLaneView: View {
         .onPreferenceChange(AddButtonFrameKey.self) { addButtonFrame = $0 }
         .onPreferenceChange(FXChipFrameKey.self) { fxChipFrames = $0 }
         .onPreferenceChange(LFOChipFrameKey.self) { lfoChipFrames = $0 }
+        .onPreferenceChange(ShelfChipFrameKey.self) { shelfChipFrames = $0 }
         // Popovers overlay
         .overlay {
             if activeTab == .fx {
                 fxPopovers
-            } else {
+            } else if activeTab == .mod {
                 modPopovers
+            } else {
+                shelfPopovers
             }
         }
     }
@@ -121,6 +142,7 @@ struct BottomLaneView: View {
         HStack(spacing: 12) {
             tabLabel("FX", tab: .fx)
             tabLabel("MOD", tab: .mod)
+            shelfTabLabel
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 12)
@@ -140,14 +162,48 @@ struct BottomLaneView: View {
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     activeTab = tab
-                    if tab == .fx {
+                    switch tab {
+                    case .fx:
                         projectState.selectedLFOID = nil
-                    } else {
+                        selectedCatchID = nil
+                    case .mod:
                         selectedFXID = nil
                         showingPicker = false
+                        selectedCatchID = nil
+                    case .shelf:
+                        selectedFXID = nil
+                        showingPicker = false
+                        projectState.selectedLFOID = nil
                     }
                 }
             }
+    }
+
+    private var shelfTabLabel: some View {
+        let isActive = activeTab == .shelf
+        let catchCount = projectState.project.catches.count
+        return HStack(spacing: 3) {
+            Text("SHELF")
+                .font(.system(size: 11, weight: isActive ? .bold : .regular, design: .monospaced))
+                .foregroundColor(isActive ? CanopyColors.chromeTextBright : CanopyColors.chromeText.opacity(0.5))
+            if catchCount > 0 {
+                Text("\(catchCount)")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(CanopyColors.glowColor)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(CanopyColors.glowColor.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            }
+        }
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                activeTab = .shelf
+                selectedFXID = nil
+                showingPicker = false
+                projectState.selectedLFOID = nil
+            }
+        }
     }
 
     // MARK: - Add Button
@@ -253,6 +309,45 @@ struct BottomLaneView: View {
         }
     }
 
+    // MARK: - Shelf Content
+
+    private var shelfContent: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                if projectState.project.catches.isEmpty {
+                    Text("no catches yet")
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .foregroundColor(CanopyColors.chromeText.opacity(0.3))
+                } else {
+                    ForEach(projectState.project.catches) { loop in
+                        ShelfChipView(
+                            loop: loop,
+                            isSelected: selectedCatchID == loop.id,
+                            onTap: {
+                                withAnimation(.spring(duration: 0.2)) {
+                                    if selectedCatchID == loop.id {
+                                        selectedCatchID = nil
+                                    } else {
+                                        selectedCatchID = loop.id
+                                    }
+                                }
+                            },
+                            onDelete: { deleteCatch(loop) }
+                        )
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: ShelfChipFrameKey.self,
+                                    value: [loop.id: geo.frame(in: .named(stripCoordSpace))]
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - FX Popovers
 
     @ViewBuilder
@@ -310,6 +405,31 @@ struct BottomLaneView: View {
                     y: -(lfoPopoverHeight / 2) - 4
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
+        }
+    }
+
+    // MARK: - Shelf Popovers
+
+    @ViewBuilder
+    private var shelfPopovers: some View {
+        if let catchID = selectedCatchID,
+           let loop = projectState.project.catches.first(where: { $0.id == catchID }),
+           let chipFrame = shelfChipFrames[catchID] {
+            ShelfPopoverPanel(
+                loop: loop,
+                projectState: projectState,
+                measuredHeight: $shelfPopoverHeight,
+                onClose: {
+                    withAnimation(.spring(duration: 0.2)) { selectedCatchID = nil }
+                },
+                onDelete: { deleteCatch(loop) }
+            )
+            .fixedSize()
+            .position(
+                x: chipFrame.midX,
+                y: -(shelfPopoverHeight / 2) - 4
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
         }
     }
 
@@ -439,6 +559,25 @@ struct BottomLaneView: View {
             }
         }
     }
+
+    // MARK: - Shelf Actions
+
+    private func deleteCatch(_ loop: HarvestedLoop) {
+        // Remove WAV file from disk
+        if let projectURL = projectState.currentFilePath {
+            if let catchesDir = try? AudioFileService.catchesDirectory(for: projectURL) {
+                let fileURL = catchesDir.appendingPathComponent(loop.fileName)
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
+        // Remove from project
+        projectState.project.catches.removeAll { $0.id == loop.id }
+        projectState.markDirty()
+        // Clear selection
+        if selectedCatchID == loop.id {
+            selectedCatchID = nil
+        }
+    }
 }
 
 // MARK: - LFO Chip
@@ -486,6 +625,62 @@ private struct LFOChipView: View {
         .onDrag {
             NSItemProvider(object: lfo.id.uuidString as NSString)
         }
+    }
+}
+
+// MARK: - Shelf Chip
+
+/// A single shelf chip showing a caught loop.
+private struct ShelfChipView: View {
+    let loop: HarvestedLoop
+    let isSelected: Bool
+    let onTap: () -> Void
+    let onDelete: () -> Void
+
+    private static let chipColor = Color(red: 0.8, green: 0.65, blue: 0.3)
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text("🦋")
+                .font(.system(size: 10))
+
+            Text(loop.name.lowercased())
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(isSelected ? CanopyColors.chromeTextBright : CanopyColors.chromeText)
+                .lineLimit(1)
+
+            Text(formatCatchDuration(loop.durationSeconds))
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.4))
+
+            if loop.isAnalysing {
+                ProgressView()
+                    .scaleEffect(0.4)
+                    .frame(width: 10, height: 10)
+            }
+
+            Button(action: onDelete) {
+                Text("×")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(isSelected ? Self.chipColor.opacity(0.1) : CanopyColors.chromeBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(
+                    isSelected ? Self.chipColor.opacity(0.6) : CanopyColors.chromeBorder,
+                    lineWidth: 1
+                )
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
     }
 }
 
@@ -727,6 +922,267 @@ private struct LFOPopoverPanel: View {
     }
 }
 
+// MARK: - Shelf Popover Panel
+
+/// Detail popover for a selected shelf chip — metadata, waveform, preview, delete.
+private struct ShelfPopoverPanel: View {
+    let loop: HarvestedLoop
+    @ObservedObject var projectState: ProjectState
+    @Binding var measuredHeight: CGFloat
+    let onClose: () -> Void
+    let onDelete: () -> Void
+
+    @State private var editingName: String = ""
+    @State private var isPlayingPreview: Bool = false
+    @State private var previewPlayer: AVAudioPlayer?
+    @State private var waveformPreview: [Float] = []
+
+    private static let chipColor = Color(red: 0.8, green: 0.65, blue: 0.3)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Header
+            HStack {
+                Text("🦋")
+                    .font(.system(size: 12))
+                TextField("", text: $editingName)
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundColor(Self.chipColor)
+                    .textFieldStyle(.plain)
+                    .onSubmit { commitName() }
+                Spacer()
+                Button(action: onClose) {
+                    Text("×")
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundColor(CanopyColors.chromeText)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Metadata
+            metadataSection
+
+            // Waveform preview
+            waveformCanvas
+                .frame(height: 32)
+
+            // Controls
+            HStack {
+                Button(action: togglePreview) {
+                    HStack(spacing: 4) {
+                        Image(systemName: isPlayingPreview ? "stop.fill" : "play.fill")
+                            .font(.system(size: 9))
+                        Text(isPlayingPreview ? "Stop" : "Play")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    }
+                    .fixedSize()
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.7))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(CanopyColors.chromeBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(CanopyColors.chromeBorder.opacity(0.3), lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button(action: onDelete) {
+                    Text("Delete")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(Color.red.opacity(0.7))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .frame(width: 220)
+        .background(CanopyColors.bloomPanelBackground.opacity(0.95))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Self.chipColor.opacity(0.3), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { measuredHeight = geo.size.height }
+                    .onChange(of: geo.size.height) { measuredHeight = $0 }
+            }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { } // Prevent tap-through
+        .onAppear {
+            editingName = loop.name
+            loadWaveform()
+        }
+        .onDisappear {
+            stopPreview()
+        }
+    }
+
+    // MARK: - Metadata
+
+    @ViewBuilder
+    private var metadataSection: some View {
+        HStack(spacing: 6) {
+            Text(formatCatchDuration(loop.durationSeconds))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+            if let meta = loop.metadata {
+                if let key = meta.detectedKey {
+                    Text(key.displayName)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(Self.chipColor.opacity(0.8))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Self.chipColor.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+                if let bpm = meta.detectedBPM {
+                    Text("\(Int(bpm)) bpm")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+                }
+            } else if loop.isAnalysing {
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .scaleEffect(0.4)
+                        .frame(width: 10, height: 10)
+                    Text("analysing...")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(CanopyColors.chromeText.opacity(0.3))
+                }
+            }
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Waveform
+
+    private var waveformCanvas: some View {
+        Canvas { context, size in
+            guard !waveformPreview.isEmpty else { return }
+
+            let barWidth = size.width / CGFloat(waveformPreview.count)
+            let midY = size.height / 2
+
+            for (i, amplitude) in waveformPreview.enumerated() {
+                let barHeight = CGFloat(amplitude) * size.height * 0.9
+                let x = CGFloat(i) * barWidth
+                let rect = CGRect(
+                    x: x,
+                    y: midY - barHeight / 2,
+                    width: max(1, barWidth - 1),
+                    height: max(1, barHeight)
+                )
+                context.fill(
+                    Path(roundedRect: rect, cornerRadius: 1),
+                    with: .color(Self.chipColor.opacity(0.6))
+                )
+            }
+        }
+        .background(CanopyColors.chromeBackground.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    // MARK: - Preview Playback
+
+    private func togglePreview() {
+        if isPlayingPreview {
+            stopPreview()
+        } else {
+            startPreview()
+        }
+    }
+
+    private func startPreview() {
+        guard let projectURL = projectState.currentFilePath else { return }
+        do {
+            let catchesDir = try AudioFileService.catchesDirectory(for: projectURL)
+            let fileURL = catchesDir.appendingPathComponent(loop.fileName)
+            previewPlayer = try AVAudioPlayer(contentsOf: fileURL)
+            previewPlayer?.play()
+            isPlayingPreview = true
+
+            let duration = loop.durationSeconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.1) {
+                if isPlayingPreview {
+                    isPlayingPreview = false
+                    previewPlayer = nil
+                }
+            }
+        } catch {
+            // Silent fail
+        }
+    }
+
+    private func stopPreview() {
+        previewPlayer?.stop()
+        previewPlayer = nil
+        isPlayingPreview = false
+    }
+
+    // MARK: - Waveform Loading
+
+    private func loadWaveform() {
+        guard let projectURL = projectState.currentFilePath else { return }
+        do {
+            let catchesDir = try AudioFileService.catchesDirectory(for: projectURL)
+            let fileURL = catchesDir.appendingPathComponent(loop.fileName)
+
+            let audioFile = try AVAudioFile(forReading: fileURL)
+            let frameCount = AVAudioFrameCount(audioFile.length)
+            guard frameCount > 0,
+                  let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCount)
+            else { return }
+            try audioFile.read(into: buffer)
+
+            guard let floatData = buffer.floatChannelData else { return }
+            let length = Int(buffer.frameLength)
+            let resolution = 128
+            let chunkSize = max(1, length / resolution)
+            let count = min(resolution, length)
+            var preview = [Float](repeating: 0, count: count)
+
+            for i in 0..<count {
+                let startFrame = i * chunkSize
+                let endFrame = min(startFrame + chunkSize, length)
+                var maxAbs: Float = 0
+                for frame in startFrame..<endFrame {
+                    maxAbs = max(maxAbs, abs(floatData[0][frame]))
+                }
+                preview[i] = maxAbs
+            }
+
+            waveformPreview = preview
+        } catch {
+            // Silent fail — waveform just won't show
+        }
+    }
+
+    // MARK: - Name Editing
+
+    private func commitName() {
+        guard !editingName.isEmpty else {
+            editingName = loop.name
+            return
+        }
+        if let index = projectState.project.catches.firstIndex(where: { $0.id == loop.id }) {
+            projectState.project.catches[index].name = editingName
+            projectState.markDirty()
+        }
+    }
+}
+
 // MARK: - Routing Depth Slider
 
 /// Inline depth slider for a routing row. Uses local @State to avoid cascade.
@@ -769,6 +1225,17 @@ private struct RoutingDepthSlider: View {
 // MARK: - LFO Color Palette
 
 /// Maps a color index (0-7) to an LFO chip color.
+/// Format a catch duration for display.
+private func formatCatchDuration(_ seconds: Double) -> String {
+    if seconds < 60 {
+        return "\(Int(seconds))s"
+    } else {
+        let m = Int(seconds) / 60
+        let s = Int(seconds) % 60
+        return "\(m):\(String(format: "%02d", s))"
+    }
+}
+
 func lfoColor(_ index: Int) -> Color {
     let colors: [Color] = [
         Color(red: 0.9, green: 0.3, blue: 0.3),   // red

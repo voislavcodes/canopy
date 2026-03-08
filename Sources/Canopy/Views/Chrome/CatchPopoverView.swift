@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Catch popup — duration selector, waveform preview, and catch/cancel buttons.
+/// Catch popup — duration selector, waveform preview, catch/cancel buttons, and catches list.
 struct CatchPopoverView: View {
     @ObservedObject var catchState: CatchState
     @EnvironmentObject var projectState: ProjectState
@@ -42,9 +42,8 @@ struct CatchPopoverView: View {
                         .foregroundColor(CanopyColors.chromeText.opacity(0.5))
                 }
 
-                // Action buttons
+                // Action buttons — single line
                 HStack(spacing: 8) {
-                    // Preview button
                     Button(action: { catchState.togglePreview() }) {
                         HStack(spacing: 4) {
                             Image(systemName: catchState.isPreviewing ? "stop.fill" : "play.fill")
@@ -52,6 +51,7 @@ struct CatchPopoverView: View {
                             Text(catchState.isPreviewing ? "Stop" : "Preview")
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                         }
+                        .fixedSize()
                         .foregroundColor(CanopyColors.chromeText.opacity(0.7))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -66,17 +66,16 @@ struct CatchPopoverView: View {
 
                     Spacer()
 
-                    // Cancel
                     Button(action: { catchState.dismiss() }) {
                         Text("Cancel")
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .fixedSize()
                             .foregroundColor(CanopyColors.chromeText.opacity(0.5))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
                     }
                     .buttonStyle(.plain)
 
-                    // Catch button
                     Button(action: { catchState.catchAndSave(projectState: projectState) }) {
                         HStack(spacing: 4) {
                             Text("🦋")
@@ -84,6 +83,7 @@ struct CatchPopoverView: View {
                             Text("Catch")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                         }
+                        .fixedSize()
                         .foregroundColor(CanopyColors.glowColor)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)
@@ -98,20 +98,36 @@ struct CatchPopoverView: View {
                     .disabled(catchState.isSaving)
                 }
             }
+
+            // Catches list (if any exist)
+            if !projectState.project.catches.isEmpty {
+                Divider()
+                    .background(CanopyColors.chromeBorder)
+
+                Text("CAUGHT")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(projectState.project.catches.reversed()) { loop in
+                        catchRow(loop)
+                    }
+                }
+            }
         }
         .padding(14)
-        .frame(width: 260)
+        .frame(width: 280)
         .background(CanopyColors.bloomPanelBackground)
-        .onChange(of: catchState.selectedDuration) { _ in
-            catchState.showPopover = true // regenerate waveform on duration change
-        }
     }
 
     // MARK: - Duration Pill
 
     private func durationPill(label: String, duration: Double) -> some View {
         let isSelected = catchState.selectedDuration == duration
-        return Button(action: { catchState.selectedDuration = duration }) {
+        return Button(action: {
+            catchState.selectedDuration = duration
+            catchState.regenerateWaveform()
+        }) {
             Text(label)
                 .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
                 .foregroundColor(isSelected ? CanopyColors.glowColor : CanopyColors.chromeText.opacity(0.6))
@@ -157,5 +173,62 @@ struct CatchPopoverView: View {
         }
         .background(CanopyColors.chromeBackground.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    // MARK: - Catch Row
+
+    private func catchRow(_ loop: HarvestedLoop) -> some View {
+        HStack(spacing: 6) {
+            Text("🦋")
+                .font(.system(size: 10))
+
+            Text(loop.name.lowercased())
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeTextBright)
+                .lineLimit(1)
+
+            Spacer()
+
+            // Duration
+            Text(formatDuration(loop.durationSeconds))
+                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                .foregroundColor(CanopyColors.chromeText.opacity(0.5))
+
+            // Metadata badge
+            if loop.isAnalysing {
+                ProgressView()
+                    .scaleEffect(0.5)
+                    .frame(width: 12, height: 12)
+            } else if let meta = loop.metadata {
+                metadataBadge(meta)
+            }
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+    }
+
+    private func metadataBadge(_ meta: LoopMetadata) -> some View {
+        let parts: [String] = [
+            meta.detectedKey?.displayName,
+            meta.detectedBPM.map { "\(Int($0))" }
+        ].compactMap { $0 }
+
+        return Group {
+            if !parts.isEmpty {
+                Text(parts.joined(separator: " · "))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(CanopyColors.chromeText.opacity(0.4))
+            }
+        }
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        if seconds < 60 {
+            return "\(Int(seconds))s"
+        } else {
+            let m = Int(seconds) / 60
+            let s = Int(seconds) % 60
+            return "\(m):\(String(format: "%02d", s))"
+        }
     }
 }

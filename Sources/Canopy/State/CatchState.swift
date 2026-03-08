@@ -156,6 +156,11 @@ class CatchState: ObservableObject {
         isVeryQuiet = false
     }
 
+    /// Regenerate waveform when duration selection changes.
+    func regenerateWaveform() {
+        generateWaveformPreview()
+    }
+
     // MARK: - Preview Playback
 
     private func startPreview() {
