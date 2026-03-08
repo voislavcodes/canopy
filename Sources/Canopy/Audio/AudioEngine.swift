@@ -20,6 +20,9 @@ final class AudioEngine {
     private(set) var masterBusAU: MasterBusAU?
     private var masterBusAVUnit: AVAudioUnit?
 
+    /// Rolling audio buffer for Catch feature.
+    private(set) var catchBuffer: CatchBuffer?
+
     private init() {}
 
     // MARK: - Engine Lifecycle
@@ -93,8 +96,36 @@ final class AudioEngine {
         logger.info("Master bus AU inserted into audio graph")
     }
 
+    // MARK: - Catch Buffer
+
+    /// Start the rolling catch buffer. Installs a tap on the master bus output.
+    func startCatchBuffer() {
+        guard let masterNode = masterBusAVUnit else {
+            logger.warning("Cannot start catch buffer — master bus not installed")
+            return
+        }
+        guard catchBuffer == nil else { return }
+
+        let buffer = CatchBuffer(sampleRate: sampleRate)
+        buffer.install(on: masterNode)
+        catchBuffer = buffer
+    }
+
+    /// Stop and remove the catch buffer tap.
+    func stopCatchBuffer() {
+        guard let buffer = catchBuffer, let masterNode = masterBusAVUnit else { return }
+        buffer.remove(from: masterNode)
+        catchBuffer = nil
+    }
+
+    /// Snapshot the last N seconds from the catch buffer.
+    func catchSnapshot(lastSeconds: Double) -> CatchSnapshot? {
+        catchBuffer?.snapshot(lastSeconds: lastSeconds)
+    }
+
     /// Stop the audio engine.
     func stop() {
+        stopCatchBuffer()
         engine.stop()
         logger.info("Audio engine stopped")
     }

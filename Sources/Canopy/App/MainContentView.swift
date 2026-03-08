@@ -7,6 +7,7 @@ struct MainContentView: View {
     @StateObject private var bloomState = BloomState()
     @StateObject private var viewModeManager = ViewModeManager()
     @StateObject private var forestPlayback = ForestPlaybackState()
+    @StateObject private var catchState = CatchState()
 
     /// Tracks the previously selected node so we can send allNotesOff on deselect.
     @State private var previousSelectedNodeID: UUID?
@@ -18,7 +19,8 @@ struct MainContentView: View {
             ToolbarView(
                 projectState: projectState,
                 transportState: transportState,
-                forestPlayback: forestPlayback
+                forestPlayback: forestPlayback,
+                catchState: catchState
             )
 
             switch viewModeManager.mode {
@@ -56,6 +58,7 @@ struct MainContentView: View {
         }
         .onAppear {
             syncTreeToEngine()
+            AudioEngine.shared.startCatchBuffer()
         }
         .onChange(of: projectState.project.trees.count) { _ in
             DispatchQueue.main.async {

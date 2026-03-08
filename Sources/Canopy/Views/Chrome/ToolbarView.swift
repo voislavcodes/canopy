@@ -4,6 +4,7 @@ struct ToolbarView: View {
     @ObservedObject var projectState: ProjectState
     var transportState: TransportState
     @ObservedObject var forestPlayback: ForestPlaybackState
+    @ObservedObject var catchState: CatchState
     @EnvironmentObject var viewModeManager: ViewModeManager
 
     @State private var showRootPicker = false
@@ -54,6 +55,12 @@ struct ToolbarView: View {
 
                 // Scale controls + keyboard toggle (right side)
                 scaleSection
+
+                // Catch button (Forest/Focus only)
+                if !viewModeManager.isMeadow {
+                    CatchButtonView(catchState: catchState)
+                        .environmentObject(projectState)
+                }
 
                 // Computer keyboard MIDI input toggle
                 Button(action: {

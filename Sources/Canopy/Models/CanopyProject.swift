@@ -29,6 +29,7 @@ struct CanopyProject: Codable, Equatable {
     var scaleAwareEnabled: Bool
     var formatVersion: Int
     var masterBus: MasterBus
+    var catches: [HarvestedLoop]
 
     init(
         id: UUID = UUID(),
@@ -43,7 +44,8 @@ struct CanopyProject: Codable, Equatable {
         modulationRoutings: [ModulationRouting] = [],
         scaleAwareEnabled: Bool = true,
         formatVersion: Int = CanopyProject.currentFormatVersion,
-        masterBus: MasterBus = MasterBus()
+        masterBus: MasterBus = MasterBus(),
+        catches: [HarvestedLoop] = []
     ) {
         self.id = id
         self.name = name
@@ -58,6 +60,7 @@ struct CanopyProject: Codable, Equatable {
         self.scaleAwareEnabled = scaleAwareEnabled
         self.formatVersion = formatVersion
         self.masterBus = masterBus
+        self.catches = catches
     }
 
     // Custom decoder for backward compatibility with projects saved before LFO/MasterBus support.
@@ -78,6 +81,7 @@ struct CanopyProject: Codable, Equatable {
         scaleAwareEnabled = try container.decodeIfPresent(Bool.self, forKey: .scaleAwareEnabled) ?? false
         formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
         masterBus = try container.decodeIfPresent(MasterBus.self, forKey: .masterBus) ?? MasterBus()
+        catches = try container.decodeIfPresent([HarvestedLoop].self, forKey: .catches) ?? []
     }
 
     /// Migrate a project to the current format version. No-op when already current.
