@@ -98,12 +98,6 @@ struct ToolbarView: View {
         let hasMultipleTrees = projectState.project.trees.count >= 2
 
         return HStack(spacing: 14) {
-            // Catch button (Forest/Focus only) — left of tree control
-            if !viewModeManager.isMeadow {
-                CatchButtonView(catchState: catchState)
-                    .environmentObject(projectState)
-            }
-
             Button(action: {
                 if hasMultipleTrees { showTreesPopover.toggle() }
             }) {
@@ -118,6 +112,12 @@ struct ToolbarView: View {
                 )
             }
             .help("Trees & playback mode")
+
+            // Catch button (Forest/Focus only)
+            if !viewModeManager.isMeadow {
+                CatchButtonView(catchState: catchState)
+                    .environmentObject(projectState)
+            }
 
             TransportView(transportState: transportState)
         }
